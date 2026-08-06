@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { OnboardingPage } from './app/onboarding/page'
-import { DashboardPage } from './app/dashboard/page'
+import { OnboardingPage } from './features/onboarding/page'
+import { DashboardPage } from './features/dashboard/page'
 
 type AppView = 'onboarding' | 'dashboard'
 

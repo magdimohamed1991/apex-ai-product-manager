@@ -1,12 +1,13 @@
 import { useOnboarding } from './hooks/useOnboarding'
-import { ProgressIndicator } from './components/ProgressIndicator'
-import { NavigationButtons } from './components/NavigationButtons'
-import { WelcomeStep } from './components/WelcomeStep'
-import { ProductTypeStep } from './components/ProductTypeStep'
-import { ProductInfoStep } from './components/ProductInfoStep'
-import { IntegrationsStep } from './components/IntegrationsStep'
-import { ReviewStep } from './components/ReviewStep'
-import { LoadingStep } from './components/LoadingStep'
+import { ProgressIndicator, NavigationButtons } from './shared'
+import {
+  WelcomeStep,
+  ProductTypeStep,
+  ProductInfoStep,
+  IntegrationsStep,
+  ReviewStep,
+  LoadingStep,
+} from './steps'
 import { TOTAL_STEPS } from './constants'
 
 interface OnboardingPageProps {

@@ -31,8 +31,10 @@
     "node": ">=22"
   },
   "lint-staged": {
-    "**/*.{ts,tsx}": [
-      "eslint --fix",
+    "apps/**/*.{ts,tsx}": [
+      "prettier --write"
+    ],
+    "packages/**/*.{ts,tsx}": [
       "prettier --write"
     ],
     "**/*.{js,jsx,json,md,css,yaml,yml}": [
