@@ -6,10 +6,13 @@
     "dev": "turbo dev",
     "lint": "turbo lint",
     "type-check": "turbo type-check",
-    "clean": "turbo clean"
+    "clean": "turbo clean",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\""
   },
   "devDependencies": {
-    "turbo": "^2.10.8"
+    "prettier": "^3.4.2",
+    "turbo": "^2.10.8",
+    "typescript": "~6.0.2"
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {
