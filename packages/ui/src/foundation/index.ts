@@ -1,4 +1,4 @@
 export * from './utils'
-export * from './tv'
+export * from './variants'
 export * from './constants'
 export * from './accessibility'
