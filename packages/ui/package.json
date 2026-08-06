@@ -10,7 +10,11 @@
     }
   },
   "dependencies": {
-    "@apex/design-tokens": "workspace:*"
+    "@apex/design-tokens": "workspace:*",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.6.0",
+    "tailwind-variants": "^3.3.1",
+    "lucide-react": "^1.29.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
