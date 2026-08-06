@@ -1,9 +1,15 @@
+import { useState } from 'react'
+import { OnboardingPage } from './app/onboarding/page'
+import { DashboardPage } from './app/dashboard/page'
+
+type AppView = 'onboarding' | 'dashboard'
+
 export default function App() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950">
-      <h1 className="text-5xl font-bold text-white">
-        APEX 🚀
-      </h1>
-    </div>
-  );
+  const [view, setView] = useState<AppView>('onboarding')
+
+  if (view === 'dashboard') {
+    return <DashboardPage />
+  }
+
+  return <OnboardingPage onComplete={() => setView('dashboard')} />
 }
