@@ -1,5 +1,6 @@
 export * from './Text'
+export * from './text.variants'
 export * from './Heading'
+export * from './heading.variants'
 export * from './Caption'
 export * from './Code'
-export * from './text.variants'
