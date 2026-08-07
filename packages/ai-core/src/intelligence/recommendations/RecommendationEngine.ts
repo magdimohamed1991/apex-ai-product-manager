@@ -21,9 +21,10 @@ export class RecommendationEngine {
   generate(insights: Insight[], workspaceId: WorkspaceId): Recommendation[] {
     const recommendations: Recommendation[] = []
     for (const insight of insights) {
+      const input = { workspaceId, insight }
       for (const strategy of this.strategies) {
-        if (strategy.canHandle(insight)) {
-          recommendations.push(strategy.recommend(insight, workspaceId))
+        if (strategy.canHandle(input)) {
+          recommendations.push(strategy.recommend(input))
         }
       }
     }

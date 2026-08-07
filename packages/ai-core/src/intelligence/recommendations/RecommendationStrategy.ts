@@ -1,11 +1,9 @@
-import type { Insight, Recommendation, WorkspaceId } from '../../domain'
+import type { Recommendation, RecommendationOrigin } from '../../domain'
+import type { RecommendationInput } from './RecommendationInput'
 
-/**
- * A RecommendationStrategy maps an Insight to a Recommendation.
- * Each strategy handles one specific pattern.
- */
 export interface RecommendationStrategy {
   readonly id: string
-  canHandle(insight: Insight): boolean
-  recommend(insight: Insight, workspaceId: WorkspaceId): Recommendation
+  readonly supportedOrigins: RecommendationOrigin[]
+  canHandle(input: RecommendationInput): boolean
+  recommend(input: RecommendationInput): Recommendation
 }

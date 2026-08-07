@@ -1,17 +1,20 @@
-import type { Insight, Recommendation, WorkspaceId } from '../../../domain'
+import type { Recommendation, RecommendationOrigin } from '../../../domain'
 import type { RecommendationStrategy } from '../RecommendationStrategy'
+import type { RecommendationInput } from '../RecommendationInput'
 
 export class AddCIStrategy implements RecommendationStrategy {
   readonly id = 'add-ci'
+  readonly supportedOrigins: RecommendationOrigin[] = ['insight']
 
-  canHandle(insight: Insight): boolean {
-    return insight.tags.includes('no-ci')
+  canHandle(input: RecommendationInput): boolean {
+    return input.insight !== undefined && input.insight.tags.includes('no-ci')
   }
 
-  recommend(_insight: Insight, workspaceId: WorkspaceId): Recommendation {
+  recommend(input: RecommendationInput): Recommendation {
+    const insight = input.insight!
     return {
       id: crypto.randomUUID(),
-      workspaceId,
+      workspaceId: input.workspaceId,
       origin: 'insight',
       title: 'Set up a CI pipeline',
       rationale: 'No GitHub Actions or CI configuration was found.',
@@ -19,7 +22,7 @@ export class AddCIStrategy implements RecommendationStrategy {
       effort: 'low',
       priority: 'medium',
       confidence: 0.95,
-      insightIds: [],
+      insightIds: [insight.id],
       findingIds: [],
       proposedActions: [],
       createdAt: new Date(),

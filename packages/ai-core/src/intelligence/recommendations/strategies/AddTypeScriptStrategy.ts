@@ -1,17 +1,20 @@
-import type { Insight, Recommendation, WorkspaceId } from '../../../domain'
+import type { Recommendation, RecommendationOrigin } from '../../../domain'
 import type { RecommendationStrategy } from '../RecommendationStrategy'
+import type { RecommendationInput } from '../RecommendationInput'
 
 export class AddTypeScriptStrategy implements RecommendationStrategy {
   readonly id = 'add-typescript'
+  readonly supportedOrigins: RecommendationOrigin[] = ['insight']
 
-  canHandle(insight: Insight): boolean {
-    return insight.tags.includes('no-typescript')
+  canHandle(input: RecommendationInput): boolean {
+    return input.insight !== undefined && input.insight.tags.includes('no-typescript')
   }
 
-  recommend(_insight: Insight, workspaceId: WorkspaceId): Recommendation {
+  recommend(input: RecommendationInput): Recommendation {
+    const insight = input.insight!
     return {
       id: crypto.randomUUID(),
-      workspaceId,
+      workspaceId: input.workspaceId,
       origin: 'insight',
       title: 'Migrate to TypeScript',
       rationale: 'The repository uses plain JavaScript without type safety.',
@@ -19,7 +22,7 @@ export class AddTypeScriptStrategy implements RecommendationStrategy {
       effort: 'high',
       priority: 'medium',
       confidence: 0.9,
-      insightIds: [],
+      insightIds: [insight.id],
       findingIds: [],
       proposedActions: [],
       createdAt: new Date(),
