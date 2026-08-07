@@ -70,7 +70,7 @@ export class RepositoryDiscoveryPipeline {
       input.workspaceId
     )
 
-    const recommendations = this.recommendationEngine.generate(insights, input.workspaceId)
+    const recommendations = this.recommendationEngine.generate(insights, [], input.workspaceId)
 
     return {
       summary,

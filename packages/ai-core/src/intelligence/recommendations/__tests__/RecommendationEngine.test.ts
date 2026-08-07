@@ -4,7 +4,9 @@ import { AddTestingStrategy } from '../strategies/AddTestingStrategy'
 import { AddCIStrategy } from '../strategies/AddCIStrategy'
 import { AddTypeScriptStrategy } from '../strategies/AddTypeScriptStrategy'
 import { createWorkspaceId } from '../../../domain/value-objects'
-import type { Insight } from '../../../domain'
+import type { Insight, Finding, Recommendation, RecommendationOrigin } from '../../../domain'
+import type { RecommendationStrategy } from '../RecommendationStrategy'
+import type { RecommendationInput } from '../RecommendationInput'
 
 const WORKSPACE_ID = createWorkspaceId('ws-engine-test')
 
@@ -23,69 +25,218 @@ function makeInsight(id: string, tags: string[]): Insight {
   }
 }
 
+function makeFinding(id: string): Finding {
+  return {
+    id,
+    workspaceId: WORKSPACE_ID,
+    type: 'bug',
+    title: `Finding ${id}`,
+    description: 'Test finding',
+    priority: 'high',
+    severity: 'high',
+    evidenceIds: [],
+    relatedInsights: [],
+    createdAt: new Date(),
+  }
+}
+
+function dummyFindingStrategy(): RecommendationStrategy {
+  return {
+    id: 'dummy-finding',
+    supportedOrigins: ['finding'],
+    canHandle(input: RecommendationInput): boolean {
+      return input.finding !== undefined
+    },
+    recommend(input: RecommendationInput): Recommendation {
+      return {
+        id: crypto.randomUUID(),
+        workspaceId: input.workspaceId,
+        origin: 'finding',
+        title: `Dummy recommendation for ${input.finding!.id}`,
+        rationale: 'Dummy',
+        impact: 'Dummy',
+        effort: 'low',
+        priority: 'medium',
+        confidence: 0.5,
+        insightIds: [],
+        findingIds: [input.finding!.id],
+        proposedActions: [],
+        createdAt: new Date(),
+      }
+    },
+  }
+}
+
 describe('RecommendationEngine', () => {
   const engine = new RecommendationEngine()
     .register(new AddTestingStrategy())
     .register(new AddCIStrategy())
     .register(new AddTypeScriptStrategy())
 
-  it('generates recommendation for matching insight', () => {
-    const insight = makeInsight('insight-1', ['no-tests'])
-    const recommendations = engine.generate([insight], WORKSPACE_ID)
-    expect(recommendations.length).toBe(1)
-    expect(recommendations[0].title).toContain('test')
+  describe('Insight-only input', () => {
+    it('generates recommendation for matching insight', () => {
+      const insight = makeInsight('insight-1', ['no-tests'])
+      const recommendations = engine.generate([insight], [], WORKSPACE_ID)
+      expect(recommendations.length).toBe(1)
+      expect(recommendations[0].title).toContain('test')
+    })
+
+    it('generates recommendations for multiple matching insights', () => {
+      const insights = [
+        makeInsight('i1', ['no-tests']),
+        makeInsight('i2', ['no-ci']),
+        makeInsight('i3', ['no-typescript']),
+      ]
+      const recommendations = engine.generate(insights, [], WORKSPACE_ID)
+      expect(recommendations.length).toBe(3)
+    })
+
+    it('returns empty array when no insight matches any strategy', () => {
+      const insight = makeInsight('i1', ['unknown-tag'])
+      const recommendations = engine.generate([insight], [], WORKSPACE_ID)
+      expect(recommendations).toEqual([])
+    })
+
+    it('all recommendations have origin insight', () => {
+      const insights = [makeInsight('i1', ['no-tests']), makeInsight('i2', ['no-ci'])]
+      const recommendations = engine.generate(insights, [], WORKSPACE_ID)
+      for (const rec of recommendations) {
+        expect(rec.origin).toBe('insight')
+      }
+    })
+
+    it('all recommendations have workspaceId', () => {
+      const insight = makeInsight('i1', ['no-tests'])
+      const recommendations = engine.generate([insight], [], WORKSPACE_ID)
+      for (const rec of recommendations) {
+        expect(rec.workspaceId).toBe(WORKSPACE_ID)
+      }
+    })
+
+    it('all recommendations have rationale', () => {
+      const insight = makeInsight('i1', ['no-tests'])
+      const recommendations = engine.generate([insight], [], WORKSPACE_ID)
+      for (const rec of recommendations) {
+        expect(rec.rationale.length).toBeGreaterThan(0)
+      }
+    })
+
+    it('all recommendations have impact', () => {
+      const insight = makeInsight('i1', ['no-tests'])
+      const recommendations = engine.generate([insight], [], WORKSPACE_ID)
+      for (const rec of recommendations) {
+        expect(rec.impact.length).toBeGreaterThan(0)
+      }
+    })
   })
 
-  it('generates recommendations for multiple matching insights', () => {
-    const insights = [
-      makeInsight('i1', ['no-tests']),
-      makeInsight('i2', ['no-ci']),
-      makeInsight('i3', ['no-typescript']),
-    ]
-    const recommendations = engine.generate(insights, WORKSPACE_ID)
-    expect(recommendations.length).toBe(3)
+  describe('Finding-only input', () => {
+    it('returns empty array with no finding strategies', () => {
+      const finding = makeFinding('f1')
+      const recommendations = engine.generate([], [finding], WORKSPACE_ID)
+      expect(recommendations).toEqual([])
+    })
+
+    it('returns empty array for multiple findings with no finding strategies', () => {
+      const findings = [makeFinding('f1'), makeFinding('f2')]
+      const recommendations = engine.generate([], findings, WORKSPACE_ID)
+      expect(recommendations).toEqual([])
+    })
   })
 
-  it('returns empty array when no insight matches any strategy', () => {
-    const insight = makeInsight('i1', ['unknown-tag'])
-    const recommendations = engine.generate([insight], WORKSPACE_ID)
-    expect(recommendations).toEqual([])
+  describe('Mixed Insight + Finding input', () => {
+    it('returns only insight recommendations when no finding strategies exist', () => {
+      const insights = [makeInsight('i1', ['no-tests'])]
+      const findings = [makeFinding('f1')]
+      const recommendations = engine.generate(insights, findings, WORKSPACE_ID)
+      expect(recommendations.length).toBe(1)
+      expect(recommendations[0].origin).toBe('insight')
+    })
   })
 
-  it('returns empty array for empty insights', () => {
-    const recommendations = engine.generate([], WORKSPACE_ID)
-    expect(recommendations).toEqual([])
+  describe('Empty arrays', () => {
+    it('returns empty array for empty insights and findings', () => {
+      const recommendations = engine.generate([], [], WORKSPACE_ID)
+      expect(recommendations).toEqual([])
+    })
   })
 
-  it('all recommendations have origin insight', () => {
-    const insights = [makeInsight('i1', ['no-tests']), makeInsight('i2', ['no-ci'])]
-    const recommendations = engine.generate(insights, WORKSPACE_ID)
-    for (const rec of recommendations) {
-      expect(rec.origin).toBe('insight')
-    }
+  describe('supportedOrigins filtering', () => {
+    it('insight strategies are not called for findings', () => {
+      const finding = makeFinding('f1')
+      const recommendations = engine.generate([], [finding], WORKSPACE_ID)
+      expect(recommendations).toEqual([])
+    })
+
+    it('finding strategies are eligible when supportedOrigins contains finding', () => {
+      const engineWithFinding = new RecommendationEngine()
+        .register(new AddTestingStrategy())
+        .register(dummyFindingStrategy())
+
+      const finding = makeFinding('f1')
+      const recommendations = engineWithFinding.generate([], [finding], WORKSPACE_ID)
+      expect(recommendations.length).toBe(1)
+      expect(recommendations[0].origin).toBe('finding')
+      expect(recommendations[0].findingIds).toEqual(['f1'])
+      expect(recommendations[0].insightIds).toEqual([])
+    })
+
+    it('finding strategies do not consume insight inputs', () => {
+      const engineWithFinding = new RecommendationEngine()
+        .register(new AddTestingStrategy())
+        .register(dummyFindingStrategy())
+
+      const insight = makeInsight('i1', ['no-tests'])
+      const recommendations = engineWithFinding.generate([insight], [], WORKSPACE_ID)
+      expect(recommendations.length).toBe(1)
+      expect(recommendations[0].origin).toBe('insight')
+    })
+
+    it('mixed input produces correct origins', () => {
+      const engineWithFinding = new RecommendationEngine()
+        .register(new AddTestingStrategy())
+        .register(new AddCIStrategy())
+        .register(dummyFindingStrategy())
+
+      const insights = [makeInsight('i1', ['no-tests'])]
+      const findings = [makeFinding('f1')]
+      const recommendations = engineWithFinding.generate(insights, findings, WORKSPACE_ID)
+      expect(recommendations.length).toBe(2)
+
+      const insightRecs = recommendations.filter((r) => r.origin === 'insight')
+      const findingRecs = recommendations.filter((r) => r.origin === 'finding')
+      expect(insightRecs.length).toBe(1)
+      expect(findingRecs.length).toBe(1)
+    })
   })
 
-  it('all recommendations have workspaceId', () => {
-    const insight = makeInsight('i1', ['no-tests'])
-    const recommendations = engine.generate([insight], WORKSPACE_ID)
-    for (const rec of recommendations) {
-      expect(rec.workspaceId).toBe(WORKSPACE_ID)
-    }
+  describe('multiple matching strategies', () => {
+    it('multiple strategies can match the same insight', () => {
+      const multiTagInsight = makeInsight('i1', ['no-tests', 'no-ci'])
+      const recommendations = engine.generate([multiTagInsight], [], WORKSPACE_ID)
+      expect(recommendations.length).toBe(2)
+    })
   })
 
-  it('all recommendations have rationale', () => {
-    const insight = makeInsight('i1', ['no-tests'])
-    const recommendations = engine.generate([insight], WORKSPACE_ID)
-    for (const rec of recommendations) {
-      expect(rec.rationale.length).toBeGreaterThan(0)
-    }
+  describe('no matching strategies', () => {
+    it('returns empty when no strategy matches', () => {
+      const insight = makeInsight('i1', ['unrelated-tag'])
+      const recommendations = engine.generate([insight], [], WORKSPACE_ID)
+      expect(recommendations).toEqual([])
+    })
   })
 
-  it('all recommendations have impact', () => {
-    const insight = makeInsight('i1', ['no-tests'])
-    const recommendations = engine.generate([insight], WORKSPACE_ID)
-    for (const rec of recommendations) {
-      expect(rec.impact.length).toBeGreaterThan(0)
-    }
+  describe('provenance', () => {
+    it('insight recommendations have correct insightIds', () => {
+      const insight = makeInsight('i1', ['no-tests'])
+      const recommendations = engine.generate([insight], [], WORKSPACE_ID)
+      expect(recommendations[0].insightIds).toEqual(['i1'])
+    })
+
+    it('insight recommendations have empty findingIds', () => {
+      const insight = makeInsight('i1', ['no-tests'])
+      const recommendations = engine.generate([insight], [], WORKSPACE_ID)
+      expect(recommendations[0].findingIds).toEqual([])
+    })
   })
 })
