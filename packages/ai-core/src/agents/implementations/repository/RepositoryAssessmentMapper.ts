@@ -1,4 +1,4 @@
-import type { RepositoryAssessment } from '@apex/prompts'
+import type { RepositoryAssessment } from '@apex/contracts'
 import type { WorkspaceId } from '../../../domain'
 
 /**

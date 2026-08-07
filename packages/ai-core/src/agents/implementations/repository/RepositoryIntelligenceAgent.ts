@@ -7,8 +7,7 @@ import { RepositoryAssessmentValidator } from '../../../validation'
 import { RepositoryAssessmentMapper } from './RepositoryAssessmentMapper'
 import type { RepositoryAssessmentEntity } from './RepositoryAssessmentMapper'
 import type { RepositoryAssessmentRequest } from './RepositoryAssessmentRequest'
-import { PromptRenderer } from '@apex/prompts'
-import type { RepositoryAssessment } from '@apex/prompts'
+import type { RepositoryAssessment } from '@apex/contracts'
 
 export interface RepositoryIntelligenceInput {
   request: RepositoryAssessmentRequest
@@ -19,7 +18,7 @@ export interface RepositoryIntelligenceInput {
  * Repository Intelligence Agent
  *
  * Orchestrates: Prompt → Provider → Validate → Retry → Map to Domain
- * Never exposes raw LLM output outside this class.
+ * No dependency on @apex/prompts — builds prompt inline using contracts only.
  */
 export class RepositoryIntelligenceAgent extends BaseAgent<
   RepositoryIntelligenceInput,
@@ -29,7 +28,6 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
   readonly name = 'Repository Intelligence Agent'
   readonly version = '1.0.0'
 
-  private readonly renderer = new PromptRenderer()
   private readonly validator = new RepositoryAssessmentValidator()
   private readonly mapper = new RepositoryAssessmentMapper()
 
@@ -47,29 +45,16 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
   ): Promise<RepositoryAssessmentEntity> {
     const { request, dailySpendUsd = 0 } = input
 
-    // Render prompt with typed variables
-    const rendered = this.renderer.renderRepositoryIntelligence(
-      {
-        summary: request.repository,
-        evidence: [],
-        insights: request.insights,
-      },
-      this.promptVersion
-    )
+    const prompt = this.buildPrompt(request)
 
     // Budget check — fallback to mock if over limit
-    const estimatedTokens = Math.ceil(rendered.content.length / 4)
+    const estimatedTokens = Math.ceil(prompt.length / 4)
     const activeProvider = shouldFallbackToMock(this.budgetPolicy, estimatedTokens, dailySpendUsd)
-      ? new MockLLMProvider()
+      ? new MockLLMProvider(this.getValidMockResponse())
       : this.provider
 
-    // First attempt
-    const response = await activeProvider.complete(rendered.content)
-    const assessment = await this.parseAndValidate(
-      response.content,
-      activeProvider,
-      rendered.content
-    )
+    const response = await activeProvider.complete(prompt)
+    const assessment = await this.parseAndValidate(response.content, activeProvider, prompt)
 
     return this.mapper.toDomain(assessment, context.workspaceId, {
       provider: activeProvider.name,
@@ -83,6 +68,84 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
     })
   }
 
+  private buildPrompt(request: RepositoryAssessmentRequest): string {
+    const { repository, insights, evidence: _evidence } = request
+
+    const summarySection = [
+      `Name: ${repository.name}`,
+      `Owner: ${repository.owner}`,
+      `Languages: ${repository.languages.join(', ')}`,
+      `Frameworks: ${repository.frameworks.join(', ') || 'none'}`,
+      `Package Manager: ${repository.packageManager}`,
+      `TypeScript: ${repository.hasTypeScript}`,
+      `CI: ${repository.hasCI}`,
+      `Tests: ${repository.hasTests}`,
+      `Docker: ${repository.hasDocker}`,
+      `Monorepo: ${repository.hasMonorepo}`,
+      `Complexity: ${repository.complexity}`,
+      `Readiness Score: ${repository.score}/100`,
+    ].join('\n')
+
+    const insightsSection =
+      insights.length > 0
+        ? insights
+            .map((i) => `- [${i.severity?.toUpperCase() ?? 'INFO'}] ${i.title}\n  ${i.description}`)
+            .join('\n')
+        : '- No static analysis insights available'
+
+    return `You are APEX, an autonomous Product Intelligence system.
+Based on the validated repository evidence below, produce an executive engineering assessment.
+Do not invent facts. If information is missing, explicitly state that it is unavailable.
+Return ONLY valid JSON — no Markdown, no explanation.
+
+## Repository Summary
+${summarySection}
+
+## Static Analysis Insights
+${insightsSection}
+
+## Required JSON Output
+{
+  "executiveSummary": "string (2-3 sentences)",
+  "strengths": ["string"],
+  "risks": [{"title":"string","severity":"critical|high|medium|low","description":"string","recommendedAction":"string"}],
+  "technicalDebt": {"level":"low|medium|high|critical","reasoning":"string","estimatedEffortDays":number|null},
+  "engineeringPriorities": [{"rank":number,"title":"string","rationale":"string","effort":"low|medium|high","impact":"low|medium|high"}],
+  "confidence": number
+}`
+  }
+
+  private getValidMockResponse(): string {
+    return JSON.stringify({
+      executiveSummary:
+        'The repository shows solid TypeScript adoption and CI configuration. Key gaps include missing automated tests and Docker configuration.',
+      strengths: ['TypeScript configured', 'CI pipeline present'],
+      risks: [
+        {
+          title: 'No automated tests',
+          severity: 'high',
+          description: 'No test framework detected.',
+          recommendedAction: 'Add Vitest for unit testing.',
+        },
+      ],
+      technicalDebt: {
+        level: 'medium',
+        reasoning: 'Missing tests increase deployment risk.',
+        estimatedEffortDays: 5,
+      },
+      engineeringPriorities: [
+        {
+          rank: 1,
+          title: 'Add automated tests',
+          rationale: 'Reduces deployment risk significantly.',
+          effort: 'medium',
+          impact: 'high',
+        },
+      ],
+      confidence: 0.82,
+    })
+  }
+
   private async parseAndValidate(
     content: string,
     provider: LLMProvider,
@@ -93,7 +156,6 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
     try {
       parsed = this.validator.parseJSON(content)
     } catch {
-      // Retry once on JSON parse failure
       const retry = await provider.complete(originalPrompt)
       parsed = this.validator.parseJSON(retry.content)
     }
@@ -101,7 +163,6 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
     const result = this.validator.validate(parsed)
 
     if (!result.valid) {
-      // Retry once on validation failure
       const retry = await provider.complete(originalPrompt)
       const reparsed = this.validator.parseJSON(retry.content)
       const retryResult = this.validator.validate(reparsed)
@@ -111,7 +172,6 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
           `LLM output failed validation after retry: ${retryResult.errors.join(', ')}`
         )
       }
-
       return reparsed as RepositoryAssessment
     }
 

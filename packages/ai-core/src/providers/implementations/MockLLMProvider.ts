@@ -17,7 +17,34 @@ export class MockLLMProvider implements LLMProvider {
   private readonly response: string
 
   constructor(
-    response = '## Executive Summary\nMock AI response for testing purposes.\n\n## Top 3 Risks\n1. No tests detected\n2. No CI pipeline\n3. No Docker configuration\n\n## Architecture Assessment\nMock assessment.\n\n## Technical Debt\nLow — mock response.\n\n## Engineering Priorities\n1. Add tests\n2. Set up CI\n3. Add Docker'
+    response = JSON.stringify({
+      executiveSummary:
+        'The repository shows solid TypeScript adoption and CI configuration. Key gaps include missing automated tests.',
+      strengths: ['TypeScript configured', 'CI pipeline present'],
+      risks: [
+        {
+          title: 'No automated tests',
+          severity: 'high',
+          description: 'No test framework detected.',
+          recommendedAction: 'Add Vitest for unit testing.',
+        },
+      ],
+      technicalDebt: {
+        level: 'medium',
+        reasoning: 'Missing tests increase deployment risk.',
+        estimatedEffortDays: 5,
+      },
+      engineeringPriorities: [
+        {
+          rank: 1,
+          title: 'Add automated tests',
+          rationale: 'Reduces deployment risk significantly.',
+          effort: 'medium',
+          impact: 'high',
+        },
+      ],
+      confidence: 0.82,
+    })
   ) {
     this.response = response
   }

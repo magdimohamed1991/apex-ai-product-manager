@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "type-check": "tsc --noEmit"
   },
   "exports": {
     ".": {
@@ -13,8 +14,8 @@
     }
   },
   "dependencies": {
-    "@apex/ai-core": "workspace:*",
-    "@apex/analysis": "workspace:*"
+    "@apex/analysis": "workspace:*",
+    "@apex/contracts": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.10"

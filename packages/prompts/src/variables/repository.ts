@@ -1,13 +1,14 @@
-import type { Insight } from '@apex/ai-core'
+import type { InsightDTO } from '@apex/contracts'
 import type { RepositorySummary, Evidence } from '@apex/analysis'
 
 /**
  * Variables injected into repository prompt templates.
+ * Uses InsightDTO from @apex/contracts — no dependency on @apex/ai-core.
  */
 export interface RepositoryPromptVariables {
   summary: RepositorySummary
   evidence: Evidence[]
-  insights: Insight[]
+  insights: InsightDTO[]
 }
 
 export function serializeSummary(summary: RepositorySummary): string {
@@ -31,7 +32,7 @@ export function serializeEvidence(evidence: Evidence[]): string {
   return evidence.map((e) => `- [${e.type}] ${e.key}: ${JSON.stringify(e.value)}`).join('\n')
 }
 
-export function serializeInsights(insights: Insight[]): string {
+export function serializeInsights(insights: InsightDTO[]): string {
   return insights
     .map((i) => `- [${i.severity.toUpperCase()}] ${i.title}\n  ${i.description}`)
     .join('\n')

@@ -1,10 +1,10 @@
-import type { Insight } from '@apex/ai-core'
+import type { InsightDTO } from '@apex/contracts'
 import type { RepositorySummary, Evidence } from '@apex/analysis'
 
 export interface RepositoryIntelligencePromptInput {
   summary: RepositorySummary
   evidence: Evidence[]
-  insights: Insight[]
+  insights: InsightDTO[]
 }
 
 /**

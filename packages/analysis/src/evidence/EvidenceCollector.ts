@@ -22,7 +22,7 @@ export class EvidenceCollector {
       })
     }
 
-    add('package-manager', 'packageManager', summary.packageManager)
+    add('package_manager', 'packageManager', summary.packageManager)
     add('testing', 'hasTests', summary.hasTests)
     add('ci', 'hasCI', summary.hasCI)
     add('docker', 'hasDocker', summary.hasDocker)

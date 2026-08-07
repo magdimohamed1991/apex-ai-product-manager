@@ -1,4 +1,4 @@
-import type { RepositoryAssessment } from '@apex/prompts'
+import type { RepositoryAssessment } from '@apex/contracts'
 
 export interface ValidationResult {
   valid: boolean
@@ -8,8 +8,7 @@ export interface ValidationResult {
 /**
  * Validates LLM output before it enters the domain.
  * Never trust the LLM — always validate structured output.
- *
- * On failure: retry once, then return a structured error.
+ * Uses RepositoryAssessment from @apex/contracts (no cycle).
  */
 export class RepositoryAssessmentValidator {
   validate(raw: unknown): ValidationResult {
@@ -73,7 +72,6 @@ export class RepositoryAssessmentValidator {
   }
 
   parseJSON(content: string): unknown {
-    // Strip markdown code blocks if LLM wrapped the JSON
     const cleaned = content
       .replace(/^```json\s*/i, '')
       .replace(/^```\s*/i, '')

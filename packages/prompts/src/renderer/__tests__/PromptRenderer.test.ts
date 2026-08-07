@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { PromptRenderer } from '../PromptRenderer'
 import type { RepositoryPromptVariables } from '../../variables/repository'
-import type { Insight } from '@apex/ai-core'
+import type { InsightDTO } from '@apex/contracts'
 
 const WORKSPACE_ID = 'ws-test' as ReturnType<typeof import('@apex/ai-core').createWorkspaceId>
 
@@ -45,7 +45,7 @@ const mockVariables: RepositoryPromptVariables = {
       evidence: ['testing:hasTests'],
       tags: ['rule-based', 'no-tests'],
       createdAt: new Date(),
-    } as Insight,
+    } as InsightDTO,
   ],
 }
 
