@@ -12,7 +12,7 @@ export interface Insight {
   confidence: number // 0–1
   severity: Severity
   source: IntegrationType
-  evidence: string[]
+  evidenceIds: string[]
   tags: string[]
   explanationId?: string // link to Explanation entity
   createdAt: Date

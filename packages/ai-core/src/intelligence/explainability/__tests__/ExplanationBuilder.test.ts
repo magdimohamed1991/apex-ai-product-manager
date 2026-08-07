@@ -34,7 +34,7 @@ const mockInsight: Insight = {
   confidence: 1,
   severity: 'high',
   source: 'github',
-  evidence: ['testing:hasTests'],
+  evidenceIds: ['testing:hasTests'],
   tags: ['rule-based', 'no-tests'],
   createdAt: new Date(),
 }

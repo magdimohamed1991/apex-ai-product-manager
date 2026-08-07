@@ -49,7 +49,7 @@ describe('CorrelationEngine', () => {
     it('detects metric + review correlation', () => {
       const evidence: Evidence[] = [
         makeEvidence('amp-1', 'amplitude', -18, 0),
-        makeEvidence('gplay-1', 'google-play', 27, 5),
+        makeEvidence('gplay-1', 'google_play', 27, 5),
       ]
       const result = engine.evaluate(evidence)
       expect(result.candidates.length).toBeGreaterThan(0)
@@ -60,7 +60,7 @@ describe('CorrelationEngine', () => {
     it('produces correlated candidates', () => {
       const evidence: Evidence[] = [
         makeEvidence('amp-checkout', 'amplitude', -18, 0),
-        makeEvidence('gplay-checkout', 'google-play', 27, 5),
+        makeEvidence('gplay-checkout', 'google_play', 27, 5),
         makeEvidence('gh-checkout', 'github', 'checkout.ts modified', 3),
       ]
       const result = engine.evaluate(evidence)
@@ -70,7 +70,7 @@ describe('CorrelationEngine', () => {
     it('candidates are sorted by score descending', () => {
       const evidence: Evidence[] = [
         makeEvidence('amp-checkout', 'amplitude', -18, 0),
-        makeEvidence('gplay-checkout', 'google-play', 27, 5),
+        makeEvidence('gplay-checkout', 'google_play', 27, 5),
         makeEvidence('gh-checkout', 'github', 'checkout.ts modified', 3),
       ]
       const result = engine.evaluate(evidence)
@@ -83,7 +83,7 @@ describe('CorrelationEngine', () => {
     it('cross-source candidate appears when 3 sources present', () => {
       const evidence: Evidence[] = [
         makeEvidence('amp-1', 'amplitude', -18, 0),
-        makeEvidence('gplay-1', 'google-play', 10, 5),
+        makeEvidence('gplay-1', 'google_play', 10, 5),
         makeEvidence('gh-1', 'github', 'change', 3),
       ]
       const result = engine.evaluate(evidence)
@@ -94,7 +94,7 @@ describe('CorrelationEngine', () => {
     it('all candidate reasons avoid causation language', () => {
       const evidence: Evidence[] = [
         makeEvidence('amp-1', 'amplitude', -18, 0),
-        makeEvidence('gplay-1', 'google-play', 10, 5),
+        makeEvidence('gplay-1', 'google_play', 10, 5),
         makeEvidence('gh-1', 'github', 'change', 3),
       ]
       const result = engine.evaluate(evidence)
@@ -106,7 +106,7 @@ describe('CorrelationEngine', () => {
     it('deduplicates candidates with same id', () => {
       const evidence: Evidence[] = [
         makeEvidence('amp-1', 'amplitude', -18, 0),
-        makeEvidence('gplay-1', 'google-play', 10, 5),
+        makeEvidence('gplay-1', 'google_play', 10, 5),
         makeEvidence('gh-1', 'github', 'change', 3),
       ]
       const result = engine.evaluate(evidence)
@@ -120,7 +120,7 @@ describe('CorrelationEngine', () => {
     it('returns no metric-review correlation when outside time window', () => {
       const evidence: Evidence[] = [
         makeEvidence('amp-1', 'amplitude', -18, 0),
-        makeEvidence('gplay-1', 'google-play', 10, 90), // 90 days apart
+        makeEvidence('gplay-1', 'google_play', 10, 90), // 90 days apart
       ]
       const result = engine.evaluate(evidence)
       const metricReview = result.candidates.filter((c) => c.ruleId === 'metric-review-correlation')
@@ -132,7 +132,7 @@ describe('CorrelationEngine', () => {
     it('sets evaluatedEvidenceCount', () => {
       const evidence: Evidence[] = [
         makeEvidence('a', 'amplitude', -5, 0),
-        makeEvidence('b', 'google-play', 3, 0),
+        makeEvidence('b', 'google_play', 3, 0),
       ]
       const result = engine.evaluate(evidence)
       expect(result.evaluatedEvidenceCount).toBe(2)

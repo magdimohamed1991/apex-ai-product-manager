@@ -19,7 +19,7 @@ export class InsightMapper {
       confidence: 1,
       severity: result.severity,
       source,
-      evidence: result.evidenceIds,
+      evidenceIds: result.evidenceIds,
       tags: ['rule-based', result.ruleId],
       createdAt: new Date(),
     }))

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { ALL_SOURCE_TYPES, SOURCE_LABELS } from '../SourceType'
 import type { Source } from '../Source'
 import type { SourceReference } from '../SourceReference'
+import type { Evidence } from '@apex/analysis'
 import { createWorkspaceId } from '../../value-objects'
 
 const WORKSPACE_ID = createWorkspaceId('ws-sources-test')
@@ -117,10 +118,10 @@ describe('SourceReference', () => {
 describe('Evidence with SourceReference', () => {
   it('sourceReference is optional on Evidence', () => {
     // Evidence without sourceReference (static analysis)
-    const staticEvidence = {
+    const staticEvidence: Evidence = {
       id: 'testing:hasTests',
-      type: 'testing' as const,
-      source: 'github' as const,
+      type: 'testing',
+      source: 'github',
       key: 'hasTests',
       value: false,
       confidence: 1,
@@ -133,7 +134,7 @@ describe('Evidence with SourceReference', () => {
     const evidenceWithRef = {
       id: 'reviews:checkout-complaint',
       type: 'testing' as const,
-      source: 'google-play' as const,
+      source: 'google_play' as const,
       key: 'checkoutComplaintCount',
       value: 27,
       confidence: 0.9,

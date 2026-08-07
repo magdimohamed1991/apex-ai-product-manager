@@ -59,7 +59,7 @@ export class RepositoryDiscoveryAgent extends BaseAgent<
         confidence,
         severity,
         source: 'github',
-        evidence: [],
+        evidenceIds: [],
         tags: ['static-analysis', 'repository'],
         createdAt: now,
       })

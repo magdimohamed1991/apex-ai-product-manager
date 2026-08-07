@@ -24,13 +24,13 @@ describe('scoreCorrelation', () => {
 
   it('returns higher score for more sources', () => {
     const two = scoreCorrelation(
-      ['amplitude', 'google-play'],
-      [makeEvidence('amplitude'), makeEvidence('google-play')],
+      ['amplitude', 'google_play'],
+      [makeEvidence('amplitude'), makeEvidence('google_play')],
       0.8
     )
     const three = scoreCorrelation(
-      ['amplitude', 'google-play', 'github'],
-      [makeEvidence('amplitude'), makeEvidence('google-play'), makeEvidence('github')],
+      ['amplitude', 'google_play', 'github'],
+      [makeEvidence('amplitude'), makeEvidence('google_play'), makeEvidence('github')],
       0.8
     )
     expect(three).toBeGreaterThan(two)
@@ -38,8 +38,8 @@ describe('scoreCorrelation', () => {
 
   it('score is between 0 and 1', () => {
     const score = scoreCorrelation(
-      ['amplitude', 'google-play', 'github'],
-      [makeEvidence('amplitude'), makeEvidence('google-play'), makeEvidence('github')],
+      ['amplitude', 'google_play', 'github'],
+      [makeEvidence('amplitude'), makeEvidence('google_play'), makeEvidence('github')],
       0.9
     )
     expect(score).toBeGreaterThanOrEqual(0)
@@ -48,19 +48,19 @@ describe('scoreCorrelation', () => {
 
   it('lower confidence evidence produces lower score', () => {
     const highConf: Evidence = { ...makeEvidence('amplitude'), confidence: 1 }
-    const lowConf: Evidence = { ...makeEvidence('google-play'), confidence: 0.2 }
+    const lowConf: Evidence = { ...makeEvidence('google_play'), confidence: 0.2 }
     const highConf2: Evidence = { ...makeEvidence('amplitude'), confidence: 1 }
-    const highConf3: Evidence = { ...makeEvidence('google-play'), confidence: 1 }
+    const highConf3: Evidence = { ...makeEvidence('google_play'), confidence: 1 }
 
-    const lowScore = scoreCorrelation(['amplitude', 'google-play'], [highConf, lowConf], 0.8)
-    const highScore = scoreCorrelation(['amplitude', 'google-play'], [highConf2, highConf3], 0.8)
+    const lowScore = scoreCorrelation(['amplitude', 'google_play'], [highConf, lowConf], 0.8)
+    const highScore = scoreCorrelation(['amplitude', 'google_play'], [highConf2, highConf3], 0.8)
     expect(lowScore).toBeLessThan(highScore)
   })
 
   it('is deterministic for same inputs', () => {
-    const e = [makeEvidence('amplitude'), makeEvidence('google-play')]
-    const s1 = scoreCorrelation(['amplitude', 'google-play'], e, 0.7)
-    const s2 = scoreCorrelation(['amplitude', 'google-play'], e, 0.7)
+    const e = [makeEvidence('amplitude'), makeEvidence('google_play')]
+    const s1 = scoreCorrelation(['amplitude', 'google_play'], e, 0.7)
+    const s2 = scoreCorrelation(['amplitude', 'google_play'], e, 0.7)
     expect(s1).toBe(s2)
   })
 })
@@ -68,19 +68,19 @@ describe('scoreCorrelation', () => {
 describe('hasTemporalOverlap', () => {
   it('returns true for evidence within 30 days', () => {
     const a = [makeEvidence('amplitude', 0)]
-    const b = [makeEvidence('google-play', 15)]
+    const b = [makeEvidence('google_play', 15)]
     expect(hasTemporalOverlap(a, b)).toBe(true)
   })
 
   it('returns false for evidence outside 30 days', () => {
     const a = [makeEvidence('amplitude', 0)]
-    const b = [makeEvidence('google-play', 60)]
+    const b = [makeEvidence('google_play', 60)]
     expect(hasTemporalOverlap(a, b)).toBe(false)
   })
 
   it('respects custom window', () => {
     const a = [makeEvidence('amplitude', 0)]
-    const b = [makeEvidence('google-play', 10)]
+    const b = [makeEvidence('google_play', 10)]
     expect(hasTemporalOverlap(a, b, 5)).toBe(false)
     expect(hasTemporalOverlap(a, b, 15)).toBe(true)
   })

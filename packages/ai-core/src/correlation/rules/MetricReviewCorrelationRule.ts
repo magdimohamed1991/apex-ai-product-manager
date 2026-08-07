@@ -20,7 +20,7 @@ export class MetricReviewCorrelationRule implements CorrelationRule {
       (e) => e.source === 'amplitude' && this.isNegativeMetric(e)
     )
     const reviewEvidence = evidence.filter(
-      (e) => (e.source === 'google-play' || e.source === 'app-store') && this.isNegativeReview(e)
+      (e) => (e.source === 'google_play' || e.source === 'app_store') && this.isNegativeReview(e)
     )
 
     if (metricEvidence.length === 0 || reviewEvidence.length === 0) return []
@@ -62,6 +62,6 @@ export class MetricReviewCorrelationRule implements CorrelationRule {
 
   private isNegativeReview(e: Evidence): boolean {
     if (typeof e.value === 'number') return e.value > 0 // count of complaints
-    return e.type === 'testing' // placeholder for review evidence type
+    return e.type === 'review'
   }
 }
