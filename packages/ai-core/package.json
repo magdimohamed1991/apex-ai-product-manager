@@ -13,7 +13,8 @@
     }
   },
   "dependencies": {
-    "@apex/analysis": "workspace:*"
+    "@apex/analysis": "workspace:*",
+    "@apex/prompts": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.10"

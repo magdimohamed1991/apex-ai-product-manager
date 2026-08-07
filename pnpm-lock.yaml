@@ -123,6 +123,9 @@ importers:
       '@apex/analysis':
         specifier: workspace:*
         version: link:../analysis
+      '@apex/prompts':
+        specifier: workspace:*
+        version: link:../prompts
     devDependencies:
       vitest:
         specifier: ^4.1.10
