@@ -3,8 +3,6 @@ import { PromptRegistry } from '../PromptRegistry'
 import type { RepositoryPromptVariables } from '../../variables/repository'
 import type { InsightDTO } from '@apex/contracts'
 
-const WORKSPACE_ID = 'ws-test' as ReturnType<typeof import('@apex/ai-core').createWorkspaceId>
-
 const mockVars: RepositoryPromptVariables = {
   summary: {
     name: 'test-app',

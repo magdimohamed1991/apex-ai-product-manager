@@ -3,8 +3,6 @@ import { PromptRenderer } from '../PromptRenderer'
 import type { RepositoryPromptVariables } from '../../variables/repository'
 import type { InsightDTO } from '@apex/contracts'
 
-const WORKSPACE_ID = 'ws-test' as ReturnType<typeof import('@apex/ai-core').createWorkspaceId>
-
 const mockVariables: RepositoryPromptVariables = {
   summary: {
     name: 'my-app',
@@ -36,7 +34,6 @@ const mockVariables: RepositoryPromptVariables = {
   insights: [
     {
       id: 'insight-001',
-      workspaceId: WORKSPACE_ID,
       title: 'No automated tests detected',
       description: 'No Jest or Vitest configuration found.',
       confidence: 1,

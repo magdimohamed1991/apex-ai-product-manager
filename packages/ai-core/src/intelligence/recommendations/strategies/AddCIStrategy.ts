@@ -8,7 +8,7 @@ export class AddCIStrategy implements RecommendationStrategy {
     return insight.tags.includes('no-ci')
   }
 
-  recommend(insight: Insight, workspaceId: WorkspaceId): Recommendation {
+  recommend(_insight: Insight, workspaceId: WorkspaceId): Recommendation {
     return {
       id: crypto.randomUUID(),
       workspaceId,

@@ -133,7 +133,7 @@ export class CorrelationFindingBuilder {
 
   private buildConfidenceReason(
     candidate: CorrelationCandidate,
-    evidence: Evidence[],
+    _evidence: Evidence[],
     confidence: number
   ): string {
     return [

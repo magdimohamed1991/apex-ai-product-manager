@@ -8,7 +8,7 @@ export class AddTestingStrategy implements RecommendationStrategy {
     return insight.tags.includes('no-tests')
   }
 
-  recommend(insight: Insight, workspaceId: WorkspaceId): Recommendation {
+  recommend(_insight: Insight, workspaceId: WorkspaceId): Recommendation {
     return {
       id: crypto.randomUUID(),
       workspaceId,

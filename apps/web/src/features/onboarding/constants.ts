@@ -44,7 +44,7 @@ export const DEFAULT_INTEGRATIONS: Integration[] = [
     status: 'idle',
   },
   {
-    id: 'google-play',
+    id: 'google_play',
     name: 'Google Play',
     description: 'Store reviews & ratings',
     placeholder: 'com.your.app',
@@ -52,7 +52,7 @@ export const DEFAULT_INTEGRATIONS: Integration[] = [
     status: 'idle',
   },
   {
-    id: 'app-store',
+    id: 'app_store',
     name: 'App Store',
     description: 'Store reviews & ratings',
     placeholder: 'App Store URL or ID',
