@@ -12,13 +12,16 @@ export class AddCIStrategy implements RecommendationStrategy {
     return {
       id: crypto.randomUUID(),
       workspaceId,
+      origin: 'insight',
       title: 'Set up a CI pipeline',
-      reason: 'No GitHub Actions or CI configuration was found.',
+      rationale: 'No GitHub Actions or CI configuration was found.',
       impact: 'Prevents broken code from reaching the main branch.',
       effort: 'low',
       priority: 'medium',
       confidence: 0.95,
-      relatedFindings: [],
+      insightIds: [],
+      findingIds: [],
+      proposedActions: [],
       createdAt: new Date(),
     }
   }

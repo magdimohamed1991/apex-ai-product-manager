@@ -24,7 +24,8 @@ export class ExplanationBuilder {
     return {
       id: crypto.randomUUID(),
       workspaceId,
-      insightId: insight.id,
+      insightIds: [insight.id],
+      findingIds: [],
       summary: this.buildSummary(ruleResult, relatedEvidence),
       evidenceIds: relatedEvidence.map((e) => e.id),
       appliedRules: [ruleResult.ruleId],

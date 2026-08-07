@@ -12,13 +12,16 @@ export class AddTestingStrategy implements RecommendationStrategy {
     return {
       id: crypto.randomUUID(),
       workspaceId,
+      origin: 'insight',
       title: 'Introduce automated testing',
-      reason: 'No test suite was detected in the repository.',
+      rationale: 'No test suite was detected in the repository.',
       impact: 'Reduces regression risk and enables safe refactoring.',
       effort: 'medium',
       priority: 'high',
       confidence: 0.95,
-      relatedFindings: [],
+      insightIds: [],
+      findingIds: [],
+      proposedActions: [],
       createdAt: new Date(),
     }
   }

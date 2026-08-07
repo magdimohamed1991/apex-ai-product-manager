@@ -42,9 +42,10 @@ const mockInsight: Insight = {
 describe('ExplanationBuilder', () => {
   const builder = new ExplanationBuilder()
 
-  it('creates an explanation with the correct insightId', () => {
+  it('creates an explanation with the correct insightIds', () => {
     const explanation = builder.build(mockInsight, mockRuleResult, [mockEvidence], WORKSPACE_ID)
-    expect(explanation.insightId).toBe('insight-001')
+    expect(explanation.insightIds).toEqual(['insight-001'])
+    expect(explanation.findingIds).toEqual([])
   })
 
   it('includes the applied rule id', () => {

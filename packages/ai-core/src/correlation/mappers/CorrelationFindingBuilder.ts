@@ -58,7 +58,8 @@ export class CorrelationFindingBuilder {
     const explanation: Explanation = {
       id: crypto.randomUUID(),
       workspaceId,
-      insightId: finding.id,
+      insightIds: [],
+      findingIds: [finding.id],
       summary: this.buildExplanationSummary(candidate, relatedEvidence),
       evidenceIds: relatedEvidence.map((e) => e.id),
       appliedRules: [candidate.ruleId],

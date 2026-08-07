@@ -83,6 +83,19 @@ describe('CorrelationFindingBuilder', () => {
       expect(result.explanation.appliedRules).toContain('cross-source-correlation')
     })
 
+    it('explanation insightIds is empty (Finding path)', () => {
+      const result = builder.build(validCandidate, multiSourceEvidence, WORKSPACE_ID)
+      if (!('explanation' in result)) throw new Error('Expected explanation')
+      expect(result.explanation.insightIds).toEqual([])
+    })
+
+    it('explanation findingIds contains the finding id', () => {
+      const result = builder.build(validCandidate, multiSourceEvidence, WORKSPACE_ID)
+      if (!('explanation' in result)) throw new Error('Expected explanation')
+      if (!('finding' in result)) throw new Error('Expected finding')
+      expect(result.explanation.findingIds).toContain(result.finding.id)
+    })
+
     it('confidence reason distinguishes score from confidence', () => {
       const result = builder.build(validCandidate, multiSourceEvidence, WORKSPACE_ID)
       if (!('explanation' in result)) throw new Error('Expected explanation')

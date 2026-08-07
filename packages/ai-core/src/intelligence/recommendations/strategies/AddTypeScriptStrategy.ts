@@ -12,13 +12,16 @@ export class AddTypeScriptStrategy implements RecommendationStrategy {
     return {
       id: crypto.randomUUID(),
       workspaceId,
+      origin: 'insight',
       title: 'Migrate to TypeScript',
-      reason: 'The repository uses plain JavaScript without type safety.',
+      rationale: 'The repository uses plain JavaScript without type safety.',
       impact: 'Reduces runtime errors and improves IDE support.',
       effort: 'high',
       priority: 'medium',
       confidence: 0.9,
-      relatedFindings: [],
+      insightIds: [],
+      findingIds: [],
+      proposedActions: [],
       createdAt: new Date(),
     }
   }
