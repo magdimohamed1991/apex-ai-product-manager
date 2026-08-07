@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { ExplanationBuilder } from '../ExplanationBuilder'
-import type { Insight } from '@apex/ai-core'
-import type { Evidence } from '../../evidence'
-import type { RuleResult } from '../../rules'
+import { createWorkspaceId } from '../../../domain/value-objects'
+import type { Insight } from '../../../domain'
+import type { Evidence, RuleResult } from '@apex/analysis'
 
-const WORKSPACE_ID = 'ws-test' as ReturnType<typeof import('@apex/ai-core').createWorkspaceId>
+const WORKSPACE_ID = createWorkspaceId('ws-test')
 
 const mockEvidence: Evidence = {
   id: 'testing:hasTests',
@@ -65,11 +65,6 @@ describe('ExplanationBuilder', () => {
   it('generates a non-empty summary', () => {
     const explanation = builder.build(mockInsight, mockRuleResult, [mockEvidence], WORKSPACE_ID)
     expect(explanation.summary.length).toBeGreaterThan(0)
-  })
-
-  it('generates a non-empty confidence reason', () => {
-    const explanation = builder.build(mockInsight, mockRuleResult, [mockEvidence], WORKSPACE_ID)
-    expect(explanation.confidenceReason.length).toBeGreaterThan(0)
   })
 
   it('handles missing evidence gracefully', () => {

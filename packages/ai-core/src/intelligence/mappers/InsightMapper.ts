@@ -1,10 +1,9 @@
-import type { Insight } from '@apex/ai-core'
-import type { WorkspaceId } from '@apex/ai-core'
-import type { RuleResult } from '../rules'
+import type { Insight, WorkspaceId } from '../../domain'
+import type { RuleResult } from '@apex/analysis'
 
 /**
  * Maps RuleResults to domain Insight entities.
- * This is the boundary between analysis and domain.
+ * This is the boundary between @apex/analysis (rules) and @apex/ai-core (domain).
  */
 export class InsightMapper {
   toInsights(

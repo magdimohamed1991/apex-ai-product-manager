@@ -1,6 +1,5 @@
-import type { Explanation, Insight, WorkspaceId } from '@apex/ai-core'
-import type { Evidence } from '../evidence'
-import type { RuleResult } from '../rules'
+import type { Explanation, Insight, WorkspaceId } from '../../domain'
+import type { Evidence, RuleResult } from '@apex/analysis'
 
 export interface ExplainableInsight {
   insight: Insight
@@ -9,7 +8,7 @@ export interface ExplainableInsight {
 
 /**
  * Builds Explanation entities that link an Insight to its Evidence and Rules.
- * Enables the "Why?" feature — tracing AI output back to ground truth.
+ * Lives in @apex/ai-core because it produces domain entities (Explanation).
  */
 export class ExplanationBuilder {
   build(
@@ -38,9 +37,7 @@ export class ExplanationBuilder {
     if (evidence.length === 0) {
       return `Rule "${ruleResult.ruleId}" matched — no direct evidence reference.`
     }
-
     const facts = evidence.map((e) => `${e.key} = ${JSON.stringify(e.value)}`).join(', ')
-
     return `Rule "${ruleResult.ruleId}" matched because: ${facts}.`
   }
 }

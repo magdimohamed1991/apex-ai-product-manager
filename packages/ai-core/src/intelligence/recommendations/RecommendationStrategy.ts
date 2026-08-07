@@ -1,4 +1,4 @@
-import type { Insight, Recommendation, WorkspaceId } from '@apex/ai-core'
+import type { Insight, Recommendation, WorkspaceId } from '../../domain'
 
 /**
  * A RecommendationStrategy maps an Insight to a Recommendation.

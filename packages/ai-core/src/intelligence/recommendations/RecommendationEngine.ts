@@ -1,4 +1,4 @@
-import type { Insight, Recommendation, WorkspaceId } from '@apex/ai-core'
+import type { Insight, Recommendation, WorkspaceId } from '../../domain'
 import type { RecommendationStrategy } from './RecommendationStrategy'
 
 /**
@@ -20,7 +20,6 @@ export class RecommendationEngine {
 
   generate(insights: Insight[], workspaceId: WorkspaceId): Recommendation[] {
     const recommendations: Recommendation[] = []
-
     for (const insight of insights) {
       for (const strategy of this.strategies) {
         if (strategy.canHandle(insight)) {
@@ -28,11 +27,6 @@ export class RecommendationEngine {
         }
       }
     }
-
     return recommendations
-  }
-
-  get count(): number {
-    return this.strategies.count ?? this.strategies.length
   }
 }

@@ -1,26 +1,23 @@
-import type { Insight, Recommendation, Explanation, WorkspaceId } from '@apex/ai-core'
-import type { RepositoryFiles } from '../repository/StaticRepositoryAnalyzer'
-import type { Evidence } from '../evidence'
-import type { RepositorySummary } from '../repository/RepositorySummary'
-import type { RuleResult } from '../rules'
-import { StaticRepositoryAnalyzer } from '../repository/StaticRepositoryAnalyzer'
-import { EvidenceCollector } from '../evidence/EvidenceCollector'
+import type { Insight, Recommendation, Explanation, WorkspaceId } from '../../domain'
+import type { RepositoryFiles, RepositorySummary, Evidence, RuleResult } from '@apex/analysis'
 import {
+  StaticRepositoryAnalyzer,
+  EvidenceCollector,
   RuleEngine,
   NoTestsRule,
   NoCIRule,
   NoDockerRule,
   MonorepoDetectedRule,
   NoTypeScriptRule,
-} from '../rules'
+} from '@apex/analysis'
 import { InsightMapper } from '../mappers/InsightMapper'
+import { ExplanationBuilder } from '../explainability/ExplanationBuilder'
 import {
   RecommendationEngine,
   AddTestingStrategy,
   AddCIStrategy,
   AddTypeScriptStrategy,
 } from '../recommendations'
-import { ExplanationBuilder } from '../explainability/ExplanationBuilder'
 
 export interface PipelineInput {
   workspaceId: WorkspaceId
@@ -37,7 +34,8 @@ export interface PipelineResult {
 }
 
 /**
- * RepositoryDiscoveryPipeline orchestrates all analysis layers:
+ * RepositoryDiscoveryPipeline — lives in @apex/ai-core.
+ * Orchestrates @apex/analysis (low-level) → domain entities (high-level).
  *
  * Files → Analyzer → Evidence → Rules → Insights+Explanations → Recommendations
  */

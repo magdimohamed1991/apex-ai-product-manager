@@ -1,4 +1,4 @@
-import type { Insight, Recommendation, WorkspaceId } from '@apex/ai-core'
+import type { Insight, Recommendation, WorkspaceId } from '../../../domain'
 import type { RecommendationStrategy } from '../RecommendationStrategy'
 
 export class AddTestingStrategy implements RecommendationStrategy {

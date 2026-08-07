@@ -1,11 +1,14 @@
+// @apex/analysis — Low-level static analysis only.
+// No imports from @apex/ai-core. Depends only on @apex/contracts.
+
 export type { RepositorySummary } from './repository/RepositorySummary'
 export { StaticRepositoryAnalyzer } from './repository/StaticRepositoryAnalyzer'
 export type { RepositoryFiles } from './repository/StaticRepositoryAnalyzer'
 
-export type { Evidence, EvidenceType, EvidenceSource } from './evidence'
-export { EvidenceCollector } from './evidence'
+export type { Evidence, EvidenceSourceReference } from './evidence/Evidence'
+export { EvidenceCollector } from './evidence/EvidenceCollector'
 
-export type { Rule, RuleResult } from './rules'
+export type { Rule, RuleResult } from './rules/Rule'
 export {
   RuleEngine,
   NoTestsRule,
@@ -14,19 +17,3 @@ export {
   MonorepoDetectedRule,
   NoTypeScriptRule,
 } from './rules'
-
-export { InsightMapper } from './mappers'
-
-export type { RecommendationStrategy } from './recommendations'
-export {
-  RecommendationEngine,
-  AddTestingStrategy,
-  AddCIStrategy,
-  AddTypeScriptStrategy,
-} from './recommendations'
-
-export { RepositoryDiscoveryPipeline } from './pipeline'
-export type { PipelineInput, PipelineResult } from './pipeline'
-
-export { ExplanationBuilder } from './explainability'
-export type { ExplainableInsight } from './explainability'
