@@ -79,6 +79,11 @@ describe('AddTestingStrategy', () => {
     expect(rec.origin).toBe('insight')
   })
 
+  it('returns recommendation with correct deduplicationKey', () => {
+    const rec = strategy.recommend(insightInput(makeInsight('i1', ['no-tests'])))
+    expect(rec.deduplicationKey).toBe('add-testing:insight:i1')
+  })
+
   it('returns recommendation with correct insightIds', () => {
     const rec = strategy.recommend(insightInput(makeInsight('i1', ['no-tests'])))
     expect(rec.insightIds).toEqual(['i1'])
@@ -173,6 +178,11 @@ describe('AddCIStrategy', () => {
     expect(rec.origin).toBe('insight')
   })
 
+  it('returns recommendation with correct deduplicationKey', () => {
+    const rec = strategy.recommend(insightInput(makeInsight('i1', ['no-ci'])))
+    expect(rec.deduplicationKey).toBe('add-ci:insight:i1')
+  })
+
   it('returns recommendation with correct insightIds', () => {
     const rec = strategy.recommend(insightInput(makeInsight('i1', ['no-ci'])))
     expect(rec.insightIds).toEqual(['i1'])
@@ -250,6 +260,11 @@ describe('AddTypeScriptStrategy', () => {
   it('returns recommendation with origin insight', () => {
     const rec = strategy.recommend(insightInput(makeInsight('i1', ['no-typescript'])))
     expect(rec.origin).toBe('insight')
+  })
+
+  it('returns recommendation with correct deduplicationKey', () => {
+    const rec = strategy.recommend(insightInput(makeInsight('i1', ['no-typescript'])))
+    expect(rec.deduplicationKey).toBe('add-typescript:insight:i1')
   })
 
   it('returns recommendation with correct insightIds', () => {

@@ -135,10 +135,10 @@ describe('Pipeline correlation → finding → recommendation integration', () =
     }
   })
 
-  it('no duplicate recommendations', () => {
+  it('no duplicate recommendations by deduplicationKey', () => {
     const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
-    const ids = result.recommendations.map((r) => r.id)
-    expect(new Set(ids).size).toBe(ids.length)
+    const keys = result.recommendations.map((r) => r.deduplicationKey)
+    expect(new Set(keys).size).toBe(keys.length)
   })
 
   it('mixed insight and finding recommendations coexist', () => {

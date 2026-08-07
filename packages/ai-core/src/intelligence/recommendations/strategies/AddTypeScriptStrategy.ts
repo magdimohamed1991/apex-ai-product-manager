@@ -16,6 +16,7 @@ export class AddTypeScriptStrategy implements RecommendationStrategy {
       id: crypto.randomUUID(),
       workspaceId: input.workspaceId,
       origin: 'insight',
+      deduplicationKey: `${this.id}:insight:${insight.id}`,
       title: 'Migrate to TypeScript',
       rationale: 'The repository uses plain JavaScript without type safety.',
       impact: 'Reduces runtime errors and improves IDE support.',

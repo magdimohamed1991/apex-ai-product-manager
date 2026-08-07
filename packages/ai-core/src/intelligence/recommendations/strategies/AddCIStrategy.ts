@@ -16,6 +16,7 @@ export class AddCIStrategy implements RecommendationStrategy {
       id: crypto.randomUUID(),
       workspaceId: input.workspaceId,
       origin: 'insight',
+      deduplicationKey: `${this.id}:insight:${insight.id}`,
       title: 'Set up a CI pipeline',
       rationale: 'No GitHub Actions or CI configuration was found.',
       impact: 'Prevents broken code from reaching the main branch.',

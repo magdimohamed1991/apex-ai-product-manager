@@ -13,6 +13,7 @@ export interface Recommendation {
   id: string
   workspaceId: WorkspaceId
   origin: RecommendationOrigin
+  deduplicationKey: string // strategy:origin:sourceEntityId — used to detect semantic duplicates
   title: string
   rationale: string
   impact: string

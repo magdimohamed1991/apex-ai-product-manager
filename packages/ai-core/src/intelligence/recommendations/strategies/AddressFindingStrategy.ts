@@ -21,6 +21,7 @@ export class AddressFindingStrategy implements RecommendationStrategy {
       id: crypto.randomUUID(),
       workspaceId: input.workspaceId,
       origin: 'finding',
+      deduplicationKey: `${this.id}:finding:${finding.id}`,
       title: `Address: ${finding.title}`,
       rationale: finding.description,
       impact: `Addresses ${finding.type} finding with ${finding.severity} severity.`,

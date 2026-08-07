@@ -2,9 +2,16 @@ import type { WorkspaceId, Priority, Severity } from '../value-objects'
 import type { Insight } from './Insight'
 
 /**
- * A Finding is an actionable problem or opportunity derived from one or more Insights.
+ * A Finding is an actionable problem or opportunity synthesized from
+ * either one or more Insights or from cross-source Evidence correlation.
  *
- * Insight (observation) → Finding (actionable signal) → Recommendation → Action
+ * Origin paths:
+ *   Insight (observation) → Finding (actionable signal) → Recommendation → Action
+ *   Evidence → Correlation → Finding (actionable signal) → Recommendation → Action
+ *
+ * Findings originating from correlation will have `correlationId` set
+ * and `relatedInsights` empty. Findings derived from Insights will
+ * have `relatedInsights` populated and `correlationId` absent.
  */
 export type FindingType = 'bug' | 'opportunity' | 'risk' | 'growth'
 

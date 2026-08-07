@@ -74,6 +74,11 @@ describe('AddressFindingStrategy', () => {
     expect(rec.origin).toBe('finding')
   })
 
+  it('returns recommendation with correct deduplicationKey', () => {
+    const rec = strategy.recommend(findingInput(makeFinding({ id: 'f42' })))
+    expect(rec.deduplicationKey).toBe('address-finding:finding:f42')
+  })
+
   it('returns recommendation with correct findingIds', () => {
     const rec = strategy.recommend(findingInput(makeFinding({ id: 'f42' })))
     expect(rec.findingIds).toEqual(['f42'])

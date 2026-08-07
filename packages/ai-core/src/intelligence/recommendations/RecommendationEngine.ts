@@ -21,13 +21,20 @@ export class RecommendationEngine {
 
   generate(insights: Insight[], findings: Finding[], workspaceId: WorkspaceId): Recommendation[] {
     const recommendations: Recommendation[] = []
+    const seen = new Set<string>()
+
+    const addIfNew = (rec: Recommendation) => {
+      if (seen.has(rec.deduplicationKey)) return
+      seen.add(rec.deduplicationKey)
+      recommendations.push(rec)
+    }
 
     for (const insight of insights) {
       const input = { workspaceId, insight }
       for (const strategy of this.strategies) {
         if (!strategy.supportedOrigins.includes('insight')) continue
         if (strategy.canHandle(input)) {
-          recommendations.push(strategy.recommend(input))
+          addIfNew(strategy.recommend(input))
         }
       }
     }
@@ -37,7 +44,7 @@ export class RecommendationEngine {
       for (const strategy of this.strategies) {
         if (!strategy.supportedOrigins.includes('finding')) continue
         if (strategy.canHandle(input)) {
-          recommendations.push(strategy.recommend(input))
+          addIfNew(strategy.recommend(input))
         }
       }
     }

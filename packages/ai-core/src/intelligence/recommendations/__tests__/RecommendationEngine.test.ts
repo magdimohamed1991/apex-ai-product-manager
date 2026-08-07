@@ -52,6 +52,7 @@ function dummyFindingStrategy(): RecommendationStrategy {
         id: crypto.randomUUID(),
         workspaceId: input.workspaceId,
         origin: 'finding',
+        deduplicationKey: `dummy-finding:finding:${input.finding!.id}`,
         title: `Dummy recommendation for ${input.finding!.id}`,
         rationale: 'Dummy',
         impact: 'Dummy',
@@ -158,6 +159,24 @@ describe('RecommendationEngine', () => {
     it('returns empty array for empty insights and findings', () => {
       const recommendations = engine.generate([], [], WORKSPACE_ID)
       expect(recommendations).toEqual([])
+    })
+  })
+
+  describe('deduplication', () => {
+    it('deduplicates recommendations with same deduplicationKey', () => {
+      const insight = makeInsight('i1', ['no-tests'])
+      const rec1 = engine.generate([insight], [], WORKSPACE_ID)
+      const rec2 = engine.generate([insight], [], WORKSPACE_ID)
+      expect(rec1.length).toBe(1)
+      expect(rec2.length).toBe(1)
+      expect(rec1[0].deduplicationKey).toBe(rec2[0].deduplicationKey)
+    })
+
+    it('allows different insights to produce different recommendations', () => {
+      const insights = [makeInsight('i1', ['no-tests']), makeInsight('i2', ['no-ci'])]
+      const recommendations = engine.generate(insights, [], WORKSPACE_ID)
+      const keys = recommendations.map((r) => r.deduplicationKey)
+      expect(new Set(keys).size).toBe(keys.length)
     })
   })
 

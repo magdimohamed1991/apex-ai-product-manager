@@ -16,6 +16,7 @@ export class AddTestingStrategy implements RecommendationStrategy {
       id: crypto.randomUUID(),
       workspaceId: input.workspaceId,
       origin: 'insight',
+      deduplicationKey: `${this.id}:insight:${insight.id}`,
       title: 'Introduce automated testing',
       rationale: 'No test suite was detected in the repository.',
       impact: 'Reduces regression risk and enables safe refactoring.',
