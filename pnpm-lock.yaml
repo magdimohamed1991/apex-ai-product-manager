@@ -123,6 +123,10 @@ importers:
       '@apex/analysis':
         specifier: workspace:*
         version: link:../analysis
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@24.13.3)(@vitest/coverage-v8@4.1.10)(vite@8.2.1(@types/node@24.13.3)(jiti@2.7.0)(yaml@2.9.0))
 
   packages/analysis:
     devDependencies:
@@ -133,6 +137,19 @@ importers:
   packages/config: {}
 
   packages/design-tokens: {}
+
+  packages/prompts:
+    dependencies:
+      '@apex/ai-core':
+        specifier: workspace:*
+        version: link:../ai-core
+      '@apex/analysis':
+        specifier: workspace:*
+        version: link:../analysis
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@24.13.3)(@vitest/coverage-v8@4.1.10)(vite@8.2.1(@types/node@24.13.3)(jiti@2.7.0)(yaml@2.9.0))
 
   packages/shared: {}
 

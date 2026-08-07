@@ -1,4 +1,16 @@
-// @apex/prompts — Versioned prompt templates for all APEX agents
-// Prompts are kept here so changes are tracked in Git and reviewed like code.
-
 export { buildRepositoryIntelligencePrompt } from './builders/repositoryIntelligencePrompt'
+
+export { PromptRenderer } from './renderer/PromptRenderer'
+export type { RenderedPrompt } from './renderer/PromptRenderer'
+
+export { PromptRegistry, promptRegistry } from './registry/PromptRegistry'
+
+export type {
+  RepositoryAssessment,
+  AssessmentRisk,
+  TechnicalDebtAssessment,
+  EngineeringPriority,
+} from './contracts'
+
+export type { RepositoryPromptVariables } from './variables/repository'
+export { serializeSummary, serializeEvidence, serializeInsights } from './variables/repository'
