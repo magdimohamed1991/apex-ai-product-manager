@@ -1,3 +1,5 @@
+import type { SourceType } from '@apex/ai-core'
+
 /**
  * Evidence is a raw fact collected from a source.
  * It contains no opinion — only observable truths.
@@ -15,6 +17,20 @@ export interface Evidence {
   value: unknown
   confidence: number // 0–1
   collectedAt: Date
+  sourceReference?: EvidenceSourceReference
+}
+
+/**
+ * Links Evidence back to its exact origin in an external system.
+ * Enables "Why?" — trace any Finding back to ground truth.
+ */
+export interface EvidenceSourceReference {
+  sourceId: string
+  sourceType: SourceType
+  externalId: string
+  url: string | null
+  title: string
+  capturedAt: Date
 }
 
 export type EvidenceSource =
