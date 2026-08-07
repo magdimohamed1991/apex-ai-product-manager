@@ -1,5 +1,5 @@
 {
-  "name": "@apex/ai-core",
+  "name": "@apex/analysis",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -8,8 +8,5 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     }
-  },
-  "dependencies": {
-    "@apex/analysis": "workspace:*"
   }
 }

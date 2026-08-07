@@ -50,6 +50,12 @@ importers:
 
   apps/web:
     dependencies:
+      '@apex/ai-core':
+        specifier: workspace:*
+        version: link:../../packages/ai-core
+      '@apex/analysis':
+        specifier: workspace:*
+        version: link:../../packages/analysis
       '@apex/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
@@ -106,9 +112,19 @@ importers:
         specifier: ^8.2.0
         version: 8.2.1(@types/node@24.13.3)(jiti@2.7.0)(yaml@2.9.0)
 
+  packages/ai-core:
+    dependencies:
+      '@apex/analysis':
+        specifier: workspace:*
+        version: link:../analysis
+
+  packages/analysis: {}
+
   packages/config: {}
 
   packages/design-tokens: {}
+
+  packages/shared: {}
 
   packages/ui:
     dependencies:
