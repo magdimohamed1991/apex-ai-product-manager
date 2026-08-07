@@ -14,5 +14,6 @@ export interface Insight {
   source: IntegrationType
   evidence: string[]
   tags: string[]
+  explanationId?: string // link to Explanation entity
   createdAt: Date
 }

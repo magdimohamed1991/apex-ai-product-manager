@@ -1,0 +1,46 @@
+import type { Explanation, Insight, WorkspaceId } from '@apex/ai-core'
+import type { Evidence } from '../evidence'
+import type { RuleResult } from '../rules'
+
+export interface ExplainableInsight {
+  insight: Insight
+  explanation: Explanation
+}
+
+/**
+ * Builds Explanation entities that link an Insight to its Evidence and Rules.
+ * Enables the "Why?" feature — tracing AI output back to ground truth.
+ */
+export class ExplanationBuilder {
+  build(
+    insight: Insight,
+    ruleResult: RuleResult,
+    evidence: Evidence[],
+    workspaceId: WorkspaceId
+  ): Explanation {
+    const relatedEvidence = evidence.filter((e) => ruleResult.evidenceIds.includes(e.id))
+
+    const evidenceDescriptions = relatedEvidence.map((e) => `${e.key}: ${JSON.stringify(e.value)}`)
+
+    return {
+      id: crypto.randomUUID(),
+      workspaceId,
+      insightId: insight.id,
+      summary: this.buildSummary(ruleResult, relatedEvidence),
+      evidence: evidenceDescriptions,
+      appliedRules: [ruleResult.ruleId],
+      confidenceReason: `Deterministic rule "${ruleResult.ruleId}" matched with 100% confidence based on static file analysis.`,
+      createdAt: new Date(),
+    }
+  }
+
+  private buildSummary(ruleResult: RuleResult, evidence: Evidence[]): string {
+    if (evidence.length === 0) {
+      return `Rule "${ruleResult.ruleId}" matched — no direct evidence reference.`
+    }
+
+    const facts = evidence.map((e) => `${e.key} = ${JSON.stringify(e.value)}`).join(', ')
+
+    return `Rule "${ruleResult.ruleId}" matched because: ${facts}.`
+  }
+}

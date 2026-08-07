@@ -27,3 +27,6 @@ export {
 
 export { RepositoryDiscoveryPipeline } from './pipeline'
 export type { PipelineInput, PipelineResult } from './pipeline'
+
+export { ExplanationBuilder } from './explainability'
+export type { ExplainableInsight } from './explainability'
