@@ -1,0 +1,1 @@
+export { InsightMapper } from './InsightMapper'
