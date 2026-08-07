@@ -82,4 +82,68 @@ describe('RepositoryDiscoveryPipeline (in ai-core)', () => {
     const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
     expect(result.durationMs).toBeGreaterThanOrEqual(0)
   })
+
+  it('produces findings array', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    expect(Array.isArray(result.findings)).toBe(true)
+  })
+})
+
+describe('Pipeline correlation → finding → recommendation integration', () => {
+  const pipeline = new RepositoryDiscoveryPipeline()
+
+  it('insight recommendations have origin insight', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const insightRecs = result.recommendations.filter((r) => r.origin === 'insight')
+    expect(insightRecs.length).toBeGreaterThan(0)
+    for (const rec of insightRecs) {
+      expect(rec.insightIds.length).toBeGreaterThan(0)
+      expect(rec.findingIds).toEqual([])
+    }
+  })
+
+  it('finding recommendations have origin finding when findings exist', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const findingRecs = result.recommendations.filter((r) => r.origin === 'finding')
+    for (const rec of findingRecs) {
+      expect(rec.findingIds.length).toBeGreaterThan(0)
+      expect(rec.insightIds).toEqual([])
+    }
+  })
+
+  it('findings have correlationId when derived from correlation', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    for (const finding of result.findings) {
+      expect(finding.correlationId).toBeDefined()
+    }
+  })
+
+  it('findings have evidenceIds', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    for (const finding of result.findings) {
+      expect(finding.evidenceIds.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('no finding reaches insight-only strategies', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const findingRecs = result.recommendations.filter((r) => r.origin === 'finding')
+    for (const rec of findingRecs) {
+      expect(rec.title).not.toContain('Introduce automated testing')
+      expect(rec.title).not.toContain('Set up a CI pipeline')
+      expect(rec.title).not.toContain('Migrate to TypeScript')
+    }
+  })
+
+  it('no duplicate recommendations', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const ids = result.recommendations.map((r) => r.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('mixed insight and finding recommendations coexist', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const origins = new Set(result.recommendations.map((r) => r.origin))
+    expect(origins.has('insight')).toBe(true)
+  })
 })

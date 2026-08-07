@@ -1,5 +1,7 @@
 export type { RecommendationStrategy } from './RecommendationStrategy'
+export type { RecommendationInput } from './RecommendationInput'
 export { RecommendationEngine } from './RecommendationEngine'
 export { AddTestingStrategy } from './strategies/AddTestingStrategy'
 export { AddCIStrategy } from './strategies/AddCIStrategy'
 export { AddTypeScriptStrategy } from './strategies/AddTypeScriptStrategy'
+export { AddressFindingStrategy } from './strategies/AddressFindingStrategy'

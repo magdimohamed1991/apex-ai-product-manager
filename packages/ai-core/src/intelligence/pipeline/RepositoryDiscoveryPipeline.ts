@@ -1,4 +1,4 @@
-import type { Insight, Recommendation, Explanation, WorkspaceId } from '../../domain'
+import type { Insight, Finding, Recommendation, Explanation, WorkspaceId } from '../../domain'
 import type { RepositoryFiles, RepositorySummary, Evidence, RuleResult } from '@apex/analysis'
 import {
   StaticRepositoryAnalyzer,
@@ -12,11 +12,13 @@ import {
 } from '@apex/analysis'
 import { InsightMapper } from '../mappers/InsightMapper'
 import { ExplanationBuilder } from '../explainability/ExplanationBuilder'
+import { CorrelationEngine, CorrelationFindingBuilder } from '../../correlation'
 import {
   RecommendationEngine,
   AddTestingStrategy,
   AddCIStrategy,
   AddTypeScriptStrategy,
+  AddressFindingStrategy,
 } from '../recommendations'
 
 export interface PipelineInput {
@@ -28,6 +30,7 @@ export interface PipelineResult {
   summary: RepositorySummary
   evidence: Evidence[]
   insights: Insight[]
+  findings: Finding[]
   explanations: Explanation[]
   recommendations: Recommendation[]
   durationMs: number
@@ -37,7 +40,13 @@ export interface PipelineResult {
  * RepositoryDiscoveryPipeline — lives in @apex/ai-core.
  * Orchestrates @apex/analysis (low-level) → domain entities (high-level).
  *
- * Files → Analyzer → Evidence → Rules → Insights+Explanations → Recommendations
+ * Files → Analyzer → Evidence → Rules → Insights+Explanations
+ *                         ↓
+ *                   CorrelationEngine → Findings
+ *                         ↓
+ *               RecommendationEngine (Insight + Finding strategies)
+ *                         ↓
+ *                   Recommendations
  */
 export class RepositoryDiscoveryPipeline {
   private readonly analyzer = new StaticRepositoryAnalyzer()
@@ -51,10 +60,13 @@ export class RepositoryDiscoveryPipeline {
   ])
   private readonly mapper = new InsightMapper()
   private readonly explanationBuilder = new ExplanationBuilder()
+  private readonly correlationEngine = new CorrelationEngine()
+  private readonly findingBuilder = new CorrelationFindingBuilder()
   private readonly recommendationEngine = new RecommendationEngine().registerMany([
     new AddTestingStrategy(),
     new AddCIStrategy(),
     new AddTypeScriptStrategy(),
+    new AddressFindingStrategy(),
   ])
 
   run(input: PipelineInput): PipelineResult {
@@ -70,12 +82,19 @@ export class RepositoryDiscoveryPipeline {
       input.workspaceId
     )
 
-    const recommendations = this.recommendationEngine.generate(insights, [], input.workspaceId)
+    const findings = this.buildFindings(evidence, input.workspaceId)
+
+    const recommendations = this.recommendationEngine.generate(
+      insights,
+      findings,
+      input.workspaceId
+    )
 
     return {
       summary,
       evidence,
       insights,
+      findings,
       explanations,
       recommendations,
       durationMs: Date.now() - start,
@@ -99,5 +118,19 @@ export class RepositoryDiscoveryPipeline {
     }
 
     return { insights, explanations }
+  }
+
+  private buildFindings(evidence: Evidence[], workspaceId: WorkspaceId): Finding[] {
+    const findings: Finding[] = []
+    const correlationResult = this.correlationEngine.evaluate(evidence)
+
+    for (const candidate of correlationResult.candidates) {
+      const result = this.findingBuilder.build(candidate, evidence, workspaceId)
+      if ('finding' in result) {
+        findings.push(result.finding)
+      }
+    }
+
+    return findings
   }
 }
