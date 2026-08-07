@@ -1,0 +1,13 @@
+export type MetricType =
+  | 'conversion'
+  | 'retention'
+  | 'activation'
+  | 'revenue'
+  | 'engagement'
+  | 'nps'
+  | 'churn'
+  | 'dau'
+  | 'mau'
+  | 'arpu'
+  | 'ltv'
+  | 'cac'
