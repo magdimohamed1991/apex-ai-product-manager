@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { RepositoryDiscoveryAgent, agentRegistry, createWorkspaceId } from '@apex/ai-core'
-import type { Insight } from '@apex/ai-core'
+import type { Insight, PipelineInput, PipelineResult } from '@apex/ai-core'
 import { MOCK_APEX_REPOSITORY } from '../../mock/repository'
 import { cn } from '@apex/ui'
 
@@ -24,13 +24,10 @@ export function DashboardPage() {
     }
 
     const run = async () => {
-      const result = await agentRegistry.execute<
-        { repositoryUrl: string; files: typeof MOCK_APEX_REPOSITORY },
-        { insights: Insight[]; summary: { score: number } }
-      >(
+      const result = await agentRegistry.execute<PipelineInput, PipelineResult>(
         'repository-discovery',
         {
-          repositoryUrl: MOCK_APEX_REPOSITORY.url,
+          workspaceId: createWorkspaceId('mock-workspace-001'),
           files: MOCK_APEX_REPOSITORY,
         },
         {
@@ -67,7 +64,7 @@ export function DashboardPage() {
           <div>
             <h1 className="text-2xl font-bold text-white">APEX Dashboard</h1>
             <p className="mt-1 text-sm text-slate-400">
-              Repository Discovery Agent · {insights.length} insights generated
+              Repository Discovery Pipeline · {insights.length} insights
             </p>
           </div>
           {score !== null && (

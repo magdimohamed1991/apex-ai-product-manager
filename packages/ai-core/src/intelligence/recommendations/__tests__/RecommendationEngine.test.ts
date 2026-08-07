@@ -178,6 +178,39 @@ describe('RecommendationEngine', () => {
       const keys = recommendations.map((r) => r.deduplicationKey)
       expect(new Set(keys).size).toBe(keys.length)
     })
+
+    it('deduplicates when two strategies produce same key for same entity', () => {
+      const duplicateKeyStrategy: RecommendationStrategy = {
+        id: 'duplicate-test',
+        supportedOrigins: ['insight'],
+        canHandle: (input) => input.insight?.tags.includes('no-tests') ?? false,
+        recommend: (input) => ({
+          id: crypto.randomUUID(),
+          workspaceId: input.workspaceId,
+          origin: 'insight',
+          deduplicationKey: `add-testing:insight:${input.insight!.id}`,
+          title: 'Duplicate recommendation',
+          rationale: 'Same key as AddTestingStrategy',
+          impact: 'test',
+          effort: 'low',
+          priority: 'medium',
+          confidence: 0.5,
+          insightIds: [input.insight!.id],
+          findingIds: [],
+          proposedActions: [],
+          createdAt: new Date(),
+        }),
+      }
+
+      const engineWithDup = new RecommendationEngine()
+        .register(new AddTestingStrategy())
+        .register(duplicateKeyStrategy)
+
+      const insight = makeInsight('i1', ['no-tests'])
+      const recommendations = engineWithDup.generate([insight], [], WORKSPACE_ID)
+      expect(recommendations.length).toBe(1)
+      expect(recommendations[0].title).toBe('Introduce automated testing')
+    })
   })
 
   describe('supportedOrigins filtering', () => {

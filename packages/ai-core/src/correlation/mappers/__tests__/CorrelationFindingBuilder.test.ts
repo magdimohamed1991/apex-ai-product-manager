@@ -96,6 +96,13 @@ describe('CorrelationFindingBuilder', () => {
       expect(result.explanation.findingIds).toContain(result.finding.id)
     })
 
+    it('finding evidenceIds match explanation evidenceIds', () => {
+      const result = builder.build(validCandidate, multiSourceEvidence, WORKSPACE_ID)
+      if (!('finding' in result)) throw new Error('Expected finding')
+      if (!('explanation' in result)) throw new Error('Expected explanation')
+      expect(result.finding.evidenceIds).toEqual(result.explanation.evidenceIds)
+    })
+
     it('confidence reason distinguishes score from confidence', () => {
       const result = builder.build(validCandidate, multiSourceEvidence, WORKSPACE_ID)
       if (!('explanation' in result)) throw new Error('Expected explanation')
