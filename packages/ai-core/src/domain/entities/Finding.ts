@@ -17,6 +17,7 @@ export interface Finding {
   priority: Priority
   severity: Severity
   relatedInsights: Insight['id'][]
+  evidenceIds: string[] // direct evidence provenance
   correlationId?: string // set when Finding originates from Correlation Engine
   createdAt: Date
 }

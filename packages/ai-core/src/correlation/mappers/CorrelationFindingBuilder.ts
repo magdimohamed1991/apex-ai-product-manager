@@ -50,6 +50,7 @@ export class CorrelationFindingBuilder {
       priority: this.inferPriority(candidate.score),
       severity: this.inferSeverity(candidate.score),
       relatedInsights: [],
+      evidenceIds: relatedEvidence.map((e) => e.id),
       correlationId: candidate.id,
       createdAt: new Date(),
     }
@@ -59,7 +60,7 @@ export class CorrelationFindingBuilder {
       workspaceId,
       insightId: finding.id,
       summary: this.buildExplanationSummary(candidate, relatedEvidence),
-      evidence: relatedEvidence.map((e) => `[${e.source}] ${e.key}: ${JSON.stringify(e.value)}`),
+      evidenceIds: relatedEvidence.map((e) => e.id),
       appliedRules: [candidate.ruleId],
       confidenceReason: this.buildConfidenceReason(candidate, relatedEvidence, confidence),
       createdAt: new Date(),

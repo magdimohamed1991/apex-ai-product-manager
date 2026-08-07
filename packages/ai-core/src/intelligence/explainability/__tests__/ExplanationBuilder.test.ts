@@ -52,9 +52,9 @@ describe('ExplanationBuilder', () => {
     expect(explanation.appliedRules).toContain('no-tests')
   })
 
-  it('includes evidence description', () => {
+  it('includes evidence id in evidenceIds', () => {
     const explanation = builder.build(mockInsight, mockRuleResult, [mockEvidence], WORKSPACE_ID)
-    expect(explanation.evidence.some((e) => e.includes('hasTests'))).toBe(true)
+    expect(explanation.evidenceIds).toContain('testing:hasTests')
   })
 
   it('sets workspaceId correctly', () => {

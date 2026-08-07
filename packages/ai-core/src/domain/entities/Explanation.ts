@@ -2,17 +2,17 @@ import type { WorkspaceId } from '../value-objects'
 
 /**
  * An Explanation describes WHY an Insight was generated.
- * It links back to raw Evidence and the Rules that matched.
+ * It links back to raw Evidence IDs and the Rules that matched.
  *
- * This enables the "Why?" button in the UI —
- * the user can always trace an AI recommendation back to ground truth.
+ * The UI fetches Evidence by ID to display the "Why?" details.
+ * We store IDs here — not descriptions — to keep provenance traceable.
  */
 export interface Explanation {
   id: string
   workspaceId: WorkspaceId
   insightId: string
   summary: string
-  evidence: string[] // evidence ids or human-readable descriptions
+  evidenceIds: string[] // IDs into the Evidence store — never descriptions
   appliedRules: string[] // rule ids
   confidenceReason: string
   createdAt: Date

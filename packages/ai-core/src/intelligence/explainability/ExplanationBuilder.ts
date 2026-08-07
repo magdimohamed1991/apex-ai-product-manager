@@ -9,6 +9,8 @@ export interface ExplainableInsight {
 /**
  * Builds Explanation entities that link an Insight to its Evidence and Rules.
  * Lives in @apex/ai-core because it produces domain entities (Explanation).
+ *
+ * Stores evidenceIds (not descriptions) — UI fetches Evidence by ID.
  */
 export class ExplanationBuilder {
   build(
@@ -19,14 +21,12 @@ export class ExplanationBuilder {
   ): Explanation {
     const relatedEvidence = evidence.filter((e) => ruleResult.evidenceIds.includes(e.id))
 
-    const evidenceDescriptions = relatedEvidence.map((e) => `${e.key}: ${JSON.stringify(e.value)}`)
-
     return {
       id: crypto.randomUUID(),
       workspaceId,
       insightId: insight.id,
       summary: this.buildSummary(ruleResult, relatedEvidence),
-      evidence: evidenceDescriptions,
+      evidenceIds: relatedEvidence.map((e) => e.id),
       appliedRules: [ruleResult.ruleId],
       confidenceReason: `Deterministic rule "${ruleResult.ruleId}" matched with 100% confidence based on static file analysis.`,
       createdAt: new Date(),

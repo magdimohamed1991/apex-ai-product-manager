@@ -69,7 +69,7 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
   }
 
   private buildPrompt(request: RepositoryAssessmentRequest): string {
-    const { repository, insights, evidence: _evidence } = request
+    const { repository, insights, evidence } = request
 
     const summarySection = [
       `Name: ${repository.name}`,
@@ -86,6 +86,11 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       `Readiness Score: ${repository.score}/100`,
     ].join('\n')
 
+    const evidenceSection =
+      evidence.length > 0
+        ? evidence.map((e) => `- [${e.type}] ${e.key}: ${this.safeSerialize(e.value)}`).join('\n')
+        : '- No structured evidence available'
+
     const insightsSection =
       insights.length > 0
         ? insights
@@ -101,6 +106,9 @@ Return ONLY valid JSON — no Markdown, no explanation.
 ## Repository Summary
 ${summarySection}
 
+## Evidence (structured facts from static analysis)
+${evidenceSection}
+
 ## Static Analysis Insights
 ${insightsSection}
 
@@ -113,6 +121,17 @@ ${insightsSection}
   "engineeringPriorities": [{"rank":number,"title":"string","rationale":"string","effort":"low|medium|high","impact":"low|medium|high"}],
   "confidence": number
 }`
+  }
+
+  private safeSerialize(value: unknown): string {
+    if (value === null || value === undefined) return 'null'
+    if (typeof value === 'string') return value
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return '[unserializable]'
+    }
   }
 
   private getValidMockResponse(): string {

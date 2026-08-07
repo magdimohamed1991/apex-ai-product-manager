@@ -37,6 +37,7 @@ const mockRequest: RepositoryAssessmentRequest = {
     updatedAt: new Date(),
   },
   repository: mockSummary,
+  evidence: [],
   insights: [],
   findings: [],
   recommendations: [],
