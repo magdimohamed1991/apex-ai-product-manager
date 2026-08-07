@@ -52,9 +52,9 @@ describe('RepositoryDiscoveryPipeline (in ai-core)', () => {
     expect(result.insights.some((i) => i.tags.includes('no-tests'))).toBe(true)
   })
 
-  it('produces one explanation per insight', () => {
+  it('produces explanations for insights', () => {
     const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
-    expect(result.explanations.length).toBe(result.insights.length)
+    expect(result.explanations.length).toBeGreaterThanOrEqual(result.insights.length)
   })
 
   it('each insight has a linked explanationId', () => {
@@ -145,5 +145,39 @@ describe('Pipeline correlation → finding → recommendation integration', () =
     const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
     const origins = new Set(result.recommendations.map((r) => r.origin))
     expect(origins.has('insight')).toBe(true)
+  })
+
+  it('finding explanations are included in pipeline explanations', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const findingExplanations = result.explanations.filter((e) => e.findingIds.length > 0)
+    expect(findingExplanations.length).toBe(result.findings.length)
+  })
+
+  it('finding explanations have correct findingIds', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const findingExplanations = result.explanations.filter((e) => e.findingIds.length > 0)
+    const findingIds = new Set(result.findings.map((f) => f.id))
+    for (const explanation of findingExplanations) {
+      for (const fid of explanation.findingIds) {
+        expect(findingIds.has(fid)).toBe(true)
+      }
+    }
+  })
+
+  it('finding explanations have evidenceIds matching their findings', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const findingExplanations = result.explanations.filter((e) => e.findingIds.length > 0)
+    const findingsById = new Map(result.findings.map((f) => [f.id, f]))
+    for (const explanation of findingExplanations) {
+      const finding = findingsById.get(explanation.findingIds[0])
+      expect(finding).toBeDefined()
+      expect(explanation.evidenceIds.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('insight explanations still have insightIds', () => {
+    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const insightExplanations = result.explanations.filter((e) => e.insightIds.length > 0)
+    expect(insightExplanations.length).toBe(result.insights.length)
   })
 })

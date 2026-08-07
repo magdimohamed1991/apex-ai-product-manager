@@ -76,13 +76,18 @@ export class RepositoryDiscoveryPipeline {
     const evidence = this.collector.collect(summary)
     const ruleResults = this.ruleEngine.evaluate(evidence)
 
-    const { insights, explanations } = this.buildInsightsWithExplanations(
+    const { insights, explanations: insightExplanations } = this.buildInsightsWithExplanations(
       ruleResults,
       evidence,
       input.workspaceId
     )
 
-    const findings = this.buildFindings(evidence, input.workspaceId)
+    const { findings, explanations: findingExplanations } = this.buildFindings(
+      evidence,
+      input.workspaceId
+    )
+
+    const explanations = [...insightExplanations, ...findingExplanations]
 
     const recommendations = this.recommendationEngine.generate(
       insights,
@@ -120,17 +125,22 @@ export class RepositoryDiscoveryPipeline {
     return { insights, explanations }
   }
 
-  private buildFindings(evidence: Evidence[], workspaceId: WorkspaceId): Finding[] {
+  private buildFindings(
+    evidence: Evidence[],
+    workspaceId: WorkspaceId
+  ): { findings: Finding[]; explanations: Explanation[] } {
     const findings: Finding[] = []
+    const explanations: Explanation[] = []
     const correlationResult = this.correlationEngine.evaluate(evidence)
 
     for (const candidate of correlationResult.candidates) {
       const result = this.findingBuilder.build(candidate, evidence, workspaceId)
       if ('finding' in result) {
         findings.push(result.finding)
+        explanations.push(result.explanation)
       }
     }
 
-    return findings
+    return { findings, explanations }
   }
 }
