@@ -108,13 +108,15 @@ Every `Recommendation` carries:
 
 The engine deduplicates by tracking seen keys per `generate()` call.
 
+> **Deduplication scope:** Per-run only. The engine does NOT persist deduplication state across calls. Global/persistent deduplication belongs to the repository/persistence layer.
+
 ## Canonical Source Types
 
 Defined in `@apex/contracts`:
 
 ```typescript
 type SourceType =
-  'google_play' | 'app_store' | 'amplitude' | 'github' | 'testflight' | 'firebase' | 'play_console'
+  'github' | 'slack' | 'linear' | 'jira' | 'amplitude' | 'google_play' | 'app_store' | 'website'
 ```
 
 **Not** dashed forms (`google-play`). Always underscores.

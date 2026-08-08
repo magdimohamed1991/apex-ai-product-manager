@@ -5,6 +5,7 @@ export type EffortLevel = 'low' | 'medium' | 'high'
 export type RecommendationOrigin = 'insight' | 'finding'
 
 export interface ProposedAction {
+  id: string
   title: string
   description: string
 }
