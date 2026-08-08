@@ -25,7 +25,19 @@ export class AddTestingStrategy implements RecommendationStrategy {
       confidence: 0.95,
       insightIds: [insight.id],
       findingIds: [],
-      proposedActions: [],
+      proposedActions: [
+        {
+          id: 'add-vitest',
+          title: 'Add Vitest test framework',
+          description: 'Configure Vitest with a baseline test suite and add to CI pipeline.',
+        },
+        {
+          id: 'add-first-tests',
+          title: 'Write baseline repository tests',
+          description:
+            'Add 3-5 smoke tests covering critical paths to establish test coverage baseline.',
+        },
+      ],
       createdAt: new Date(),
     }
   }

@@ -70,6 +70,7 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
     let hasValidCorrelation = false
     const correlatedEvidenceIds = new Set<string>()
     const correlatedSharedKeys: string[] = []
+    const correlatedSources = new Set<string>()
 
     for (const sharedKey of sharedKeys) {
       const keyEvidenceBySource = new Map<string, Evidence[]>()
@@ -97,7 +98,8 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
       if (keyHasTemporalOverlap) {
         hasValidCorrelation = true
         correlatedSharedKeys.push(sharedKey)
-        for (const items of keyEvidenceBySource.values()) {
+        for (const [source, items] of keyEvidenceBySource.entries()) {
+          correlatedSources.add(source)
           for (const item of items) {
             correlatedEvidenceIds.add(item.id)
           }
@@ -109,24 +111,29 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
       return []
     }
 
+    if (correlatedSources.size < MIN_SOURCES) {
+      return []
+    }
+
     // ── Build candidate ──────────────────────────────────────────────────────
+    // Only count sources that actually participate in the correlated signal
     const allEvidence = activeSources.flatMap(([, items]) => items)
     const contributingEvidence = allEvidence.filter((e) => correlatedEvidenceIds.has(e.id))
     const totalUniqueKeys = new Set(activeSources.flatMap(([, items]) => items.map((e) => e.key)))
       .size
     const topicSimilarity = Math.min(correlatedSharedKeys.length / totalUniqueKeys, 1)
 
-    const sourceTypes = activeSources.map(
-      ([source]) => source
-    ) as CorrelationCandidate['sourceTypes']
+    const correlatedSourceTypes = [
+      ...correlatedSources,
+    ].sort() as CorrelationCandidate['sourceTypes']
 
     return [
       {
-        id: `${this.id}:${sourceTypes.sort().join('-')}`,
+        id: `${this.id}:${correlatedSourceTypes.join('-')}:${correlatedSharedKeys.sort().join('-')}`,
         evidenceIds: contributingEvidence.map((e) => e.id),
-        sourceTypes,
-        score: scoreCorrelation(sourceTypes, contributingEvidence, topicSimilarity),
-        reason: `Signals were detected across ${activeSources.length} independent sources (${sourceTypes.join(', ')}) with shared subject matter (${correlatedSharedKeys.join(', ')}) and temporal proximity. Higher confidence from source diversity — not from proven causation. Cross-referencing these signals may surface a common underlying issue.`,
+        sourceTypes: correlatedSourceTypes,
+        score: scoreCorrelation(correlatedSourceTypes, contributingEvidence, topicSimilarity),
+        reason: `Signals were detected across ${correlatedSourceTypes.length} independent sources (${correlatedSourceTypes.join(', ')}) with shared subject matter (${correlatedSharedKeys.join(', ')}) and temporal proximity. Higher confidence from source diversity — not from proven causation. Cross-referencing these signals may surface a common underlying issue.`,
         ruleId: this.id,
         createdAt: new Date(),
       },

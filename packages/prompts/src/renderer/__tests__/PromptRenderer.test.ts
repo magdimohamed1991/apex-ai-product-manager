@@ -77,6 +77,8 @@ const mockVariables: RepositoryPromptVariables = {
       evidenceIds: ['amp-checkout', 'gh-checkout'],
       appliedRules: ['metric-code-correlation'],
       confidenceReason: 'High confidence from temporal overlap of metric drop and code change',
+      findingIds: ['finding-1'],
+      insightIds: [],
     },
   ],
 }
@@ -99,9 +101,10 @@ describe('PromptRenderer', () => {
     expect(rendered.content).toContain('No automated tests detected')
   })
 
-  it('includes evidence in prompt', () => {
+  it('includes evidence ID and source in prompt', () => {
     const rendered = renderer.renderRepositoryIntelligence(mockVariables)
-    expect(rendered.content).toContain('hasTests')
+    expect(rendered.content).toContain('ID: testing:hasTests')
+    expect(rendered.content).toContain('Source: github')
   })
 
   it('instructs LLM to return JSON not Markdown', () => {
@@ -162,5 +165,10 @@ describe('PromptRenderer', () => {
     const rendered = renderer.renderRepositoryIntelligence(mockVariables)
     expect(rendered.content).toContain('amp-checkout')
     expect(rendered.content).toContain('gh-checkout')
+  })
+
+  it('includes explanation finding IDs in prompt', () => {
+    const rendered = renderer.renderRepositoryIntelligence(mockVariables)
+    expect(rendered.content).toContain('Findings: finding-1')
   })
 })

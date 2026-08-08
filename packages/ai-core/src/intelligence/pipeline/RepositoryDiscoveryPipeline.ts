@@ -9,6 +9,7 @@ import {
   NoDockerRule,
   MonorepoDetectedRule,
   NoTypeScriptRule,
+  createEvidence,
 } from '@apex/analysis'
 import { InsightMapper } from '../mappers/InsightMapper'
 import { ExplanationBuilder } from '../explainability/ExplanationBuilder'
@@ -76,6 +77,12 @@ export class RepositoryDiscoveryPipeline {
     const summary = this.analyzer.analyze(input.files)
     const repoEvidence = this.collector.collect(summary)
     const evidence = [...repoEvidence, ...(input.externalEvidence ?? [])]
+
+    // Validate external evidence provenance at ingestion boundary
+    for (const e of input.externalEvidence ?? []) {
+      createEvidence(e)
+    }
+
     const ruleResults = this.ruleEngine.evaluate(evidence)
 
     const { insights, explanations: insightExplanations } = this.buildInsightsWithExplanations(

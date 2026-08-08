@@ -120,9 +120,9 @@ describe('AddTestingStrategy', () => {
     expect(rec.confidence).toBeLessThanOrEqual(1)
   })
 
-  it('returns recommendation with proposedActions array', () => {
+  it('returns recommendation with non-empty proposedActions', () => {
     const rec = strategy.recommend(insightInput(makeInsight('i1', ['no-tests'])))
-    expect(Array.isArray(rec.proposedActions)).toBe(true)
+    expect(rec.proposedActions.length).toBeGreaterThan(0)
   })
 
   it('returns recommendation with workspaceId', () => {
@@ -224,9 +224,9 @@ describe('AddCIStrategy', () => {
     expect(rec.findingIds).toEqual([])
   })
 
-  it('returns recommendation with proposedActions array', () => {
+  it('returns recommendation with non-empty proposedActions', () => {
     const rec = strategy.recommend(insightInput(makeInsight('i1', ['no-ci'])))
-    expect(Array.isArray(rec.proposedActions)).toBe(true)
+    expect(rec.proposedActions.length).toBeGreaterThan(0)
   })
 })
 
@@ -308,8 +308,8 @@ describe('AddTypeScriptStrategy', () => {
     expect(rec.findingIds).toEqual([])
   })
 
-  it('returns recommendation with proposedActions array', () => {
+  it('returns recommendation with non-empty proposedActions', () => {
     const rec = strategy.recommend(insightInput(makeInsight('i1', ['no-typescript'])))
-    expect(Array.isArray(rec.proposedActions)).toBe(true)
+    expect(rec.proposedActions.length).toBeGreaterThan(0)
   })
 })

@@ -25,7 +25,13 @@ export class AddCIStrategy implements RecommendationStrategy {
       confidence: 0.95,
       insightIds: [insight.id],
       findingIds: [],
-      proposedActions: [],
+      proposedActions: [
+        {
+          id: 'add-github-actions',
+          title: 'Create GitHub Actions workflow',
+          description: 'Add .github/workflows/ci.yml with lint, typecheck, test, and build steps.',
+        },
+      ],
       createdAt: new Date(),
     }
   }

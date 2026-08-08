@@ -30,7 +30,13 @@ export class AddressFindingStrategy implements RecommendationStrategy {
       confidence: 0.8,
       insightIds: [],
       findingIds: [finding.id],
-      proposedActions: [],
+      proposedActions: [
+        {
+          id: `address-${finding.id}`,
+          title: `Investigate: ${finding.title}`,
+          description: `Review and address the ${finding.severity} severity ${finding.type} finding.`,
+        },
+      ],
       createdAt: new Date(),
     }
   }

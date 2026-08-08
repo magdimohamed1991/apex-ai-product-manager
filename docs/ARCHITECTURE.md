@@ -17,17 +17,27 @@ apex-ai-product-manager/
     └── web/            @apex/web            Dashboard (React/Vite)
 ```
 
-## Dependency Direction
+## Package Dependency Rules
+
+The monorepo follows a strict dependency direction:
 
 ```
-contracts ← analysis ← ai-core ← web
-                ↑           ↑
-            prompts → contracts + analysis
-            ai-core → prompts
+ai-core → prompts → analysis → contracts
+ai-core → analysis
+ai-core → contracts
 ```
 
-**Hard rule:** `prompts` never imports from `ai-core`.
-`ai-core` imports `prompts` only for prompt construction — no domain logic lives in `prompts`.
+### Rules
+
+- `@apex/ai-core` MAY depend on `@apex/prompts`
+- `@apex/prompts` MUST NEVER depend on `@apex/ai-core`
+- `@apex/prompts` MAY depend on `@apex/analysis` and `@apex/contracts`
+- `@apex/analysis` MUST NEVER depend on `@apex/ai-core` or `@apex/prompts`
+- `@apex/contracts` has no internal dependencies (leaf package)
+
+### Rationale
+
+This ensures domain logic (`ai-core`) can use prompt rendering, but prompt rendering cannot import domain entities. The `prompts` package is limited to prompt construction and rendering — it has access to contract types (DTOs, enums) and analysis utilities (evidence, rules) but never reaches into domain entities, agents, or pipeline orchestration. This keeps prompt logic independently testable and prevents circular dependencies.
 
 ## Domain Model
 

@@ -33,7 +33,12 @@ export function serializeSummary(summary: RepositorySummary): string {
 
 export function serializeEvidence(evidence: Evidence[]): string {
   if (evidence.length === 0) return '- No structured evidence available'
-  return evidence.map((e) => `- [${e.type}] ${e.key}: ${JSON.stringify(e.value)}`).join('\n')
+  return evidence
+    .map(
+      (e) =>
+        `- [${e.type}] ${e.key}\n  ID: ${e.id}\n  Source: ${e.source}\n  Value: ${JSON.stringify(e.value)}`
+    )
+    .join('\n')
 }
 
 export function serializeInsights(insights: InsightDTO[]): string {
@@ -70,7 +75,10 @@ export function serializeExplanations(explanations: ExplanationDTO[]): string {
   return explanations
     .map(
       (e) =>
-        `- ${e.summary}\n  Evidence: ${e.evidenceIds.join(', ') || 'none'}\n  Rules: ${e.appliedRules.join(', ')}\n  Confidence: ${e.confidenceReason}`
+        `- ${e.summary}\n  Evidence: ${e.evidenceIds.join(', ') || 'none'}` +
+        (e.findingIds?.length ? `\n  Findings: ${e.findingIds.join(', ')}` : '') +
+        (e.insightIds?.length ? `\n  Insights: ${e.insightIds.join(', ')}` : '') +
+        `\n  Rules: ${e.appliedRules.join(', ')}\n  Confidence: ${e.confidenceReason}`
     )
     .join('\n')
 }

@@ -163,6 +163,8 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       evidenceIds: exp.evidenceIds,
       appliedRules: exp.appliedRules,
       confidenceReason: exp.confidenceReason,
+      insightIds: exp.insightIds,
+      findingIds: exp.findingIds,
     }))
   }
 

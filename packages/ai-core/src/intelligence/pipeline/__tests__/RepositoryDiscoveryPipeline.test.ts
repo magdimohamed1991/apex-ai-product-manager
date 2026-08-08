@@ -83,6 +83,35 @@ describe('RepositoryDiscoveryPipeline (in ai-core)', () => {
     expect(result.durationMs).toBeGreaterThanOrEqual(0)
   })
 
+  it('rejects external evidence with source/sourceReference mismatch', () => {
+    const badEvidence: Evidence[] = [
+      {
+        id: 'bad-1',
+        type: 'metric',
+        source: 'github',
+        key: 'test',
+        value: 0,
+        confidence: 1,
+        collectedAt: new Date(),
+        sourceReference: {
+          sourceId: 'gp-1',
+          sourceType: 'google_play',
+          externalId: '123',
+          url: 'https://example.com',
+          title: 'Bad review',
+          capturedAt: new Date(),
+        },
+      },
+    ]
+    expect(() =>
+      pipeline.run({
+        workspaceId: WORKSPACE_ID,
+        files: minimalRepo,
+        externalEvidence: badEvidence,
+      })
+    ).toThrow('Evidence provenance mismatch')
+  })
+
   it('produces findings array', () => {
     const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
     expect(Array.isArray(result.findings)).toBe(true)

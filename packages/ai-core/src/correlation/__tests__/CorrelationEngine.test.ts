@@ -123,6 +123,44 @@ describe('CorrelationEngine', () => {
       expect(crossSource!.evidenceIds).toContain('gh-checkout')
     })
 
+    it('cross-source candidate does NOT appear when only 2 sources share a key (3rd source unrelated)', () => {
+      const now = new Date()
+      const d3 = new Date()
+      d3.setDate(d3.getDate() - 3)
+      const evidence: Evidence[] = [
+        {
+          id: 'amp-checkout',
+          type: 'metric',
+          source: 'amplitude',
+          key: 'checkout',
+          value: -18,
+          confidence: 1,
+          collectedAt: now,
+        },
+        {
+          id: 'gplay-checkout',
+          type: 'review',
+          source: 'google_play',
+          key: 'checkout',
+          value: 27,
+          confidence: 1,
+          collectedAt: d3,
+        },
+        {
+          id: 'gh-readme',
+          type: 'testing',
+          source: 'github',
+          key: 'readme',
+          value: 'readme updated',
+          confidence: 1,
+          collectedAt: d3,
+        },
+      ]
+      const result = engine.evaluate(evidence)
+      const crossSource = result.candidates.find((c) => c.ruleId === 'cross-source-correlation')
+      expect(crossSource).toBeUndefined()
+    })
+
     it('cross-source candidate does NOT appear when shared key is temporally distant', () => {
       const now = new Date()
       const d90 = new Date()

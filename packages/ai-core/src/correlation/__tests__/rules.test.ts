@@ -294,6 +294,53 @@ describe('CrossSourceCorrelationRule', () => {
     expect(candidates).toHaveLength(0)
   })
 
+  it('only counts sources that participate in the correlated signal', () => {
+    const now = new Date()
+    const d3 = new Date()
+    d3.setDate(d3.getDate() - 3)
+    const evidence: Evidence[] = [
+      {
+        id: 'amp-checkout',
+        type: 'metric',
+        source: 'amplitude',
+        key: 'checkout',
+        value: -18,
+        confidence: 0.9,
+        collectedAt: now,
+      },
+      {
+        id: 'gplay-checkout',
+        type: 'review',
+        source: 'google_play',
+        key: 'checkout',
+        value: 'checkout issues',
+        confidence: 0.8,
+        collectedAt: d3,
+      },
+      {
+        id: 'gh-unrelated',
+        type: 'testing',
+        source: 'github',
+        key: 'readme',
+        value: 'readme updated',
+        confidence: 0.5,
+        collectedAt: d3,
+      },
+    ]
+    const candidates = rule.evaluate(evidence)
+    expect(candidates).toHaveLength(0)
+  })
+
+  it('correlation ID includes shared signal name', () => {
+    const evidence: Evidence[] = [
+      makeEvidence('amp-1', 'amplitude', -15, 0),
+      makeEvidence('gplay-1', 'google_play', 10, 5),
+      makeEvidence('gh-1', 'github', 'change', 3),
+    ]
+    const candidates = rule.evaluate(evidence)
+    expect(candidates[0].id).toMatch(/signal/)
+  })
+
   it('rejects correlation when shared key is temporally distant but unrelated evidence overlaps', () => {
     const now = new Date()
     const d3 = new Date()
@@ -331,5 +378,72 @@ describe('CrossSourceCorrelationRule', () => {
     ]
     const candidates = rule.evaluate(evidence)
     expect(candidates).toHaveLength(0)
+  })
+
+  it('produces different IDs for different shared signals from same sources', () => {
+    const now = new Date()
+    const d3 = new Date()
+    d3.setDate(d3.getDate() - 3)
+    const evidenceA: Evidence[] = [
+      {
+        id: 'amp-1',
+        type: 'metric',
+        source: 'amplitude',
+        key: 'checkout',
+        value: -18,
+        confidence: 0.9,
+        collectedAt: now,
+      },
+      {
+        id: 'gplay-1',
+        type: 'review',
+        source: 'google_play',
+        key: 'checkout',
+        value: 'issues',
+        confidence: 0.8,
+        collectedAt: d3,
+      },
+      {
+        id: 'gh-1',
+        type: 'testing',
+        source: 'github',
+        key: 'checkout',
+        value: 'changed',
+        confidence: 0.95,
+        collectedAt: d3,
+      },
+    ]
+    const evidenceB: Evidence[] = [
+      {
+        id: 'amp-2',
+        type: 'metric',
+        source: 'amplitude',
+        key: 'payments',
+        value: -10,
+        confidence: 0.9,
+        collectedAt: now,
+      },
+      {
+        id: 'gplay-2',
+        type: 'review',
+        source: 'google_play',
+        key: 'payments',
+        value: 'issues',
+        confidence: 0.8,
+        collectedAt: d3,
+      },
+      {
+        id: 'gh-2',
+        type: 'testing',
+        source: 'github',
+        key: 'payments',
+        value: 'changed',
+        confidence: 0.95,
+        collectedAt: d3,
+      },
+    ]
+    const idA = rule.evaluate(evidenceA)[0]?.id
+    const idB = rule.evaluate(evidenceB)[0]?.id
+    expect(idA).not.toBe(idB)
   })
 })

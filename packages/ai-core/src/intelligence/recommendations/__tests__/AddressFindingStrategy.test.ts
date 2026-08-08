@@ -135,9 +135,9 @@ describe('AddressFindingStrategy', () => {
     expect(rec.createdAt).toBeInstanceOf(Date)
   })
 
-  it('returns recommendation with empty proposedActions', () => {
+  it('returns recommendation with non-empty proposedActions', () => {
     const rec = strategy.recommend(findingInput(makeFinding()))
-    expect(rec.proposedActions).toEqual([])
+    expect(rec.proposedActions.length).toBeGreaterThan(0)
   })
 
   it('handles different finding types', () => {
