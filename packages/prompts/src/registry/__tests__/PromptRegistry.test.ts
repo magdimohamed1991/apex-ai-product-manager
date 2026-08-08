@@ -22,6 +22,9 @@ const mockVars: RepositoryPromptVariables = {
   },
   evidence: [],
   insights: [] as InsightDTO[],
+  findings: [],
+  recommendations: [],
+  explanations: [],
 }
 
 describe('PromptRegistry', () => {

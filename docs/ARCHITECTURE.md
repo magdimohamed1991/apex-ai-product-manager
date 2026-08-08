@@ -21,24 +21,26 @@ apex-ai-product-manager/
 
 ```
 contracts ← analysis ← ai-core ← web
-                ↑
+                ↑           ↑
             prompts → contracts + analysis
+            ai-core → prompts
 ```
 
 **Hard rule:** `prompts` never imports from `ai-core`.
+`ai-core` imports `prompts` only for prompt construction — no domain logic lives in `prompts`.
 
 ## Domain Model
 
 All domain entities live in `@apex/ai-core/src/domain/entities/`:
 
-| Entity           | Purpose                                                |
-| ---------------- | ------------------------------------------------------ |
-| `Insight`        | Static analysis signal (from RuleEngine)               |
-| `Finding`        | Actionable problem (from CorrelationEngine or Insight) |
-| `Recommendation` | Strategy-generated proposal (from Insight or Finding)  |
-| `Explanation`    | Provenance chain for Insights and Findings             |
-| `Action`         | Execution record (not yet wired)                       |
-| `Workspace`      | Tenant boundary                                        |
+| Entity           | Purpose                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------- |
+| `Insight`        | Static analysis signal (from RuleEngine)                                           |
+| `Finding`        | Actionable problem (from CorrelationEngine only — see Architecture Decision below) |
+| `Recommendation` | Strategy-generated proposal (from Insight or Finding)                              |
+| `Explanation`    | Provenance chain for Insights and Findings                                         |
+| `Action`         | Execution record (not yet wired)                                                   |
+| `Workspace`      | Tenant boundary                                                                    |
 
 ## Data Flow: Repository Discovery Pipeline
 
@@ -77,6 +79,9 @@ LLM-powered agent for executive engineering assessment.
 
 - **Input:** `RepositoryAssessmentRequest` (pre-assembled pipeline output + workspace)
 - **Output:** `RepositoryAssessmentEntity` (executive summary, risks, priorities)
+- **Prompt path:** `PromptRegistry → PromptRenderer → versioned prompt string → LLMProvider`
+  No inline prompt building in the agent. `@apex/prompts` is the single canonical prompt source.
+- **Input consumed:** repository summary, evidence, insights, findings, recommendations, explanations
 
 ### BaseAgent
 
@@ -85,6 +90,23 @@ Abstract base providing timing, error handling, and telemetry hooks. Subclasses 
 ### AgentRegistry
 
 Singleton registry for agent registration, resolution, and execution.
+
+## Architecture Decision: Finding Origin
+
+**Current implementation:** Findings originate exclusively from the CorrelationEngine.
+
+```
+Insight ──────────────────────────────→ Recommendation (direct)
+Evidence → Correlation → Finding ────→ Recommendation
+```
+
+The `Finding.relatedInsights` field is reserved for a future `Insight → Finding` path
+but is not populated by any current pipeline stage. Insights generate Recommendations
+directly. This decision avoids building machinery for a path with no current consumer.
+
+**Future:** If a use case requires `Insight → Finding → Recommendation` (e.g., grouping
+multiple insights into a single compound finding), populate `relatedInsights` at that time
+and update this section.
 
 ## Recommendation Strategies
 
@@ -123,7 +145,7 @@ type SourceType =
 
 ## Testing
 
-- **299 tests** across 3 packages (ai-core: 249, analysis: 36, prompts: 14)
+- **313 tests** across 3 packages (ai-core: 263, analysis: 36, prompts: 14)
 - Contract → Tests → Implementation (never reverse)
 - Provenance assertions: `Finding.evidenceIds === Explanation.evidenceIds`
 - Deduplication assertions: same `deduplicationKey` → engine keeps first

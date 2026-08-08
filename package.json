@@ -43,11 +43,5 @@
     "**/*.{js,jsx,json,md,css,yaml,yml}": [
       "prettier --write"
     ]
-  },
-  "dependencies": {
-    "clsx": "^2.1.1",
-    "lucide-react": "^1.29.0",
-    "tailwind-merge": "^3.6.0",
-    "tailwind-variants": "^3.3.1"
   }
 }

@@ -1,43 +1,36 @@
-import type { InsightDTO } from '@apex/contracts'
+import type { InsightDTO, FindingDTO, RecommendationDTO } from '@apex/contracts'
 import type { RepositorySummary, Evidence } from '@apex/analysis'
+import {
+  serializeSummary,
+  serializeEvidence,
+  serializeInsights,
+  serializeFindings,
+  serializeRecommendations,
+} from '../variables/repository'
 
 export interface RepositoryIntelligencePromptInput {
   summary: RepositorySummary
   evidence: Evidence[]
   insights: InsightDTO[]
+  findings?: FindingDTO[]
+  recommendations?: RecommendationDTO[]
 }
 
 /**
  * Builds a structured prompt for the Repository Intelligence Agent.
  * LLM receives pre-analyzed data — not raw files.
+ *
+ * Prefer PromptRegistry + PromptRenderer (the canonical path) over this
+ * standalone function. This is kept for direct invocation in tests and tooling.
  */
 export function buildRepositoryIntelligencePrompt(
   input: RepositoryIntelligencePromptInput
 ): string {
-  const { summary, evidence, insights } = input
-
-  const summarySection = [
-    `Name: ${summary.name}`,
-    `Owner: ${summary.owner}`,
-    `Languages: ${summary.languages.join(', ')}`,
-    `Frameworks: ${summary.frameworks.join(', ') || 'none'}`,
-    `Package Manager: ${summary.packageManager}`,
-    `Has TypeScript: ${summary.hasTypeScript}`,
-    `Has CI: ${summary.hasCI}`,
-    `Has Tests: ${summary.hasTests}`,
-    `Has Docker: ${summary.hasDocker}`,
-    `Has Monorepo: ${summary.hasMonorepo}`,
-    `Complexity: ${summary.complexity}`,
-    `Readiness Score: ${summary.score}/100`,
-  ].join('\n')
-
-  const evidenceSection = evidence
-    .map((e) => `- [${e.type}] ${e.key}: ${JSON.stringify(e.value)}`)
-    .join('\n')
-
-  const insightsSection = insights
-    .map((i) => `- [${i.severity.toUpperCase()}] ${i.title}\n  ${i.description}`)
-    .join('\n')
+  const summarySection = serializeSummary(input.summary)
+  const evidenceSection = serializeEvidence(input.evidence)
+  const insightsSection = serializeInsights(input.insights)
+  const findingsSection = serializeFindings(input.findings ?? [])
+  const recommendationsSection = serializeRecommendations(input.recommendations ?? [])
 
   return `You are APEX, an autonomous Product Intelligence system.
 Analyze the following structured repository data and produce actionable insights.
@@ -51,6 +44,12 @@ ${evidenceSection}
 
 ## Static Analysis Insights
 ${insightsSection}
+
+## Correlation Findings
+${findingsSection}
+
+## Recommendations
+${recommendationsSection}
 
 ## Your Task
 Generate the following sections:

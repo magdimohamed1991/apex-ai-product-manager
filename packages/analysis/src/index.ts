@@ -7,6 +7,7 @@ export type { RepositoryFiles } from './repository/StaticRepositoryAnalyzer'
 
 export type { Evidence, EvidenceSourceReference } from './evidence/Evidence'
 export { EvidenceCollector } from './evidence/EvidenceCollector'
+export { createEvidence } from './evidence/Evidence'
 
 export type { Rule, RuleResult } from './rules/Rule'
 export {

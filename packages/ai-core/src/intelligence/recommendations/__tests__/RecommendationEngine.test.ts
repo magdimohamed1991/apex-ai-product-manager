@@ -4,7 +4,7 @@ import { AddTestingStrategy } from '../strategies/AddTestingStrategy'
 import { AddCIStrategy } from '../strategies/AddCIStrategy'
 import { AddTypeScriptStrategy } from '../strategies/AddTypeScriptStrategy'
 import { createWorkspaceId } from '../../../domain/value-objects'
-import type { Insight, Finding, Recommendation, RecommendationOrigin } from '../../../domain'
+import type { Insight, Finding, Recommendation } from '../../../domain'
 import type { RecommendationStrategy } from '../RecommendationStrategy'
 import type { RecommendationInput } from '../RecommendationInput'
 

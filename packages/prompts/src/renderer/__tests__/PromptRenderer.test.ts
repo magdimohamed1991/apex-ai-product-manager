@@ -44,6 +44,9 @@ const mockVariables: RepositoryPromptVariables = {
       createdAt: new Date(),
     } as InsightDTO,
   ],
+  findings: [],
+  recommendations: [],
+  explanations: [],
 }
 
 describe('PromptRenderer', () => {

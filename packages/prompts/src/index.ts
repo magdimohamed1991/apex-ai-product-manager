@@ -13,4 +13,10 @@ export type {
 } from './contracts'
 
 export type { RepositoryPromptVariables } from './variables/repository'
-export { serializeSummary, serializeEvidence, serializeInsights } from './variables/repository'
+export {
+  serializeSummary,
+  serializeEvidence,
+  serializeInsights,
+  serializeFindings,
+  serializeRecommendations,
+} from './variables/repository'

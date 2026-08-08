@@ -1,14 +1,17 @@
-import type { InsightDTO } from '@apex/contracts'
+import type { InsightDTO, FindingDTO, RecommendationDTO, ExplanationDTO } from '@apex/contracts'
 import type { RepositorySummary, Evidence } from '@apex/analysis'
 
 /**
  * Variables injected into repository prompt templates.
- * Uses InsightDTO from @apex/contracts — no dependency on @apex/ai-core.
+ * Uses lightweight DTOs from @apex/contracts — no dependency on @apex/ai-core.
  */
 export interface RepositoryPromptVariables {
   summary: RepositorySummary
   evidence: Evidence[]
   insights: InsightDTO[]
+  findings: FindingDTO[]
+  recommendations: RecommendationDTO[]
+  explanations: ExplanationDTO[]
 }
 
 export function serializeSummary(summary: RepositorySummary): string {
@@ -29,11 +32,34 @@ export function serializeSummary(summary: RepositorySummary): string {
 }
 
 export function serializeEvidence(evidence: Evidence[]): string {
+  if (evidence.length === 0) return '- No structured evidence available'
   return evidence.map((e) => `- [${e.type}] ${e.key}: ${JSON.stringify(e.value)}`).join('\n')
 }
 
 export function serializeInsights(insights: InsightDTO[]): string {
+  if (insights.length === 0) return '- No static analysis insights available'
   return insights
     .map((i) => `- [${i.severity.toUpperCase()}] ${i.title}\n  ${i.description}`)
+    .join('\n')
+}
+
+export function serializeFindings(findings: FindingDTO[]): string {
+  if (findings.length === 0) return '- No correlation findings'
+  return findings
+    .map(
+      (f) =>
+        `- [${f.severity.toUpperCase()}/${f.type}] ${f.title}\n  ${f.description}` +
+        (f.correlationId ? ` (correlation: ${f.correlationId})` : '')
+    )
+    .join('\n')
+}
+
+export function serializeRecommendations(recommendations: RecommendationDTO[]): string {
+  if (recommendations.length === 0) return '- No recommendations generated'
+  return recommendations
+    .map(
+      (r) =>
+        `- [${r.priority.toUpperCase()}] ${r.title}\n  Rationale: ${r.rationale}\n  Impact: ${r.impact} | Effort: ${r.effort} | Origin: ${r.origin}`
+    )
     .join('\n')
 }

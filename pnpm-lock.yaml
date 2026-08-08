@@ -6,19 +6,6 @@ settings:
 
 importers:
   .:
-    dependencies:
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
-      lucide-react:
-        specifier: ^1.29.0
-        version: 1.29.0(react@19.2.8)
-      tailwind-merge:
-        specifier: ^3.6.0
-        version: 3.6.0
-      tailwind-variants:
-        specifier: ^3.3.1
-        version: 3.3.1(tailwind-merge@3.6.0)(tailwindcss@4.3.3)
     devDependencies:
       '@commitlint/cli':
         specifier: ^21.2.1
@@ -126,6 +113,9 @@ importers:
       '@apex/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@apex/prompts':
+        specifier: workspace:*
+        version: link:../prompts
     devDependencies:
       vitest:
         specifier: ^4.1.10
@@ -180,15 +170,36 @@ importers:
         specifier: ^3.3.1
         version: 3.3.1(tailwind-merge@3.6.0)(tailwindcss@4.3.3)
     devDependencies:
+      '@eslint/js':
+        specifier: ^10.0.1
+        version: 10.0.1(eslint@10.8.0(jiti@2.7.0))
       '@types/react':
         specifier: ^19.2.17
         version: 19.2.18
       '@types/react-dom':
         specifier: ^19.2.3
         version: 19.2.4(@types/react@19.2.18)
+      eslint:
+        specifier: ^10.8.0
+        version: 10.8.0(jiti@2.7.0)
+      eslint-plugin-react-hooks:
+        specifier: ^7.1.1
+        version: 7.1.1(eslint@10.8.0(jiti@2.7.0))
+      eslint-plugin-react-refresh:
+        specifier: ^0.5.3
+        version: 0.5.3(eslint@10.8.0(jiti@2.7.0))
+      globals:
+        specifier: ^17.7.0
+        version: 17.9.0
       react:
         specifier: ^19.2.8
         version: 19.2.8
+      typescript:
+        specifier: ~6.0.2
+        version: 6.0.3
+      typescript-eslint:
+        specifier: ^8.65.0
+        version: 8.66.0(eslint@10.8.0(jiti@2.7.0))(typescript@6.0.3)
 
 packages:
   '@babel/code-frame@7.29.7':

@@ -1,5 +1,11 @@
 import type { RepositoryPromptVariables } from '../variables/repository'
-import { serializeSummary, serializeEvidence, serializeInsights } from '../variables/repository'
+import {
+  serializeSummary,
+  serializeEvidence,
+  serializeInsights,
+  serializeFindings,
+  serializeRecommendations,
+} from '../variables/repository'
 
 export interface RenderedPrompt {
   id: string
@@ -12,6 +18,10 @@ export interface RenderedPrompt {
 /**
  * Renders prompt templates by injecting typed variables.
  * Versioned output enables A/B testing of prompt changes.
+ *
+ * This is the single canonical location where prompt strings are constructed.
+ * The RepositoryIntelligenceAgent delegates here via PromptRegistry —
+ * no inline prompt building in agents.
  */
 export class PromptRenderer {
   renderRepositoryIntelligence(
@@ -21,6 +31,8 @@ export class PromptRenderer {
     const summaryText = serializeSummary(variables.summary)
     const evidenceText = serializeEvidence(variables.evidence)
     const insightsText = serializeInsights(variables.insights)
+    const findingsText = serializeFindings(variables.findings)
+    const recommendationsText = serializeRecommendations(variables.recommendations)
 
     const content = `You are APEX, an autonomous Product Intelligence system.
 Analyze the following pre-processed repository data and return a structured JSON assessment.
@@ -29,11 +41,17 @@ Do NOT return Markdown. Return only valid JSON matching the RepositoryAssessment
 ## Repository Summary
 ${summaryText}
 
-## Evidence
+## Evidence (structured facts from static analysis)
 ${evidenceText}
 
 ## Static Analysis Insights
 ${insightsText}
+
+## Correlation Findings (synthesized from cross-source signals)
+${findingsText}
+
+## Generated Recommendations
+${recommendationsText}
 
 ## Required JSON Output Schema
 {
@@ -67,6 +85,7 @@ ${insightsText}
 Rules:
 - Reference actual evidence values — do not hallucinate
 - If evidence is missing for a claim, say "insufficient data"
+- Consider the Correlation Findings and Recommendations in your assessment
 - Return ONLY the JSON object — no preamble, no explanation`
 
     return {
@@ -77,6 +96,8 @@ Rules:
         summary: summaryText,
         evidence: evidenceText,
         insights: insightsText,
+        findings: findingsText,
+        recommendations: recommendationsText,
       },
       renderedAt: new Date(),
     }

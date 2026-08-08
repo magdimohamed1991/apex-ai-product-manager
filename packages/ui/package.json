@@ -3,6 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src"
+  },
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -17,9 +21,16 @@
     "lucide-react": "^1.29.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "react": "^19.2.8"
+    "eslint": "^10.8.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.7.0",
+    "react": "^19.2.8",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.65.0"
   },
   "peerDependencies": {
     "react": ">=18"

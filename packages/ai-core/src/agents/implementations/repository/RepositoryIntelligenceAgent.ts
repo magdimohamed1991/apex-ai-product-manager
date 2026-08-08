@@ -7,7 +7,14 @@ import { RepositoryAssessmentValidator } from '../../../validation'
 import { RepositoryAssessmentMapper } from './RepositoryAssessmentMapper'
 import type { RepositoryAssessmentEntity } from './RepositoryAssessmentMapper'
 import type { RepositoryAssessmentRequest } from './RepositoryAssessmentRequest'
-import type { RepositoryAssessment } from '@apex/contracts'
+import type {
+  RepositoryAssessment,
+  InsightDTO,
+  FindingDTO,
+  RecommendationDTO,
+  ExplanationDTO,
+} from '@apex/contracts'
+import { promptRegistry } from '@apex/prompts'
 
 export interface RepositoryIntelligenceInput {
   request: RepositoryAssessmentRequest
@@ -17,8 +24,19 @@ export interface RepositoryIntelligenceInput {
 /**
  * Repository Intelligence Agent
  *
- * Orchestrates: Prompt → Provider → Validate → Retry → Map to Domain
- * No dependency on @apex/prompts — builds prompt inline using contracts only.
+ * Orchestrates: PromptRegistry → Provider → Validate → Retry → Map to Domain
+ *
+ * Prompt construction is delegated to @apex/prompts (PromptRegistry + PromptRenderer).
+ * This is the single canonical prompt path — no inline prompt building in agents.
+ *
+ * The full intelligence pipeline output is consumed:
+ *   - repository summary + evidence (static analysis)
+ *   - insights (rule engine)
+ *   - findings + recommendations (correlation + strategy layer)
+ *   - explanations (provenance layer)
+ *
+ * Domain entities are mapped to lightweight DTOs before being handed to @apex/prompts,
+ * preserving the dependency direction: prompts never imports from ai-core.
  */
 export class RepositoryIntelligenceAgent extends BaseAgent<
   RepositoryIntelligenceInput,
@@ -45,7 +63,20 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
   ): Promise<RepositoryAssessmentEntity> {
     const { request, dailySpendUsd = 0 } = input
 
-    const prompt = this.buildPrompt(request)
+    const rendered = promptRegistry.get(
+      'repository-intelligence',
+      {
+        summary: request.repository,
+        evidence: request.evidence,
+        insights: this.toInsightDTOs(request.insights),
+        findings: this.toFindingDTOs(request.findings),
+        recommendations: this.toRecommendationDTOs(request.recommendations),
+        explanations: this.toExplanationDTOs(request.explanations),
+      },
+      this.promptVersion
+    )
+
+    const prompt = rendered.content
 
     // Budget check — fallback to mock if over limit
     const estimatedTokens = Math.ceil(prompt.length / 4)
@@ -68,71 +99,64 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
     })
   }
 
-  private buildPrompt(request: RepositoryAssessmentRequest): string {
-    const { repository, insights, evidence } = request
+  // ── DTO mappers ──────────────────────────────────────────────────────────────
+  // Domain entities from @apex/ai-core are converted to lightweight DTOs
+  // from @apex/contracts before being passed to @apex/prompts.
+  // This preserves the dependency direction: prompts → contracts, never prompts → ai-core.
 
-    const summarySection = [
-      `Name: ${repository.name}`,
-      `Owner: ${repository.owner}`,
-      `Languages: ${repository.languages.join(', ')}`,
-      `Frameworks: ${repository.frameworks.join(', ') || 'none'}`,
-      `Package Manager: ${repository.packageManager}`,
-      `TypeScript: ${repository.hasTypeScript}`,
-      `CI: ${repository.hasCI}`,
-      `Tests: ${repository.hasTests}`,
-      `Docker: ${repository.hasDocker}`,
-      `Monorepo: ${repository.hasMonorepo}`,
-      `Complexity: ${repository.complexity}`,
-      `Readiness Score: ${repository.score}/100`,
-    ].join('\n')
-
-    const evidenceSection =
-      evidence.length > 0
-        ? evidence.map((e) => `- [${e.type}] ${e.key}: ${this.safeSerialize(e.value)}`).join('\n')
-        : '- No structured evidence available'
-
-    const insightsSection =
-      insights.length > 0
-        ? insights
-            .map((i) => `- [${i.severity?.toUpperCase() ?? 'INFO'}] ${i.title}\n  ${i.description}`)
-            .join('\n')
-        : '- No static analysis insights available'
-
-    return `You are APEX, an autonomous Product Intelligence system.
-Based on the validated repository evidence below, produce an executive engineering assessment.
-Do not invent facts. If information is missing, explicitly state that it is unavailable.
-Return ONLY valid JSON — no Markdown, no explanation.
-
-## Repository Summary
-${summarySection}
-
-## Evidence (structured facts from static analysis)
-${evidenceSection}
-
-## Static Analysis Insights
-${insightsSection}
-
-## Required JSON Output
-{
-  "executiveSummary": "string (2-3 sentences)",
-  "strengths": ["string"],
-  "risks": [{"title":"string","severity":"critical|high|medium|low","description":"string","recommendedAction":"string"}],
-  "technicalDebt": {"level":"low|medium|high|critical","reasoning":"string","estimatedEffortDays":number|null},
-  "engineeringPriorities": [{"rank":number,"title":"string","rationale":"string","effort":"low|medium|high","impact":"low|medium|high"}],
-  "confidence": number
-}`
+  private toInsightDTOs(insights: RepositoryAssessmentRequest['insights']): InsightDTO[] {
+    return insights.map((insight) => ({
+      id: insight.id,
+      title: insight.title,
+      description: insight.description,
+      severity: insight.severity,
+      confidence: insight.confidence,
+      source: insight.source,
+      tags: insight.tags,
+    }))
   }
 
-  private safeSerialize(value: unknown): string {
-    if (value === null || value === undefined) return 'null'
-    if (typeof value === 'string') return value
-    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-    try {
-      return JSON.stringify(value)
-    } catch {
-      return '[unserializable]'
-    }
+  private toFindingDTOs(findings: RepositoryAssessmentRequest['findings']): FindingDTO[] {
+    return findings.map((finding) => ({
+      id: finding.id,
+      type: finding.type,
+      title: finding.title,
+      description: finding.description,
+      severity: finding.severity,
+      priority: finding.priority,
+      evidenceIds: finding.evidenceIds,
+      correlationId: finding.correlationId,
+    }))
   }
+
+  private toRecommendationDTOs(
+    recommendations: RepositoryAssessmentRequest['recommendations']
+  ): RecommendationDTO[] {
+    return recommendations.map((rec) => ({
+      id: rec.id,
+      title: rec.title,
+      rationale: rec.rationale,
+      impact: rec.impact,
+      effort: rec.effort,
+      priority: rec.priority,
+      confidence: rec.confidence,
+      origin: rec.origin,
+    }))
+  }
+
+  private toExplanationDTOs(
+    explanations: RepositoryAssessmentRequest['explanations']
+  ): ExplanationDTO[] {
+    return explanations.map((exp) => ({
+      id: exp.id,
+      summary: exp.summary,
+      evidenceIds: exp.evidenceIds,
+      appliedRules: exp.appliedRules,
+      confidenceReason: exp.confidenceReason,
+    }))
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
 
   private getValidMockResponse(): string {
     return JSON.stringify({
