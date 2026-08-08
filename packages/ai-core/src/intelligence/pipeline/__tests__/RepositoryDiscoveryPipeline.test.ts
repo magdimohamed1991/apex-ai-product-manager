@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { RepositoryDiscoveryPipeline } from '../RepositoryDiscoveryPipeline'
 import { createWorkspaceId } from '../../../domain/value-objects'
-import type { RepositoryFiles } from '@apex/analysis'
+import type { RepositoryFiles, Evidence } from '@apex/analysis'
 
 const WORKSPACE_ID = createWorkspaceId('ws-pipeline-test')
 
@@ -179,5 +179,121 @@ describe('Pipeline correlation → finding → recommendation integration', () =
     const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
     const insightExplanations = result.explanations.filter((e) => e.insightIds.length > 0)
     expect(insightExplanations.length).toBe(result.insights.length)
+  })
+})
+
+describe('Real multi-source evidence → finding → recommendation (end-to-end)', () => {
+  const pipeline = new RepositoryDiscoveryPipeline()
+
+  function makeExternalEvidence(): Evidence[] {
+    const now = new Date()
+    return [
+      // Amplitude: negative metric (conversion drop)
+      {
+        id: 'amp-checkout-drop',
+        type: 'metric',
+        source: 'amplitude',
+        key: 'checkout_conversion_rate',
+        value: -0.18, // 18% drop
+        confidence: 0.95,
+        collectedAt: new Date(now.getTime() - 86400000), // 1 day ago
+      },
+      // Google Play: negative reviews (complaints about checkout)
+      {
+        id: 'gplay-checkout-complaints',
+        type: 'review',
+        source: 'google_play',
+        key: 'checkout_failures',
+        value: 27, // 27 complaints
+        confidence: 0.9,
+        collectedAt: new Date(now.getTime() - 43200000), // 12 hours ago
+      },
+      // GitHub: recent code change in checkout area
+      {
+        id: 'gh-checkout-change',
+        type: 'code_change',
+        source: 'github',
+        key: 'src/checkout/checkout.ts',
+        value: { files: ['src/checkout/checkout.ts'], changeType: 'modified' },
+        confidence: 1,
+        collectedAt: new Date(now.getTime() - 21600000), // 6 hours ago
+      },
+    ]
+  }
+
+  it('produces findings from multi-source correlation', () => {
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      externalEvidence: makeExternalEvidence(),
+    })
+
+    expect(result.findings.length).toBeGreaterThan(0)
+
+    for (const finding of result.findings) {
+      expect(finding.correlationId).toBeDefined()
+      expect(finding.evidenceIds.length).toBeGreaterThan(0)
+      expect(finding.description).not.toMatch(/caused|because of|due to/i)
+    }
+  })
+
+  it('generates finding-origin recommendations from multi-source findings', () => {
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      externalEvidence: makeExternalEvidence(),
+    })
+
+    const findingRecs = result.recommendations.filter((r) => r.origin === 'finding')
+    expect(findingRecs.length).toBeGreaterThan(0)
+
+    for (const rec of findingRecs) {
+      expect(rec.findingIds.length).toBeGreaterThan(0)
+      expect(rec.insightIds).toEqual([])
+      expect(rec.origin).toBe('finding')
+      expect(rec.deduplicationKey).toContain('address-finding:finding:')
+    }
+  })
+
+  it('finding explanations have evidenceIds matching their findings', () => {
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      externalEvidence: makeExternalEvidence(),
+    })
+
+    const findingExplanations = result.explanations.filter((e) => e.findingIds.length > 0)
+    const findingsById = new Map(result.findings.map((f) => [f.id, f]))
+
+    for (const explanation of findingExplanations) {
+      const finding = findingsById.get(explanation.findingIds[0])
+      expect(finding).toBeDefined()
+      expect(explanation.evidenceIds).toEqual(finding!.evidenceIds)
+    }
+  })
+
+  it('insight recommendations still generated alongside finding recommendations', () => {
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      externalEvidence: makeExternalEvidence(),
+    })
+
+    const insightRecs = result.recommendations.filter((r) => r.origin === 'insight')
+    const findingRecs = result.recommendations.filter((r) => r.origin === 'finding')
+
+    expect(insightRecs.length).toBeGreaterThan(0)
+    expect(findingRecs.length).toBeGreaterThan(0)
+  })
+
+  it('no duplicate recommendations across insight and finding origins', () => {
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      externalEvidence: makeExternalEvidence(),
+    })
+
+    const keys = result.recommendations.map((r) => r.deduplicationKey)
+    expect(new Set(keys).size).toBe(keys.length)
   })
 })

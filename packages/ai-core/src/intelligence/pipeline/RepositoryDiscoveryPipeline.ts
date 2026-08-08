@@ -24,6 +24,7 @@ import {
 export interface PipelineInput {
   workspaceId: WorkspaceId
   files: RepositoryFiles
+  externalEvidence?: Evidence[]
 }
 
 export interface PipelineResult {
@@ -73,7 +74,8 @@ export class RepositoryDiscoveryPipeline {
     const start = Date.now()
 
     const summary = this.analyzer.analyze(input.files)
-    const evidence = this.collector.collect(summary)
+    const repoEvidence = this.collector.collect(summary)
+    const evidence = [...repoEvidence, ...(input.externalEvidence ?? [])]
     const ruleResults = this.ruleEngine.evaluate(evidence)
 
     const { insights, explanations: insightExplanations } = this.buildInsightsWithExplanations(
