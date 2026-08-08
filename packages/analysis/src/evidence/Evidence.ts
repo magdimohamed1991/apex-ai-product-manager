@@ -30,6 +30,11 @@ export type EvidenceSourceReference = SourceReference
  * Factory function that constructs Evidence and enforces the provenance invariant:
  * `source` must match `sourceReference.sourceType` when both are present.
  *
+ * Scope: validates source/sourceType consistency only.
+ * The sourceId → Source.id invariant is enforced at the persistence layer
+ * when Evidence is associated with a Source entity. createEvidence() does not
+ * have access to Source and cannot verify that relationship.
+ *
  * Always prefer this over constructing Evidence object literals directly
  * when sourceReference is involved.
  */

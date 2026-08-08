@@ -24,6 +24,6 @@ export interface Finding {
   priority: Priority
   severity: Severity
   evidenceIds: string[] // direct evidence provenance
-  correlationId?: string // set when Finding originates from Correlation Engine
+  correlationId: string // always set — Findings are a correlation-layer concept
   createdAt: Date
 }

@@ -11,6 +11,7 @@ export interface LLMProvider {
 }
 
 export interface LLMOptions {
+  /** Maximum output tokens for this request. Provider implementations MUST honor this limit. */
   maxTokens?: number
   temperature?: number
   systemPrompt?: string

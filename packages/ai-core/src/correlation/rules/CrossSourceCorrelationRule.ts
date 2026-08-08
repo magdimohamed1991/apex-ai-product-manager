@@ -15,8 +15,8 @@ const TEMPORAL_WINDOW_DAYS = 30
  *    one common key (e.g. 'checkout', 'signal', 'conversion') — ensuring that
  *    source diversity reflects actual overlapping subject matter, not coincidence.
  *
- * 2. Temporal proximity: at least one pair of evidence items from different
- *    sources must fall within a 30-day window — ensuring the signals are
+ * 2. Temporal proximity: at least one evidence item from each qualifying source
+ *    must participate in a common 30-day window — ensuring the signals are
  *    contemporaneous, not arbitrarily distant in time.
  *
  * This prevents false positives from source diversity alone:
@@ -79,11 +79,26 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
 
       if (keyEvidenceBySource.size < MIN_SOURCES) continue
 
-      const allDates = [...keyEvidenceBySource.values()].flat().map((e) => e.collectedAt.getTime())
-      const minDate = Math.min(...allDates)
-      const maxDate = Math.max(...allDates)
       const windowMs = TEMPORAL_WINDOW_DAYS * 24 * 60 * 60 * 1000
-      const hasTemporalOverlap = maxDate - minDate <= windowMs
+      // Collect one representative date per source (earliest)
+      const sourceRepresentatives = [...keyEvidenceBySource.entries()].map(([source, items]) => ({
+        source,
+        dates: items.map((e) => e.collectedAt.getTime()).sort((a, b) => a - b),
+      }))
+      // For each source, try its earliest date as the window start
+      // Check if all other sources have at least one date within [start, start + windowMs]
+      let hasTemporalOverlap = false
+      for (const { dates: startDates } of sourceRepresentatives) {
+        const windowStart = startDates[0]
+        const windowEnd = windowStart + windowMs
+        const allSourcesPresent = sourceRepresentatives.every(({ dates }) =>
+          dates.some((d) => d >= windowStart && d <= windowEnd)
+        )
+        if (allSourcesPresent) {
+          hasTemporalOverlap = true
+          break
+        }
+      }
 
       if (!hasTemporalOverlap) continue
 

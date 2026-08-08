@@ -35,6 +35,7 @@ function makeFinding(id: string): Finding {
     priority: 'high',
     severity: 'high',
     evidenceIds: [],
+    correlationId: `cross-source:${id}`,
     createdAt: new Date(),
   }
 }

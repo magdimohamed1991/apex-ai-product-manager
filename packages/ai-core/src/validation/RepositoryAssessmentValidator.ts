@@ -40,6 +40,8 @@ export class RepositoryAssessmentValidator {
         if (!['critical', 'high', 'medium', 'low'].includes(risk.severity)) {
           errors.push(`risks[${i}].severity is invalid: ${risk.severity}`)
         }
+        if (!risk.description) errors.push(`risks[${i}].description is missing`)
+        if (!risk.recommendedAction) errors.push(`risks[${i}].recommendedAction is missing`)
       })
     }
 
@@ -52,6 +54,14 @@ export class RepositoryAssessmentValidator {
       if (!obj.technicalDebt.reasoning) {
         errors.push('technicalDebt.reasoning is missing')
       }
+      if (
+        obj.technicalDebt.estimatedEffortDays !== null &&
+        obj.technicalDebt.estimatedEffortDays !== undefined &&
+        (typeof obj.technicalDebt.estimatedEffortDays !== 'number' ||
+          obj.technicalDebt.estimatedEffortDays < 0)
+      ) {
+        errors.push('technicalDebt.estimatedEffortDays must be a non-negative number or null')
+      }
     }
 
     if (!Array.isArray(obj.engineeringPriorities) || obj.engineeringPriorities.length === 0) {
@@ -61,6 +71,13 @@ export class RepositoryAssessmentValidator {
         if (!p.title) errors.push(`engineeringPriorities[${i}].title is missing`)
         if (typeof p.rank !== 'number')
           errors.push(`engineeringPriorities[${i}].rank must be a number`)
+        if (!p.rationale) errors.push(`engineeringPriorities[${i}].rationale is missing`)
+        if (!['low', 'medium', 'high'].includes(p.effort)) {
+          errors.push(`engineeringPriorities[${i}].effort is invalid: ${p.effort}`)
+        }
+        if (!['low', 'medium', 'high'].includes(p.impact)) {
+          errors.push(`engineeringPriorities[${i}].impact is invalid: ${p.impact}`)
+        }
       })
     }
 

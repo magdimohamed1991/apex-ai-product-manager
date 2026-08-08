@@ -84,6 +84,13 @@ export class CorrelationFindingBuilder {
       return `Evidence IDs not found: ${missing.join(', ')}`
     }
 
+    const idList = candidate.evidenceIds
+    const idSet = new Set(idList)
+    if (idSet.size !== idList.length) {
+      const duplicates = idList.filter((id, i) => idList.indexOf(id) !== i)
+      return `candidate.evidenceIds contains duplicates: ${[...new Set(duplicates)].join(', ')}`
+    }
+
     const uniqueSources = new Set(
       evidence.filter((e) => candidate.evidenceIds.includes(e.id)).map((e) => e.source)
     )
@@ -92,6 +99,14 @@ export class CorrelationFindingBuilder {
     const minSources = candidate.ruleId === 'cross-source-correlation' ? 3 : 2
     if (uniqueSources.size < minSources) {
       return `Rule "${candidate.ruleId}" requires evidence from at least ${minSources} independent sources, found ${uniqueSources.size}`
+    }
+
+    const declaredSources = new Set(candidate.sourceTypes)
+    if (
+      declaredSources.size !== uniqueSources.size ||
+      ![...declaredSources].every((s) => uniqueSources.has(s))
+    ) {
+      return `candidate.sourceTypes [${candidate.sourceTypes.join(', ')}] does not match actual evidence sources [${[...uniqueSources].join(', ')}]`
     }
 
     return null

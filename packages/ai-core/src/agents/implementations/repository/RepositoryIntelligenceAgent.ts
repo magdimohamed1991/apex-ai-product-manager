@@ -229,7 +229,11 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       })
       retryPromptTokens += retry.usage.promptTokens
       retryCompletionTokens += retry.usage.completionTokens
-      parsed = this.validator.parseJSON(retry.content)
+      try {
+        parsed = this.validator.parseJSON(retry.content)
+      } catch {
+        throw new Error(`LLM output was not valid JSON after ${attempts} attempt(s)`)
+      }
     }
 
     const result = this.validator.validate(parsed)
