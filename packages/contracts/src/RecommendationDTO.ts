@@ -11,4 +11,6 @@ export interface RecommendationDTO {
   priority: 'critical' | 'high' | 'medium' | 'low'
   confidence: number
   origin: 'insight' | 'finding'
+  insightIds?: string[]
+  findingIds?: string[]
 }

@@ -16,6 +16,12 @@ import type {
 } from '@apex/contracts'
 import { promptRegistry } from '@apex/prompts'
 
+interface ParseResult {
+  assessment: RepositoryAssessment
+  retryUsage: { promptTokens: number; completionTokens: number; totalTokens: number }
+  attempts: number
+}
+
 export interface RepositoryIntelligenceInput {
   request: RepositoryAssessmentRequest
   dailySpendUsd?: number
@@ -87,16 +93,16 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
     const response = await activeProvider.complete(prompt, {
       maxTokens: this.budgetPolicy.maxTokensPerRequest,
     })
-    const assessment = await this.parseAndValidate(response.content, activeProvider, prompt)
+    const parseResult = await this.parseAndValidate(response.content, activeProvider, prompt)
 
-    return this.mapper.toDomain(assessment, context.workspaceId, {
+    return this.mapper.toDomain(parseResult.assessment, context.workspaceId, {
       provider: activeProvider.name,
       model: activeProvider.model,
       promptVersion: this.promptVersion,
       tokenUsage: {
-        prompt: response.usage.promptTokens,
-        completion: response.usage.completionTokens,
-        total: response.usage.totalTokens,
+        prompt: response.usage.promptTokens + parseResult.retryUsage.promptTokens,
+        completion: response.usage.completionTokens + parseResult.retryUsage.completionTokens,
+        total: response.usage.totalTokens + parseResult.retryUsage.totalTokens,
       },
     })
   }
@@ -143,6 +149,8 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       priority: rec.priority,
       confidence: rec.confidence,
       origin: rec.origin,
+      insightIds: rec.insightIds,
+      findingIds: rec.findingIds,
     }))
   }
 
@@ -195,24 +203,33 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
     content: string,
     provider: LLMProvider,
     originalPrompt: string
-  ): Promise<RepositoryAssessment> {
+  ): Promise<ParseResult> {
     let parsed: unknown
+    let attempts = 1
+    let retryPromptTokens = 0
+    let retryCompletionTokens = 0
 
     try {
       parsed = this.validator.parseJSON(content)
     } catch {
+      attempts++
       const retry = await provider.complete(originalPrompt, {
         maxTokens: this.budgetPolicy.maxTokensPerRequest,
       })
+      retryPromptTokens += retry.usage.promptTokens
+      retryCompletionTokens += retry.usage.completionTokens
       parsed = this.validator.parseJSON(retry.content)
     }
 
     const result = this.validator.validate(parsed)
 
     if (!result.valid) {
+      attempts++
       const retry = await provider.complete(originalPrompt, {
         maxTokens: this.budgetPolicy.maxTokensPerRequest,
       })
+      retryPromptTokens += retry.usage.promptTokens
+      retryCompletionTokens += retry.usage.completionTokens
       const reparsed = this.validator.parseJSON(retry.content)
       const retryResult = this.validator.validate(reparsed)
 
@@ -221,9 +238,25 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
           `LLM output failed validation after retry: ${retryResult.errors.join(', ')}`
         )
       }
-      return reparsed as RepositoryAssessment
+      return {
+        assessment: reparsed as RepositoryAssessment,
+        retryUsage: {
+          promptTokens: retryPromptTokens,
+          completionTokens: retryCompletionTokens,
+          totalTokens: retryPromptTokens + retryCompletionTokens,
+        },
+        attempts,
+      }
     }
 
-    return parsed as RepositoryAssessment
+    return {
+      assessment: parsed as RepositoryAssessment,
+      retryUsage: {
+        promptTokens: retryPromptTokens,
+        completionTokens: retryCompletionTokens,
+        totalTokens: retryPromptTokens + retryCompletionTokens,
+      },
+      attempts,
+    }
   }
 }

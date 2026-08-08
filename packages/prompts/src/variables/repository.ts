@@ -48,8 +48,7 @@ export function serializeFindings(findings: FindingDTO[]): string {
   return findings
     .map(
       (f) =>
-        `- [${f.severity.toUpperCase()}/${f.type}] ${f.title}\n  ${f.description}` +
-        (f.correlationId ? ` (correlation: ${f.correlationId})` : '')
+        `- [${f.severity.toUpperCase()}/${f.type}] ${f.title}\n  ${f.description}\n  Evidence: ${f.evidenceIds.join(', ') || 'none'}${f.correlationId ? `\n  Correlation: ${f.correlationId}` : ''}`
     )
     .join('\n')
 }
@@ -59,7 +58,9 @@ export function serializeRecommendations(recommendations: RecommendationDTO[]): 
   return recommendations
     .map(
       (r) =>
-        `- [${r.priority.toUpperCase()}] ${r.title}\n  Rationale: ${r.rationale}\n  Impact: ${r.impact} | Effort: ${r.effort} | Origin: ${r.origin}`
+        `- [${r.priority.toUpperCase()}] ${r.title}\n  Rationale: ${r.rationale}\n  Impact: ${r.impact} | Effort: ${r.effort} | Origin: ${r.origin}` +
+        (r.findingIds?.length ? `\n  Findings: ${r.findingIds.join(', ')}` : '') +
+        (r.insightIds?.length ? `\n  Insights: ${r.insightIds.join(', ')}` : '')
     )
     .join('\n')
 }
@@ -69,7 +70,7 @@ export function serializeExplanations(explanations: ExplanationDTO[]): string {
   return explanations
     .map(
       (e) =>
-        `- ${e.summary}\n  Rules: ${e.appliedRules.join(', ')}\n  Confidence: ${e.confidenceReason}`
+        `- ${e.summary}\n  Evidence: ${e.evidenceIds.join(', ') || 'none'}\n  Rules: ${e.appliedRules.join(', ')}\n  Confidence: ${e.confidenceReason}`
     )
     .join('\n')
 }

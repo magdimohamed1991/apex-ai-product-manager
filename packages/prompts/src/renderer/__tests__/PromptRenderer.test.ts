@@ -44,8 +44,32 @@ const mockVariables: RepositoryPromptVariables = {
       createdAt: new Date(),
     } as InsightDTO,
   ],
-  findings: [],
-  recommendations: [],
+  findings: [
+    {
+      id: 'finding-1',
+      type: 'risk',
+      title: 'Checkout reliability contributing to conversion decline',
+      description: 'Cross-source correlation detected.',
+      severity: 'high',
+      priority: 'high',
+      evidenceIds: ['amp-checkout', 'gh-checkout'],
+      correlationId: 'cross-source:amplitude-github',
+    },
+  ],
+  recommendations: [
+    {
+      id: 'rec-1',
+      title: 'Investigate checkout flow',
+      rationale: 'Correlated signals across sources.',
+      impact: 'high',
+      effort: 'medium',
+      priority: 'high',
+      confidence: 0.85,
+      origin: 'finding',
+      findingIds: ['finding-1'],
+      insightIds: [],
+    },
+  ],
   explanations: [
     {
       id: 'exp-1',
@@ -115,5 +139,28 @@ describe('PromptRenderer', () => {
     const vars = { ...mockVariables, explanations: [] }
     const rendered = renderer.renderRepositoryIntelligence(vars)
     expect(rendered.content).toContain('No explanations available')
+  })
+
+  it('includes finding evidence IDs in prompt', () => {
+    const rendered = renderer.renderRepositoryIntelligence(mockVariables)
+    expect(rendered.content).toContain('amp-checkout')
+    expect(rendered.content).toContain('gh-checkout')
+  })
+
+  it('includes finding correlation ID in prompt', () => {
+    const rendered = renderer.renderRepositoryIntelligence(mockVariables)
+    expect(rendered.content).toContain('cross-source:amplitude-github')
+  })
+
+  it('includes recommendation origin and finding IDs in prompt', () => {
+    const rendered = renderer.renderRepositoryIntelligence(mockVariables)
+    expect(rendered.content).toContain('Origin: finding')
+    expect(rendered.content).toContain('Findings: finding-1')
+  })
+
+  it('includes explanation evidence IDs in prompt', () => {
+    const rendered = renderer.renderRepositoryIntelligence(mockVariables)
+    expect(rendered.content).toContain('amp-checkout')
+    expect(rendered.content).toContain('gh-checkout')
   })
 })
