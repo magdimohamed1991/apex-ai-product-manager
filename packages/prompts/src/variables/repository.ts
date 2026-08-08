@@ -65,7 +65,10 @@ export function serializeRecommendations(recommendations: RecommendationDTO[]): 
       (r) =>
         `- [${r.priority.toUpperCase()}] ${r.title}\n  Rationale: ${r.rationale}\n  Impact: ${r.impact} | Effort: ${r.effort} | Origin: ${r.origin}` +
         (r.findingIds?.length ? `\n  Findings: ${r.findingIds.join(', ')}` : '') +
-        (r.insightIds?.length ? `\n  Insights: ${r.insightIds.join(', ')}` : '')
+        (r.insightIds?.length ? `\n  Insights: ${r.insightIds.join(', ')}` : '') +
+        (r.proposedActions?.length
+          ? `\n  Proposed Actions:\n${r.proposedActions.map((a) => `    - ${a.title}\n      ${a.description}`).join('\n')}`
+          : '')
     )
     .join('\n')
 }

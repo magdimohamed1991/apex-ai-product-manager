@@ -380,6 +380,52 @@ describe('CrossSourceCorrelationRule', () => {
     expect(candidates).toHaveLength(0)
   })
 
+  it('does NOT union two independent 2-source correlations into a 3+ candidate', () => {
+    const now = new Date()
+    const d3 = new Date()
+    d3.setDate(d3.getDate() - 3)
+    const evidence: Evidence[] = [
+      {
+        id: 'amp-checkout',
+        type: 'metric',
+        source: 'amplitude',
+        key: 'checkout',
+        value: -18,
+        confidence: 0.9,
+        collectedAt: now,
+      },
+      {
+        id: 'gplay-checkout',
+        type: 'review',
+        source: 'google_play',
+        key: 'checkout',
+        value: 'issues',
+        confidence: 0.8,
+        collectedAt: d3,
+      },
+      {
+        id: 'gh-payments',
+        type: 'testing',
+        source: 'github',
+        key: 'payments',
+        value: 'changed',
+        confidence: 0.95,
+        collectedAt: d3,
+      },
+      {
+        id: 'slack-payments',
+        type: 'metric',
+        source: 'slack',
+        key: 'payments',
+        value: 'discussed',
+        confidence: 0.7,
+        collectedAt: d3,
+      },
+    ]
+    const candidates = rule.evaluate(evidence)
+    expect(candidates).toHaveLength(0)
+  })
+
   it('produces different IDs for different shared signals from same sources', () => {
     const now = new Date()
     const d3 = new Date()

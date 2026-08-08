@@ -27,12 +27,12 @@ export class AddTypeScriptStrategy implements RecommendationStrategy {
       findingIds: [],
       proposedActions: [
         {
-          id: 'add-tsconfig',
+          id: `${insight.id}:add-tsconfig`,
           title: 'Add tsconfig.json',
           description: 'Configure TypeScript compiler options with strict mode enabled.',
         },
         {
-          id: 'rename-to-ts',
+          id: `${insight.id}:rename-to-ts`,
           title: 'Rename .js files to .ts',
           description: 'Convert source files from JavaScript to TypeScript and fix type errors.',
         },

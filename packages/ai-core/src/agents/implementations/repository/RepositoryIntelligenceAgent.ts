@@ -151,6 +151,7 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       origin: rec.origin,
       insightIds: rec.insightIds,
       findingIds: rec.findingIds,
+      proposedActions: rec.proposedActions,
     }))
   }
 

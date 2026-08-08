@@ -155,7 +155,7 @@ type SourceType =
 
 ## Testing
 
-- **313 tests** across 3 packages (ai-core: 263, analysis: 36, prompts: 14)
+- Tests are distributed across ai-core, analysis, and prompts, with CI enforcing the complete suite.
 - Contract → Tests → Implementation (never reverse)
 - Provenance assertions: `Finding.evidenceIds === Explanation.evidenceIds`
 - Deduplication assertions: same `deduplicationKey` → engine keeps first

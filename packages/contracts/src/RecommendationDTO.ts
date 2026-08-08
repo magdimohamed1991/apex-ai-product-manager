@@ -1,4 +1,14 @@
 /**
+ * Lightweight ProposedAction DTO for use in prompt building.
+ * Each action is a concrete, implementable step derived from a Recommendation.
+ */
+export interface ProposedActionDTO {
+  id: string
+  title: string
+  description: string
+}
+
+/**
  * Lightweight Recommendation DTO for use in prompt building.
  * Avoids importing full domain entities from @apex/ai-core into @apex/prompts.
  */
@@ -13,4 +23,5 @@ export interface RecommendationDTO {
   origin: 'insight' | 'finding'
   insightIds?: string[]
   findingIds?: string[]
+  proposedActions: ProposedActionDTO[]
 }

@@ -68,6 +68,13 @@ const mockVariables: RepositoryPromptVariables = {
       origin: 'finding',
       findingIds: ['finding-1'],
       insightIds: [],
+      proposedActions: [
+        {
+          id: 'finding-1:investigate-checkout',
+          title: 'Investigate checkout flow',
+          description: 'Review checkout pipeline for failure modes.',
+        },
+      ],
     },
   ],
   explanations: [
@@ -153,6 +160,13 @@ describe('PromptRenderer', () => {
   it('includes finding correlation ID in prompt', () => {
     const rendered = renderer.renderRepositoryIntelligence(mockVariables)
     expect(rendered.content).toContain('cross-source:amplitude-github')
+  })
+
+  it('includes proposed actions in prompt', () => {
+    const rendered = renderer.renderRepositoryIntelligence(mockVariables)
+    expect(rendered.content).toContain('Proposed Actions:')
+    expect(rendered.content).toContain('Investigate checkout flow')
+    expect(rendered.content).toContain('Review checkout pipeline for failure modes.')
   })
 
   it('includes recommendation origin and finding IDs in prompt', () => {

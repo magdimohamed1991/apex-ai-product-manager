@@ -1,7 +1,7 @@
 import type { Evidence } from '@apex/analysis'
 import type { CorrelationRule } from '../contracts/CorrelationRule'
 import type { CorrelationCandidate } from '../contracts/CorrelationCandidate'
-import { scoreCorrelation, hasTemporalOverlap } from '../scoring'
+import { scoreCorrelation, hasTemporalOverlap as hasTemporalOverlapFn } from '../scoring'
 
 const MIN_SOURCES = 3
 const TEMPORAL_WINDOW_DAYS = 30
@@ -45,7 +45,8 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
     const activeSources = [...bySource.entries()]
 
     // ── Shared signal check ──────────────────────────────────────────────────
-    // Find keys that appear in evidence from at least 2 different sources.
+    // Find keys that appear in evidence from at least MIN_SOURCES different sources.
+    // A single key must span ≥3 sources — not a union of unrelated 2-source correlations.
     const keyToSources = new Map<string, Set<string>>()
     for (const [source, items] of activeSources) {
       for (const item of items) {
@@ -55,88 +56,70 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
       }
     }
 
-    const sharedKeys = [...keyToSources.entries()]
-      .filter(([, sources]) => sources.size >= 2)
-      .map(([key]) => key)
+    const qualifiedKeys = [...keyToSources.entries()]
+      .filter(([, sources]) => sources.size >= MIN_SOURCES)
+      .map(([key, sources]) => ({ key, sources: [...sources] as string[] }))
 
-    if (sharedKeys.length === 0) {
-      // No overlapping subject matter across sources — not a meaningful correlation
+    if (qualifiedKeys.length === 0) {
       return []
     }
 
-    // ── Temporal proximity check (per shared key) ──────────────────────────────
-    // For each shared key, collect evidence carrying that key grouped by source.
-    // Require ≥2 sources AND temporal proximity among those same evidence items.
-    let hasValidCorrelation = false
-    const correlatedEvidenceIds = new Set<string>()
-    const correlatedSharedKeys: string[] = []
-    const correlatedSources = new Set<string>()
+    // ── Temporal proximity check (per qualified key) ──────────────────────────
+    // For each key that spans ≥3 sources, check temporal overlap among those sources.
+    const candidates: CorrelationCandidate[] = []
 
-    for (const sharedKey of sharedKeys) {
+    for (const { key, sources: keySources } of qualifiedKeys) {
       const keyEvidenceBySource = new Map<string, Evidence[]>()
       for (const [source, items] of activeSources) {
-        const matching = items.filter((item) => item.key === sharedKey)
-        if (matching.length > 0) {
+        const matching = items.filter((item) => item.key === key)
+        if (matching.length > 0 && keySources.includes(source)) {
           keyEvidenceBySource.set(source, matching)
         }
       }
 
-      if (keyEvidenceBySource.size < 2) continue
+      if (keyEvidenceBySource.size < MIN_SOURCES) continue
 
       const sourceArrays = [...keyEvidenceBySource.values()]
-      let keyHasTemporalOverlap = false
+      let hasTemporalOverlap = false
       for (let i = 0; i < sourceArrays.length; i++) {
         for (let j = i + 1; j < sourceArrays.length; j++) {
-          if (hasTemporalOverlap(sourceArrays[i], sourceArrays[j], TEMPORAL_WINDOW_DAYS)) {
-            keyHasTemporalOverlap = true
+          if (hasTemporalOverlapFn(sourceArrays[i], sourceArrays[j], TEMPORAL_WINDOW_DAYS)) {
+            hasTemporalOverlap = true
             break
           }
         }
-        if (keyHasTemporalOverlap) break
+        if (hasTemporalOverlap) break
       }
 
-      if (keyHasTemporalOverlap) {
-        hasValidCorrelation = true
-        correlatedSharedKeys.push(sharedKey)
-        for (const [source, items] of keyEvidenceBySource.entries()) {
-          correlatedSources.add(source)
-          for (const item of items) {
-            correlatedEvidenceIds.add(item.id)
-          }
+      if (!hasTemporalOverlap) continue
+
+      // Collect evidence and sources for this specific key
+      const correlatedEvidenceIds = new Set<string>()
+      for (const [, items] of keyEvidenceBySource.entries()) {
+        for (const item of items) {
+          correlatedEvidenceIds.add(item.id)
         }
       }
-    }
 
-    if (!hasValidCorrelation) {
-      return []
-    }
+      const allEvidence = activeSources.flatMap(([, items]) => items)
+      const contributingEvidence = allEvidence.filter((e) => correlatedEvidenceIds.has(e.id))
+      const totalUniqueKeys = new Set(activeSources.flatMap(([, items]) => items.map((e) => e.key)))
+        .size
+      const topicSimilarity = 1 / totalUniqueKeys
 
-    if (correlatedSources.size < MIN_SOURCES) {
-      return []
-    }
+      const sortedSources = keySources.sort() as CorrelationCandidate['sourceTypes']
 
-    // ── Build candidate ──────────────────────────────────────────────────────
-    // Only count sources that actually participate in the correlated signal
-    const allEvidence = activeSources.flatMap(([, items]) => items)
-    const contributingEvidence = allEvidence.filter((e) => correlatedEvidenceIds.has(e.id))
-    const totalUniqueKeys = new Set(activeSources.flatMap(([, items]) => items.map((e) => e.key)))
-      .size
-    const topicSimilarity = Math.min(correlatedSharedKeys.length / totalUniqueKeys, 1)
-
-    const correlatedSourceTypes = [
-      ...correlatedSources,
-    ].sort() as CorrelationCandidate['sourceTypes']
-
-    return [
-      {
-        id: `${this.id}:${correlatedSourceTypes.join('-')}:${correlatedSharedKeys.sort().join('-')}`,
+      candidates.push({
+        id: `${this.id}:${sortedSources.join('-')}:${key}`,
         evidenceIds: contributingEvidence.map((e) => e.id),
-        sourceTypes: correlatedSourceTypes,
-        score: scoreCorrelation(correlatedSourceTypes, contributingEvidence, topicSimilarity),
-        reason: `Signals were detected across ${correlatedSourceTypes.length} independent sources (${correlatedSourceTypes.join(', ')}) with shared subject matter (${correlatedSharedKeys.join(', ')}) and temporal proximity. Higher confidence from source diversity — not from proven causation. Cross-referencing these signals may surface a common underlying issue.`,
+        sourceTypes: sortedSources,
+        score: scoreCorrelation(sortedSources, contributingEvidence, topicSimilarity),
+        reason: `The signal "${key}" was detected across ${sortedSources.length} independent sources (${sortedSources.join(', ')}) with temporal proximity. Higher confidence from source diversity — not from proven causation. Cross-referencing these signals may surface a common underlying issue.`,
         ruleId: this.id,
         createdAt: new Date(),
-      },
-    ]
+      })
+    }
+
+    return candidates
   }
 }
