@@ -36,6 +36,12 @@ export class PromptRegistry {
 
     const v = version ?? entry.latestVersion
 
+    if (!entry.versions.includes(v)) {
+      throw new Error(
+        `Prompt "${id}" does not have version "${v}". Available versions: ${entry.versions.join(', ')}`
+      )
+    }
+
     if (id === 'repository-intelligence') {
       return this.renderer.renderRepositoryIntelligence(variables as RepositoryPromptVariables, v)
     }

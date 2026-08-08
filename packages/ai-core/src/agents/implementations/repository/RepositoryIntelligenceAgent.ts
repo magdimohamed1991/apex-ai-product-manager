@@ -84,7 +84,9 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       ? new MockLLMProvider(this.getValidMockResponse())
       : this.provider
 
-    const response = await activeProvider.complete(prompt)
+    const response = await activeProvider.complete(prompt, {
+      maxTokens: this.budgetPolicy.maxTokensPerRequest,
+    })
     const assessment = await this.parseAndValidate(response.content, activeProvider, prompt)
 
     return this.mapper.toDomain(assessment, context.workspaceId, {
@@ -199,14 +201,18 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
     try {
       parsed = this.validator.parseJSON(content)
     } catch {
-      const retry = await provider.complete(originalPrompt)
+      const retry = await provider.complete(originalPrompt, {
+        maxTokens: this.budgetPolicy.maxTokensPerRequest,
+      })
       parsed = this.validator.parseJSON(retry.content)
     }
 
     const result = this.validator.validate(parsed)
 
     if (!result.valid) {
-      const retry = await provider.complete(originalPrompt)
+      const retry = await provider.complete(originalPrompt, {
+        maxTokens: this.budgetPolicy.maxTokensPerRequest,
+      })
       const reparsed = this.validator.parseJSON(retry.content)
       const retryResult = this.validator.validate(reparsed)
 

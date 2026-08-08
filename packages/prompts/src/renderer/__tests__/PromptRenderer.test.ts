@@ -46,7 +46,15 @@ const mockVariables: RepositoryPromptVariables = {
   ],
   findings: [],
   recommendations: [],
-  explanations: [],
+  explanations: [
+    {
+      id: 'exp-1',
+      summary: 'Checkout metric drop correlates with GitHub code changes',
+      evidenceIds: ['amp-checkout', 'gh-checkout'],
+      appliedRules: ['metric-code-correlation'],
+      confidenceReason: 'High confidence from temporal overlap of metric drop and code change',
+    },
+  ],
 }
 
 describe('PromptRenderer', () => {
@@ -94,5 +102,18 @@ describe('PromptRenderer', () => {
     const after = new Date()
     expect(rendered.renderedAt >= before).toBe(true)
     expect(rendered.renderedAt <= after).toBe(true)
+  })
+
+  it('includes explanations in prompt', () => {
+    const rendered = renderer.renderRepositoryIntelligence(mockVariables)
+    expect(rendered.content).toContain('Explanations')
+    expect(rendered.content).toContain('Checkout metric drop correlates')
+    expect(rendered.content).toContain('metric-code-correlation')
+  })
+
+  it('renders "No explanations available" when empty', () => {
+    const vars = { ...mockVariables, explanations: [] }
+    const rendered = renderer.renderRepositoryIntelligence(vars)
+    expect(rendered.content).toContain('No explanations available')
   })
 })

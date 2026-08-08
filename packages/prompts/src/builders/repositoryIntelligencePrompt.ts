@@ -17,11 +17,12 @@ export interface RepositoryIntelligencePromptInput {
 }
 
 /**
- * Builds a structured prompt for the Repository Intelligence Agent.
- * LLM receives pre-analyzed data — not raw files.
+ * @deprecated Use PromptRegistry + PromptRenderer (the canonical path) instead.
+ * This function is kept only for backward compatibility in tests and tooling.
+ * It produces a DIFFERENT prompt than the canonical path — do not use in production.
  *
- * Prefer PromptRegistry + PromptRenderer (the canonical path) over this
- * standalone function. This is kept for direct invocation in tests and tooling.
+ * If you need to build a prompt programmatically, use:
+ *   promptRegistry.get('repository-intelligence', variables)
  */
 export function buildRepositoryIntelligencePrompt(
   input: RepositoryIntelligencePromptInput

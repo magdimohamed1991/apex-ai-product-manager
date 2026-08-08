@@ -57,6 +57,12 @@ describe('PromptRegistry', () => {
     expect(rendered.version).toBe('v1')
   })
 
+  it('throws for unsupported version', () => {
+    expect(() => registry.get('repository-intelligence', mockVars, 'v999')).toThrow(
+      'does not have version "v999"'
+    )
+  })
+
   it('throws for unknown prompt id', () => {
     expect(() =>
       // @ts-expect-error — testing unknown id

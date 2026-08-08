@@ -1,3 +1,4 @@
+/** @deprecated — use promptRegistry.get() instead */
 export { buildRepositoryIntelligencePrompt } from './builders/repositoryIntelligencePrompt'
 
 export { PromptRenderer } from './renderer/PromptRenderer'

@@ -5,6 +5,7 @@ import {
   serializeInsights,
   serializeFindings,
   serializeRecommendations,
+  serializeExplanations,
 } from '../variables/repository'
 
 export interface RenderedPrompt {
@@ -33,6 +34,7 @@ export class PromptRenderer {
     const insightsText = serializeInsights(variables.insights)
     const findingsText = serializeFindings(variables.findings)
     const recommendationsText = serializeRecommendations(variables.recommendations)
+    const explanationsText = serializeExplanations(variables.explanations)
 
     const content = `You are APEX, an autonomous Product Intelligence system.
 Analyze the following pre-processed repository data and return a structured JSON assessment.
@@ -52,6 +54,9 @@ ${findingsText}
 
 ## Generated Recommendations
 ${recommendationsText}
+
+## Explanations / Provenance
+${explanationsText}
 
 ## Required JSON Output Schema
 {
@@ -98,6 +103,7 @@ Rules:
         insights: insightsText,
         findings: findingsText,
         recommendations: recommendationsText,
+        explanations: explanationsText,
       },
       renderedAt: new Date(),
     }

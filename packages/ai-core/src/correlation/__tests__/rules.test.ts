@@ -211,4 +211,125 @@ describe('CrossSourceCorrelationRule', () => {
     expect(r1[0]?.score).toBe(r2[0]?.score)
     expect(r1[0]?.id).toBe(r2[0]?.id)
   })
+
+  it('correlates realistic evidence with same key across 3 sources', () => {
+    const now = new Date()
+    const d5 = new Date()
+    d5.setDate(d5.getDate() - 5)
+    const d3 = new Date()
+    d3.setDate(d3.getDate() - 3)
+    const evidence: Evidence[] = [
+      {
+        id: 'amp-checkout',
+        type: 'metric',
+        source: 'amplitude',
+        key: 'checkout',
+        value: -18,
+        confidence: 0.9,
+        collectedAt: now,
+      },
+      {
+        id: 'gplay-checkout',
+        type: 'review',
+        source: 'google_play',
+        key: 'checkout',
+        value: 'users report checkout failures',
+        confidence: 0.8,
+        collectedAt: d5,
+      },
+      {
+        id: 'gh-checkout',
+        type: 'testing',
+        source: 'github',
+        key: 'checkout',
+        value: 'checkout.ts modified',
+        confidence: 0.95,
+        collectedAt: d3,
+      },
+    ]
+    const candidates = rule.evaluate(evidence)
+    expect(candidates.length).toBe(1)
+    expect(candidates[0].ruleId).toBe('cross-source-correlation')
+    expect(candidates[0].evidenceIds).toContain('amp-checkout')
+    expect(candidates[0].evidenceIds).toContain('gplay-checkout')
+    expect(candidates[0].evidenceIds).toContain('gh-checkout')
+  })
+
+  it('does NOT correlate when shared key evidence is >30 days apart', () => {
+    const now = new Date()
+    const d60 = new Date()
+    d60.setDate(d60.getDate() - 60)
+    const d2 = new Date()
+    d2.setDate(d2.getDate() - 2)
+    const evidence: Evidence[] = [
+      {
+        id: 'amp-checkout',
+        type: 'metric',
+        source: 'amplitude',
+        key: 'checkout',
+        value: -18,
+        confidence: 0.9,
+        collectedAt: now,
+      },
+      {
+        id: 'gplay-checkout',
+        type: 'review',
+        source: 'google_play',
+        key: 'checkout',
+        value: 'checkout issues',
+        confidence: 0.8,
+        collectedAt: d60,
+      },
+      {
+        id: 'gh-unrelated',
+        type: 'testing',
+        source: 'github',
+        key: 'readme',
+        value: 'readme updated',
+        confidence: 0.5,
+        collectedAt: d2,
+      },
+    ]
+    const candidates = rule.evaluate(evidence)
+    expect(candidates).toHaveLength(0)
+  })
+
+  it('rejects correlation when shared key is temporally distant but unrelated evidence overlaps', () => {
+    const now = new Date()
+    const d3 = new Date()
+    d3.setDate(d3.getDate() - 3)
+    const d90 = new Date()
+    d90.setDate(d90.getDate() - 90)
+    const evidence: Evidence[] = [
+      {
+        id: 'amp-1',
+        type: 'metric',
+        source: 'amplitude',
+        key: 'checkout',
+        value: -18,
+        confidence: 1,
+        collectedAt: now,
+      },
+      {
+        id: 'gh-1',
+        type: 'testing',
+        source: 'github',
+        key: 'unrelated',
+        value: 'change',
+        confidence: 1,
+        collectedAt: d3,
+      },
+      {
+        id: 'gplay-1',
+        type: 'review',
+        source: 'google_play',
+        key: 'checkout',
+        value: 27,
+        confidence: 1,
+        collectedAt: d90,
+      },
+    ]
+    const candidates = rule.evaluate(evidence)
+    expect(candidates).toHaveLength(0)
+  })
 })

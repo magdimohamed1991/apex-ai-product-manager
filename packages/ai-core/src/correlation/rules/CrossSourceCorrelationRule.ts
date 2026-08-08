@@ -4,6 +4,7 @@ import type { CorrelationCandidate } from '../contracts/CorrelationCandidate'
 import { scoreCorrelation, hasTemporalOverlap } from '../scoring'
 
 const MIN_SOURCES = 3
+const TEMPORAL_WINDOW_DAYS = 30
 
 /**
  * Detects semantically related signals appearing across 3+ independent sources.
@@ -32,7 +33,7 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
 
   evaluate(evidence: Evidence[]): CorrelationCandidate[] {
     // Group evidence by source
-    const bySource = new Map<string, Evidence[]>()
+    const bySource = new Map<Evidence['source'], Evidence[]>()
     for (const e of evidence) {
       const list = bySource.get(e.source) ?? []
       list.push(e)
@@ -41,8 +42,7 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
 
     if (bySource.size < MIN_SOURCES) return []
 
-    const activeSources = [...bySource.entries()].filter(([, items]) => items.length > 0)
-    if (activeSources.length < MIN_SOURCES) return []
+    const activeSources = [...bySource.entries()]
 
     // ── Shared signal check ──────────────────────────────────────────────────
     // Find keys that appear in evidence from at least 2 different sources.
@@ -64,30 +64,58 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
       return []
     }
 
-    // ── Temporal proximity check ─────────────────────────────────────────────
-    // At least two evidence items from different sources must overlap within 30 days.
-    let hasTemporalSignal = false
-    const sourceList = activeSources.map(([, items]) => items)
-    outer: for (let i = 0; i < sourceList.length; i++) {
-      for (let j = i + 1; j < sourceList.length; j++) {
-        if (hasTemporalOverlap(sourceList[i], sourceList[j], 30)) {
-          hasTemporalSignal = true
-          break outer
+    // ── Temporal proximity check (per shared key) ──────────────────────────────
+    // For each shared key, collect evidence carrying that key grouped by source.
+    // Require ≥2 sources AND temporal proximity among those same evidence items.
+    let hasValidCorrelation = false
+    const correlatedEvidenceIds = new Set<string>()
+    const correlatedSharedKeys: string[] = []
+
+    for (const sharedKey of sharedKeys) {
+      const keyEvidenceBySource = new Map<string, Evidence[]>()
+      for (const [source, items] of activeSources) {
+        const matching = items.filter((item) => item.key === sharedKey)
+        if (matching.length > 0) {
+          keyEvidenceBySource.set(source, matching)
+        }
+      }
+
+      if (keyEvidenceBySource.size < 2) continue
+
+      const sourceArrays = [...keyEvidenceBySource.values()]
+      let keyHasTemporalOverlap = false
+      for (let i = 0; i < sourceArrays.length; i++) {
+        for (let j = i + 1; j < sourceArrays.length; j++) {
+          if (hasTemporalOverlap(sourceArrays[i], sourceArrays[j], TEMPORAL_WINDOW_DAYS)) {
+            keyHasTemporalOverlap = true
+            break
+          }
+        }
+        if (keyHasTemporalOverlap) break
+      }
+
+      if (keyHasTemporalOverlap) {
+        hasValidCorrelation = true
+        correlatedSharedKeys.push(sharedKey)
+        for (const items of keyEvidenceBySource.values()) {
+          for (const item of items) {
+            correlatedEvidenceIds.add(item.id)
+          }
         }
       }
     }
 
-    if (!hasTemporalSignal) {
+    if (!hasValidCorrelation) {
       return []
     }
 
     // ── Build candidate ──────────────────────────────────────────────────────
-    // Topic similarity is the ratio of shared keys to total unique keys seen.
+    const allEvidence = activeSources.flatMap(([, items]) => items)
+    const contributingEvidence = allEvidence.filter((e) => correlatedEvidenceIds.has(e.id))
     const totalUniqueKeys = new Set(activeSources.flatMap(([, items]) => items.map((e) => e.key)))
       .size
-    const topicSimilarity = Math.min(sharedKeys.length / totalUniqueKeys, 1)
+    const topicSimilarity = Math.min(correlatedSharedKeys.length / totalUniqueKeys, 1)
 
-    const allEvidence = activeSources.flatMap(([, items]) => items)
     const sourceTypes = activeSources.map(
       ([source]) => source
     ) as CorrelationCandidate['sourceTypes']
@@ -95,10 +123,10 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
     return [
       {
         id: `${this.id}:${sourceTypes.sort().join('-')}`,
-        evidenceIds: allEvidence.map((e) => e.id),
+        evidenceIds: contributingEvidence.map((e) => e.id),
         sourceTypes,
-        score: scoreCorrelation(sourceTypes, allEvidence, topicSimilarity),
-        reason: `Signals were detected across ${activeSources.length} independent sources (${sourceTypes.join(', ')}) with shared subject matter (${sharedKeys.join(', ')}) and temporal proximity. Higher confidence from source diversity — not from proven causation. Cross-referencing these signals may surface a common underlying issue.`,
+        score: scoreCorrelation(sourceTypes, contributingEvidence, topicSimilarity),
+        reason: `Signals were detected across ${activeSources.length} independent sources (${sourceTypes.join(', ')}) with shared subject matter (${correlatedSharedKeys.join(', ')}) and temporal proximity. Higher confidence from source diversity — not from proven causation. Cross-referencing these signals may surface a common underlying issue.`,
         ruleId: this.id,
         createdAt: new Date(),
       },

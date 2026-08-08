@@ -63,3 +63,13 @@ export function serializeRecommendations(recommendations: RecommendationDTO[]): 
     )
     .join('\n')
 }
+
+export function serializeExplanations(explanations: ExplanationDTO[]): string {
+  if (explanations.length === 0) return '- No explanations available'
+  return explanations
+    .map(
+      (e) =>
+        `- ${e.summary}\n  Rules: ${e.appliedRules.join(', ')}\n  Confidence: ${e.confidenceReason}`
+    )
+    .join('\n')
+}

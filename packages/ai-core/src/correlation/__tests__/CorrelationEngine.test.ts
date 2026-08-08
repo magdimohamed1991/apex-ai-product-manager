@@ -80,15 +80,87 @@ describe('CorrelationEngine', () => {
       }
     })
 
-    it('cross-source candidate appears when 3 sources present', () => {
+    it('cross-source candidate appears when 3 sources share a key', () => {
+      const now = new Date()
+      const d5 = new Date()
+      d5.setDate(d5.getDate() - 5)
+      const d3 = new Date()
+      d3.setDate(d3.getDate() - 3)
       const evidence: Evidence[] = [
-        makeEvidence('amp-1', 'amplitude', -18, 0),
-        makeEvidence('gplay-1', 'google_play', 10, 5),
-        makeEvidence('gh-1', 'github', 'change', 3),
+        {
+          id: 'amp-checkout',
+          type: 'metric',
+          source: 'amplitude',
+          key: 'checkout',
+          value: -18,
+          confidence: 1,
+          collectedAt: now,
+        },
+        {
+          id: 'gplay-checkout',
+          type: 'review',
+          source: 'google_play',
+          key: 'checkout',
+          value: 27,
+          confidence: 1,
+          collectedAt: d5,
+        },
+        {
+          id: 'gh-checkout',
+          type: 'testing',
+          source: 'github',
+          key: 'checkout',
+          value: 'checkout.ts modified',
+          confidence: 1,
+          collectedAt: d3,
+        },
       ]
       const result = engine.evaluate(evidence)
       const crossSource = result.candidates.find((c) => c.ruleId === 'cross-source-correlation')
       expect(crossSource).toBeDefined()
+      expect(crossSource!.evidenceIds).toContain('amp-checkout')
+      expect(crossSource!.evidenceIds).toContain('gplay-checkout')
+      expect(crossSource!.evidenceIds).toContain('gh-checkout')
+    })
+
+    it('cross-source candidate does NOT appear when shared key is temporally distant', () => {
+      const now = new Date()
+      const d90 = new Date()
+      d90.setDate(d90.getDate() - 90)
+      const d3 = new Date()
+      d3.setDate(d3.getDate() - 3)
+      const evidence: Evidence[] = [
+        {
+          id: 'amp-1',
+          type: 'metric',
+          source: 'amplitude',
+          key: 'checkout',
+          value: -18,
+          confidence: 1,
+          collectedAt: now,
+        },
+        {
+          id: 'gplay-1',
+          type: 'review',
+          source: 'google_play',
+          key: 'checkout',
+          value: 27,
+          confidence: 1,
+          collectedAt: d90,
+        },
+        {
+          id: 'gh-1',
+          type: 'testing',
+          source: 'github',
+          key: 'unrelated',
+          value: 'change',
+          confidence: 1,
+          collectedAt: d3,
+        },
+      ]
+      const result = engine.evaluate(evidence)
+      const crossSource = result.candidates.find((c) => c.ruleId === 'cross-source-correlation')
+      expect(crossSource).toBeUndefined()
     })
 
     it('all candidate reasons avoid causation language', () => {
