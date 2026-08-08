@@ -120,6 +120,7 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       severity: insight.severity,
       confidence: insight.confidence,
       source: insight.source,
+      evidence: insight.evidenceIds,
       tags: insight.tags,
     }))
   }
@@ -211,12 +212,19 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
     let attempts = 1
     let retryPromptTokens = 0
     let retryCompletionTokens = 0
+    const maxAttempts = this.budgetPolicy.maxAttempts
 
     try {
       parsed = this.validator.parseJSON(content)
-    } catch {
+    } catch (parseError) {
+      if (attempts >= maxAttempts) {
+        throw new Error(`LLM output was not valid JSON after ${attempts} attempt(s)`)
+      }
       attempts++
-      const retry = await provider.complete(originalPrompt, {
+      const retryPrompt = this.buildRetryPrompt(originalPrompt, [
+        `Invalid JSON: ${(parseError as Error).message}`,
+      ])
+      const retry = await provider.complete(retryPrompt, {
         maxTokens: this.budgetPolicy.maxTokensPerRequest,
       })
       retryPromptTokens += retry.usage.promptTokens
@@ -227,8 +235,14 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
     const result = this.validator.validate(parsed)
 
     if (!result.valid) {
+      if (attempts >= maxAttempts) {
+        throw new Error(
+          `LLM output failed validation after ${attempts} attempt(s): ${result.errors.join(', ')}`
+        )
+      }
       attempts++
-      const retry = await provider.complete(originalPrompt, {
+      const retryPrompt = this.buildRetryPrompt(originalPrompt, result.errors)
+      const retry = await provider.complete(retryPrompt, {
         maxTokens: this.budgetPolicy.maxTokensPerRequest,
       })
       retryPromptTokens += retry.usage.promptTokens
@@ -238,7 +252,7 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
 
       if (!retryResult.valid) {
         throw new Error(
-          `LLM output failed validation after retry: ${retryResult.errors.join(', ')}`
+          `LLM output failed validation after ${attempts} attempt(s): ${retryResult.errors.join(', ')}`
         )
       }
       return {
@@ -261,5 +275,16 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       },
       attempts,
     }
+  }
+
+  private buildRetryPrompt(originalPrompt: string, errors: string[]): string {
+    const errorList = errors.map((e) => `- ${e}`).join('\n')
+    return `${originalPrompt}
+
+---RETRY INSTRUCTIONS---
+Your previous response failed validation:
+${errorList}
+
+Return ONLY corrected JSON matching the schema above. No markdown, no explanation.`
   }
 }

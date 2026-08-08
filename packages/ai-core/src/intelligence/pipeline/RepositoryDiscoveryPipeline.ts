@@ -78,6 +78,17 @@ export class RepositoryDiscoveryPipeline {
     const repoEvidence = this.collector.collect(summary)
     const evidence = [...repoEvidence, ...(input.externalEvidence ?? [])]
 
+    // Reject duplicate evidence IDs
+    const seenIds = new Set<string>()
+    for (const e of evidence) {
+      if (seenIds.has(e.id)) {
+        throw new Error(
+          `Duplicate evidence ID: "${e.id}" — evidence IDs must be globally unique within the workspace`
+        )
+      }
+      seenIds.add(e.id)
+    }
+
     // Validate external evidence provenance at ingestion boundary
     for (const e of input.externalEvidence ?? []) {
       createEvidence(e)

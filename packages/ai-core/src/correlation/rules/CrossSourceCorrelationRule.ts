@@ -79,17 +79,11 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
 
       if (keyEvidenceBySource.size < MIN_SOURCES) continue
 
-      const sourceArrays = [...keyEvidenceBySource.values()]
-      let hasTemporalOverlap = false
-      for (let i = 0; i < sourceArrays.length; i++) {
-        for (let j = i + 1; j < sourceArrays.length; j++) {
-          if (hasTemporalOverlapFn(sourceArrays[i], sourceArrays[j], TEMPORAL_WINDOW_DAYS)) {
-            hasTemporalOverlap = true
-            break
-          }
-        }
-        if (hasTemporalOverlap) break
-      }
+      const allDates = [...keyEvidenceBySource.values()].flat().map((e) => e.collectedAt.getTime())
+      const minDate = Math.min(...allDates)
+      const maxDate = Math.max(...allDates)
+      const windowMs = TEMPORAL_WINDOW_DAYS * 24 * 60 * 60 * 1000
+      const hasTemporalOverlap = maxDate - minDate <= windowMs
 
       if (!hasTemporalOverlap) continue
 
@@ -103,9 +97,7 @@ export class CrossSourceCorrelationRule implements CorrelationRule {
 
       const allEvidence = activeSources.flatMap(([, items]) => items)
       const contributingEvidence = allEvidence.filter((e) => correlatedEvidenceIds.has(e.id))
-      const totalUniqueKeys = new Set(activeSources.flatMap(([, items]) => items.map((e) => e.key)))
-        .size
-      const topicSimilarity = 1 / totalUniqueKeys
+      const topicSimilarity = 1.0
 
       const sortedSources = keySources.sort() as CorrelationCandidate['sourceTypes']
 

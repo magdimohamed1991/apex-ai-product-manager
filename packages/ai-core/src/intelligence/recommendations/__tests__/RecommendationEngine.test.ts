@@ -35,7 +35,6 @@ function makeFinding(id: string): Finding {
     priority: 'high',
     severity: 'high',
     evidenceIds: [],
-    relatedInsights: [],
     createdAt: new Date(),
   }
 }

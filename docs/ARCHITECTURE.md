@@ -110,14 +110,6 @@ Insight ────────────────────────
 Evidence → Correlation → Finding ────→ Recommendation
 ```
 
-The `Finding.relatedInsights` field is reserved for a future `Insight → Finding` path
-but is not populated by any current pipeline stage. Insights generate Recommendations
-directly. This decision avoids building machinery for a path with no current consumer.
-
-**Future:** If a use case requires `Insight → Finding → Recommendation` (e.g., grouping
-multiple insights into a single compound finding), populate `relatedInsights` at that time
-and update this section.
-
 ## Recommendation Strategies
 
 Each strategy declares `supportedOrigins` and operates on `RecommendationInput`:

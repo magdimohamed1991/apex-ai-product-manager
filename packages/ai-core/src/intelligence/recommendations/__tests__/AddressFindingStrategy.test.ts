@@ -16,7 +16,6 @@ function makeFinding(overrides: Partial<Finding> = {}): Finding {
     priority: 'high',
     severity: 'high',
     evidenceIds: ['amp-1', 'gplay-1'],
-    relatedInsights: ['insight-1'],
     correlationId: 'cross-source:test',
     createdAt: new Date(),
     ...overrides,

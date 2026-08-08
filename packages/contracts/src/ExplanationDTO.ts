@@ -8,6 +8,6 @@ export interface ExplanationDTO {
   evidenceIds: string[]
   appliedRules: string[]
   confidenceReason: string
-  insightIds?: string[]
-  findingIds?: string[]
+  insightIds: string[]
+  findingIds: string[]
 }

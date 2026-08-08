@@ -1,5 +1,6 @@
 import type { RepositorySummary } from '../repository/RepositorySummary'
 import type { Evidence } from './Evidence'
+import { createEvidence } from './Evidence'
 
 /**
  * Converts a RepositorySummary into a flat list of Evidence facts.
@@ -11,15 +12,17 @@ export class EvidenceCollector {
     const evidence: Evidence[] = []
 
     const add = (type: Evidence['type'], key: string, value: unknown, confidence = 1): void => {
-      evidence.push({
-        id: `${type}:${key}`,
-        type,
-        source: 'github',
-        key,
-        value,
-        confidence,
-        collectedAt: now,
-      })
+      evidence.push(
+        createEvidence({
+          id: `${type}:${key}`,
+          type,
+          source: 'github',
+          key,
+          value,
+          confidence,
+          collectedAt: now,
+        })
+      )
     }
 
     add('package_manager', 'packageManager', summary.packageManager)

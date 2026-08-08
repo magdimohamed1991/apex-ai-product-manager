@@ -49,7 +49,6 @@ export class CorrelationFindingBuilder {
       description,
       priority: this.inferPriority(candidate.score),
       severity: this.inferSeverity(candidate.score),
-      relatedInsights: [],
       evidenceIds: relatedEvidence.map((e) => e.id),
       correlationId: candidate.id,
       createdAt: new Date(),
@@ -88,8 +87,11 @@ export class CorrelationFindingBuilder {
     const uniqueSources = new Set(
       evidence.filter((e) => candidate.evidenceIds.includes(e.id)).map((e) => e.source)
     )
-    if (uniqueSources.size < 2) {
-      return 'Correlation findings require evidence from at least 2 independent sources'
+
+    // Rule-aware minimum source validation
+    const minSources = candidate.ruleId === 'cross-source-correlation' ? 3 : 2
+    if (uniqueSources.size < minSources) {
+      return `Rule "${candidate.ruleId}" requires evidence from at least ${minSources} independent sources, found ${uniqueSources.size}`
     }
 
     return null

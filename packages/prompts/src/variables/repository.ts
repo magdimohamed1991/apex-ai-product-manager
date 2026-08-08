@@ -44,7 +44,10 @@ export function serializeEvidence(evidence: Evidence[]): string {
 export function serializeInsights(insights: InsightDTO[]): string {
   if (insights.length === 0) return '- No static analysis insights available'
   return insights
-    .map((i) => `- [${i.severity.toUpperCase()}] ${i.title}\n  ${i.description}`)
+    .map(
+      (i) =>
+        `- [${i.severity.toUpperCase()}] ${i.title}\n  ID: ${i.id}\n  Source: ${i.source}\n  Evidence: ${i.evidence.join(', ') || 'none'}\n  Tags: ${i.tags.join(', ')}\n  ${i.description}`
+    )
     .join('\n')
 }
 
@@ -64,8 +67,8 @@ export function serializeRecommendations(recommendations: RecommendationDTO[]): 
     .map(
       (r) =>
         `- [${r.priority.toUpperCase()}] ${r.title}\n  Rationale: ${r.rationale}\n  Impact: ${r.impact} | Effort: ${r.effort} | Origin: ${r.origin}` +
-        (r.findingIds?.length ? `\n  Findings: ${r.findingIds.join(', ')}` : '') +
-        (r.insightIds?.length ? `\n  Insights: ${r.insightIds.join(', ')}` : '') +
+        (r.findingIds.length ? `\n  Findings: ${r.findingIds.join(', ')}` : '') +
+        (r.insightIds.length ? `\n  Insights: ${r.insightIds.join(', ')}` : '') +
         (r.proposedActions?.length
           ? `\n  Proposed Actions:\n${r.proposedActions.map((a) => `    - ${a.title}\n      ${a.description}`).join('\n')}`
           : '')
@@ -79,8 +82,8 @@ export function serializeExplanations(explanations: ExplanationDTO[]): string {
     .map(
       (e) =>
         `- ${e.summary}\n  Evidence: ${e.evidenceIds.join(', ') || 'none'}` +
-        (e.findingIds?.length ? `\n  Findings: ${e.findingIds.join(', ')}` : '') +
-        (e.insightIds?.length ? `\n  Insights: ${e.insightIds.join(', ')}` : '') +
+        (e.findingIds.length ? `\n  Findings: ${e.findingIds.join(', ')}` : '') +
+        (e.insightIds.length ? `\n  Insights: ${e.insightIds.join(', ')}` : '') +
         `\n  Rules: ${e.appliedRules.join(', ')}\n  Confidence: ${e.confidenceReason}`
     )
     .join('\n')

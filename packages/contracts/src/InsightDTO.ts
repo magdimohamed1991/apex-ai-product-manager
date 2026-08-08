@@ -11,5 +11,6 @@ export interface InsightDTO {
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info'
   confidence: number
   source: SourceType
+  evidence: string[]
   tags: string[]
 }
