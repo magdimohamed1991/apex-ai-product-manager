@@ -12,7 +12,8 @@ export class InsightMapper {
     source: Insight['source'] = 'github'
   ): Insight[] {
     return results.map((result) => ({
-      id: crypto.randomUUID(),
+      // Enforce deterministic stable Insight ID across pipeline runs (Item 7)
+      id: `ins-${workspaceId}-${result.ruleId}`,
       workspaceId,
       title: result.title,
       description: result.message,

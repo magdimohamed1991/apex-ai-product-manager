@@ -1,3 +1,4 @@
+import { createRecommendation } from '../../../domain'
 import type { Recommendation, RecommendationOrigin } from '../../../domain'
 import type { RecommendationStrategy } from '../RecommendationStrategy'
 import type { RecommendationInput } from '../RecommendationInput'
@@ -12,8 +13,7 @@ export class AddTestingStrategy implements RecommendationStrategy {
 
   recommend(input: RecommendationInput): Recommendation {
     const insight = input.insight!
-    return {
-      id: crypto.randomUUID(),
+    return createRecommendation({
       workspaceId: input.workspaceId,
       origin: 'insight',
       deduplicationKey: `${this.id}:insight:${insight.id}`,
@@ -38,7 +38,6 @@ export class AddTestingStrategy implements RecommendationStrategy {
             'Add 3-5 smoke tests covering critical paths to establish test coverage baseline.',
         },
       ],
-      createdAt: new Date(),
-    }
+    })
   }
 }

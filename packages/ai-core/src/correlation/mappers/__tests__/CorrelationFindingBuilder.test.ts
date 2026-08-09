@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { CorrelationFindingBuilder } from '../CorrelationFindingBuilder'
 import { createWorkspaceId } from '../../../domain/value-objects'
+import { createCorrelationFinding } from '../../../domain/entities/Finding'
 import type { CorrelationCandidate } from '../../contracts/CorrelationCandidate'
 import type { Evidence } from '@apex/analysis'
 
@@ -192,6 +193,55 @@ describe('CorrelationFindingBuilder', () => {
       expect(finding.evidenceIds.length).toBeGreaterThan(0)
       expect(explanation.evidenceIds.length).toBeGreaterThan(0)
       expect(finding.description).not.toMatch(/caused|because of|due to/i)
+    })
+  })
+
+  describe('createCorrelationFinding factory', () => {
+    it('successfully creates a correlation finding', () => {
+      const f = createCorrelationFinding({
+        workspaceId: WORKSPACE_ID,
+        type: 'risk',
+        title: 'Signal overlap',
+        description: 'Test description',
+        priority: 'high',
+        severity: 'high',
+        evidenceIds: ['amp-1'],
+        correlationId: 'corr-123',
+      })
+      expect(f.correlationId).toBe('corr-123')
+      expect(f.evidenceIds).toEqual(['amp-1'])
+      expect(f.id).toBeDefined()
+      expect(f.createdAt).toBeInstanceOf(Date)
+    })
+
+    it('throws if correlationId is missing', () => {
+      expect(() =>
+        createCorrelationFinding({
+          workspaceId: WORKSPACE_ID,
+          type: 'risk',
+          title: 'Signal overlap',
+          description: 'Test description',
+          priority: 'high',
+          severity: 'high',
+          evidenceIds: ['amp-1'],
+          correlationId: '',
+        })
+      ).toThrow('Correlation finding must have a correlationId')
+    })
+
+    it('throws if evidenceIds is empty', () => {
+      expect(() =>
+        createCorrelationFinding({
+          workspaceId: WORKSPACE_ID,
+          type: 'risk',
+          title: 'Signal overlap',
+          description: 'Test description',
+          priority: 'high',
+          severity: 'high',
+          evidenceIds: [],
+          correlationId: 'corr-123',
+        })
+      ).toThrow('Correlation finding must have at least one evidenceId')
     })
   })
 })
