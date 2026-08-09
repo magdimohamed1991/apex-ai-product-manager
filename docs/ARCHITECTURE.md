@@ -245,4 +245,29 @@ External System
 7. **Secrets Redaction Safeguards**:
    All logs, errors, and metadata are swept recursively by `redactSensitiveData()` to protect OAuth tokens, Bearer keys, or passwords from leaking.
 
+## Milestone H6 — Adaptive Product Intelligence
+
+### H6 Invariant (The H6 Golden Rule)
+
+**Adaptive learning is advisory, deterministic, evidence-derived, tenant-scoped, and non-destructive. H6 may influence future prioritization but must never mutate historical H3 scores, H4 reasoning records, H5 outcomes, or underlying repository facts.**
+
+### Calibration Provenance Data Flow
+
+Every prioritization calibration computed by H6 is fully inspectable, auditable, and traceable through the following mathematical progression:
+
+```
+  H3 Base Priority Score (Deterministic Rules)
+            ↓
+  H6 Category Adoption Signals (Based on N Historical Observations)
+            ↓
+  H6 Outcome Verification Success Rates
+            ↓
+  Statistical Safeguards & Confidence Constraints (n / (n + 10))
+            ↓
+  Objective Risk Enforced Safety Floor (Never deflated below 8.5 for Critical/7.0 for High)
+            ↓
+  Final Calibrated Priority Score
+```
+
+
 
