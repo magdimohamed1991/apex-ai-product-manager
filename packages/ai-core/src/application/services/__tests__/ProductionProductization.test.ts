@@ -224,9 +224,10 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
       expect(metrics.decisionAcceptanceRate.value!).toBeGreaterThan(0)
       expect(metrics.decisionAcceptanceRate.epistemicState).toBe('observed')
       // The legacy `efficiency` field is REMOVED — PM decision latency is
-      // not measurable from rec.createdAt -> action.updatedAt and the new
-      // PMDecisionTelemetry stream is not yet in use. The metric MUST be
-      // marked unavailable so the UI doesn't display a fake number.
+      // never measured from rec.createdAt -> action.updatedAt. With no
+      // decision recorded in this flow, the metric MUST remain unavailable
+      // (no fake numbers), and the telemetry-wiring test below records a
+      // real decision to elevate it to observed.
       expect(metrics.measuredDecisionLatencySeconds.epistemicState).toBe('unavailable')
       expect(metrics.measuredDecisionLatencySeconds.value).toBeNull()
     })
