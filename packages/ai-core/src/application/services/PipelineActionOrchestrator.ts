@@ -36,11 +36,18 @@ export class PipelineActionOrchestrator {
   /**
    * Runs the discovery pipeline, extracts proposed actions, and automatically
    * promotes them into Actions idempotently with failure isolation.
+   *
+   * `projectId` (when provided) is threaded into the pipeline so the
+   * deterministic insight/recommendation ids are project-scoped — without it,
+   * two projects inside the same workspace analyzing the same repository
+   * shape produce identical recommendation ids and clobber each other's
+   * persisted rows.
    */
   async runPipelineAndPromote(
     workspaceId: WorkspaceId,
     files: RepositoryFiles,
-    externalEvidence?: Evidence[]
+    externalEvidence?: Evidence[],
+    projectId?: string
   ): Promise<PipelineRunResult> {
     const pipelineRunId = `run-${crypto.randomUUID()}`
 
@@ -49,6 +56,7 @@ export class PipelineActionOrchestrator {
       workspaceId,
       files,
       externalEvidence,
+      projectId,
     })
 
     const promotedActions: Action[] = []

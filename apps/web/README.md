@@ -23,13 +23,21 @@ Outputs to `dist/`.
 
 ## Production
 
-```bash
-NODE_ENV=production pnpm --filter @apex/web preview
-```
+There is currently **no packaged production entrypoint** in this
+repository: the API handler (`src/api-server.ts`) is only mounted as
+Vite dev-server middleware (`pnpm --filter @apex/web dev`).
 
-The preview server serves the built static assets and proxies API
-requests to the Node API server (or whatever HTTP server the same
-process is configured to handle).
+- `vite preview` (`pnpm --filter @apex/web preview`) serves the built
+  static assets **only** — it does NOT mount the API middleware, so
+  `/api/*` requests fail under preview. Do not use preview as a
+  production server.
+- A production deployment must run a Node.js process that serves
+  `dist/` and routes `/api/*` through `handleApiRequest` (or mount the
+  same handler behind a reverse proxy). The handler, composition root
+  (`initApiServer`), and shutdown hook are exported from
+  `src/api-server.ts` for this purpose; packaging this entrypoint is
+  tracked as a residual deployment item in
+  `docs/FINAL_PRE_H8_AUDIT.md`.
 
 ## Code layout
 
@@ -45,8 +53,10 @@ src/
       hooks/              - Data hooks
       types/              - Domain types
       page.tsx            - Coordinator component
-    onboarding/           - Pre-dashboard onboarding flow
 ```
+
+(The onboarding flow lives in `App.tsx`; the legacy
+`features/onboarding/**` directory was removed.)
 
 ## Security
 

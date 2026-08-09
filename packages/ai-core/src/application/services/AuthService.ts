@@ -231,12 +231,16 @@ export class AuthService {
     }
   }
 
-  logout(token: string): void {
+  async logout(token: string): Promise<void> {
     if (typeof token !== 'string' || token.length < 16) return
     this.database.beginTransaction()
     try {
       this.database.deleteSession(token)
-      this.database.commit()
+      // Await the commit: the fast path is synchronous today, but the slow
+      // path serializes through the write mutex and must not be left as an
+      // unawaited promise (unhandled rejection + session not yet invalidated
+      // when the caller returns).
+      await this.database.commit()
     } catch (err) {
       this.database.rollback()
       throw err

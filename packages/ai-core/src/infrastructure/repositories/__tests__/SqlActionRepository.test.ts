@@ -177,7 +177,11 @@ describe('SqlActionRepository — Milestone D: Real Persistence & Infrastructure
     // It must trigger rollback during validateTransition() because of sequence constraints,
     // and preserve absolutely no partial state in the DB!
     await expect(
-      repository.persistExecutionOutcome(completedAction, execution, malformedTransition as unknown as ActionTransition)
+      repository.persistExecutionOutcome(
+        completedAction,
+        execution,
+        malformedTransition as unknown as ActionTransition
+      )
     ).rejects.toThrow(/sequence number must be greater than or equal to 1/)
 
     // Verify Action status remains 'in-progress' (rolled back from completed!)
@@ -220,7 +224,10 @@ describe('SqlActionRepository — Milestone D: Real Persistence & Infrastructure
     expect(restoredAction?.nextAttemptAt).toEqual(action.nextAttemptAt)
     expect(restoredAction?.leaseExpiresAt).toEqual(action.leaseExpiresAt)
 
-    const restoredExecutions = await restartedRepository.getExecutionsByAction(action.id, WORKSPACE_A)
+    const restoredExecutions = await restartedRepository.getExecutionsByAction(
+      action.id,
+      WORKSPACE_A
+    )
     expect(restoredExecutions.length).toBe(1)
     expect(restoredExecutions[0].error?.code).toBe('timeout')
   })
@@ -255,9 +262,69 @@ describe('SqlActionRepository — Milestone D: Real Persistence & Infrastructure
     // Assert absolute security isolation for Workspace B queries:
     // Guessed action IDs or keys must never cross boundaries!
     expect(await repository.getByIdAndWorkspace(action.id, WORKSPACE_B)).toBeNull()
-    expect(await repository.getByIdempotencyKeyAndWorkspace(action.idempotencyKey, WORKSPACE_B)).toBeNull()
+    expect(
+      await repository.getByIdempotencyKeyAndWorkspace(action.idempotencyKey, WORKSPACE_B)
+    ).toBeNull()
     expect(await repository.getByWorkspace({ workspaceId: WORKSPACE_B })).toEqual([])
     expect(await repository.getExecutionsByAction(action.id, WORKSPACE_B)).toEqual([])
     expect(await repository.getTransitionsByAction(action.id, WORKSPACE_B)).toEqual([])
+  })
+
+  it('8. Cross-workspace same-id Action/Execution upserts never clobber the other tenant row', async () => {
+    // Regression for the audit finding: the DB layer previously upserted by
+    // `id` alone, so a same-id row from workspace B would REPLACE workspace
+    // A's row. The upsert must be scoped by (id, workspaceId).
+    const actionA = createAction({
+      ...baseActionInput,
+      id: 'action-shared-id',
+      workspaceId: WORKSPACE_A,
+      relatedRecommendationId: 'rec-shared-a',
+      relatedProposedActionId: 'pa-shared-a',
+    })
+    await repository.save(actionA)
+
+    const actionB = createAction({
+      ...baseActionInput,
+      id: 'action-shared-id',
+      workspaceId: WORKSPACE_B,
+      relatedRecommendationId: 'rec-shared-b',
+      relatedProposedActionId: 'pa-shared-b',
+    })
+    await repository.save(actionB)
+
+    // Both rows survive; each tenant sees its own.
+    const fetchedA = await repository.getByIdAndWorkspace('action-shared-id', WORKSPACE_A)
+    const fetchedB = await repository.getByIdAndWorkspace('action-shared-id', WORKSPACE_B)
+    expect(fetchedA?.relatedRecommendationId).toBe('rec-shared-a')
+    expect(fetchedB?.relatedRecommendationId).toBe('rec-shared-b')
+
+    // Same for executions: same execution id in both workspaces.
+    const execA = createExecution({
+      id: 'exec-shared-id',
+      actionId: actionA.id,
+      workspaceId: WORKSPACE_A,
+      attempt: 1,
+      status: 'completed',
+      externalId: 'ext-a',
+      error: null,
+    })
+    await repository.saveExecution(execA)
+    const execB = createExecution({
+      id: 'exec-shared-id',
+      actionId: actionB.id,
+      workspaceId: WORKSPACE_B,
+      attempt: 1,
+      status: 'failed',
+      externalId: null,
+      error: { code: 'unknown', message: 'x', retryable: false, timestamp: new Date() },
+    })
+    await repository.saveExecution(execB)
+
+    const execsA = await repository.getExecutionsByAction(actionA.id, WORKSPACE_A)
+    const execsB = await repository.getExecutionsByAction(actionB.id, WORKSPACE_B)
+    expect(execsA).toHaveLength(1)
+    expect(execsA[0].externalId).toBe('ext-a')
+    expect(execsB).toHaveLength(1)
+    expect(execsB[0].status).toBe('failed')
   })
 })

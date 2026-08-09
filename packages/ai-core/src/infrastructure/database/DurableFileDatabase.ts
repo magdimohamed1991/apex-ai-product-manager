@@ -264,8 +264,14 @@ export class DurableFileDatabase {
         `Unique constraint violation: duplicate idempotencyKey "${action.idempotencyKey}" inside workspace "${action.workspaceId}"`
       )
     }
-    // PRIMARY KEY(id) check — upsert on collision
-    state.actions = state.actions.filter((a) => a.id !== action.id)
+    // Upsert on collision, scoped by (id, workspaceId). Filtering by `id`
+    // alone would let a same-id Action from another workspace REPLACE this
+    // tenant's row (cross-tenant clobber, audit F01 class). Action ids are
+    // UUIDs so collisions are cryptographically improbable, but the
+    // constraint must not silently delete another tenant's data.
+    state.actions = state.actions.filter(
+      (a) => !(a.id === action.id && a.workspaceId === action.workspaceId)
+    )
     state.actions.push(JSON.parse(JSON.stringify(action)))
   }
 
@@ -282,8 +288,10 @@ export class DurableFileDatabase {
         `Foreign key constraint violation: Action "${exec.actionId}" does not exist in workspace "${exec.workspaceId}"`
       )
     }
-    // Upsert by id
-    state.executions = state.executions.filter((e) => e.id !== exec.id)
+    // Upsert by (id, workspaceId) — never clobber another tenant's row.
+    state.executions = state.executions.filter(
+      (e) => !(e.id === exec.id && e.workspaceId === exec.workspaceId)
+    )
     state.executions.push(JSON.parse(JSON.stringify(exec)))
   }
 

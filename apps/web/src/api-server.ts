@@ -50,6 +50,7 @@ import {
   MockLLMProvider,
   PMDecisionTelemetryService,
 } from '@apex/ai-core'
+import type { ProviderCredentials } from '@apex/ai-core'
 
 /**
  * The persisted Recommendation rows ARE RichRecommendations: runAnalysis
@@ -492,8 +493,25 @@ async function processWorkspaceActions() {
     const executor = new ActionExecutor(actionRepository)
     for (const wsId of workspaces) {
       const wsIdObj = createWorkspaceId(wsId)
-      const creds = await credentialProvider.getCredentials(wsIdObj, 'github')
+      // Discover pending work BEFORE fetching credentials: with no pending
+      // actions there is nothing to execute and no reason to touch the
+      // credential provider (in production a missing GITHUB_TOKEN previously
+      // aborted the whole iteration every 5 seconds, flooding the logs).
       const pending = await actionRepository.getPendingActionsAndWorkspace(wsIdObj)
+      if (pending.length === 0) continue
+      let creds: ProviderCredentials
+      try {
+        creds = await credentialProvider.getCredentials(wsIdObj, 'github')
+      } catch (err) {
+        // Per-workspace credential failure (e.g. GITHUB_TOKEN unset in
+        // production): log once and skip this workspace; other workspaces
+        // must still be processed and the loop must not crash.
+        logger.warn('Worker credential lookup failed; skipping workspace', {
+          workspaceId: wsId,
+          err: err instanceof Error ? err.message : String(err),
+        })
+        continue
+      }
       for (const action of pending) {
         try {
           const rec = await productRepository.getRecommendationByIdAndWorkspace(
@@ -623,7 +641,7 @@ export async function handleApiRequest(
 
     if (pathname === '/api/auth/logout' && method === 'POST') {
       const token = getSessionToken(req)
-      if (token) authService.logout(token)
+      if (token) await authService.logout(token)
       sendJson(res, { success: true })
       return true
     }

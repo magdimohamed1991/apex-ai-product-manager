@@ -58,7 +58,13 @@ export class SqlRecommendationOutcomeRepository implements RecommendationOutcome
     try {
       const state = this.db.getActiveState()
       if (!state.outcomes) state.outcomes = []
-      state.outcomes = state.outcomes.filter((o) => o.id !== outcome.id)
+      // (id, workspaceId)-scoped upsert. Filtering by `id` alone would let a
+      // same-id outcome from another workspace DELETE this tenant's row —
+      // the same cross-tenant clobber class fixed for projects/findings/
+      // recommendations (audit F01).
+      state.outcomes = state.outcomes.filter(
+        (o) => !(o.id === outcome.id && o.workspaceId === outcome.workspaceId)
+      )
       state.outcomes.push(JSON.parse(JSON.stringify(outcome)))
       await this.db.commit()
     } catch (err) {

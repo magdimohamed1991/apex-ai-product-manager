@@ -350,4 +350,55 @@ describe('AdaptiveProfileCompiler & H6 Calibrator (Milestone I - Production Hard
     expect(result.outcomeReliabilityMultiplier).toBe(1.0)
     expect(result.calibratedScore).toBe(5.0)
   })
+
+  it('H6 calibrator refuses to fabricate a baseline when priorityScore is missing or invalid', () => {
+    // Regression: the calibrator previously computed `priorityScore || 5.0`,
+    // silently inventing a baseline whenever the field was falsy. Missing
+    // evidence must never be replaced with a fabricated default.
+    const ws = createWorkspaceId('ws-6b')
+    const recBase = {
+      id: 'rec-1',
+      workspaceId: ws,
+      origin: 'insight' as const,
+      deduplicationKey: 'k-1',
+      title: 'Add automated tests',
+      rationale: 'r',
+      impact: 'i',
+      effort: 'medium' as const,
+      priority: 'medium' as const,
+      confidence: 0.9,
+      insightIds: [],
+      findingIds: [],
+      proposedActions: [],
+      createdAt: new Date(),
+      category: 'TESTING' as const,
+      pmCategory: 'CRITICAL_PRODUCT_RISK' as const,
+      assessment: {
+        severity: 'low' as const,
+        businessImpact: 'low' as const,
+        userImpact: 'low' as const,
+        deliveryRisk: 'low' as const,
+        operationalRisk: 'low' as const,
+        effort: 'low' as const,
+        confidence: 0.9,
+      },
+      expectedOutcome: '',
+      rankingReason: '',
+    }
+
+    expect(() =>
+      calibrator.calibrate({ ...recBase, priorityScore: undefined as unknown as number }, null, [])
+    ).toThrow(/lacks a valid deterministic H3 priorityScore/)
+    expect(() => calibrator.calibrate({ ...recBase, priorityScore: 0 }, null, [])).toThrow(
+      /lacks a valid deterministic H3 priorityScore/
+    )
+    expect(() => calibrator.calibrate({ ...recBase, priorityScore: Number.NaN }, null, [])).toThrow(
+      /lacks a valid deterministic H3 priorityScore/
+    )
+
+    // A valid score still calibrates normally.
+    const ok = calibrator.calibrate({ ...recBase, priorityScore: 7.5 }, null, [])
+    expect(ok.baseScore).toBe(7.5)
+    expect(ok.calibratedScore).toBe(7.5)
+  })
 })

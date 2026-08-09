@@ -305,7 +305,12 @@ export class APEXProductService {
       //    promotion and APEXProductService re-ran it via a private-field
       //    access to persist results, producing two independent run IDs and
       //    risking divergence between promoted actions and saved rows).
-      const orchestrated = await this.orchestrator.runPipelineAndPromote(wsId, filesObj)
+      const orchestrated = await this.orchestrator.runPipelineAndPromote(
+        wsId,
+        filesObj,
+        undefined,
+        projectId
+      )
       const runResult = orchestrated.pipelineResult
 
       for (const f of runResult.findings) {
@@ -506,8 +511,16 @@ export class APEXProductService {
       })
     }
 
-    // Get all actions
-    const actions = await this.actionRepository.getByWorkspace({ workspaceId: wsId })
+    // Get all actions, scoped to THIS project. Actions are linked to a
+    // project only through their relatedRecommendationId; the repository
+    // exposes only workspace-wide queries, so we filter against the
+    // project's recommendation ids. Without this filter, every action
+    // transition/execution in the workspace (including other projects')
+    // would appear in this project's timeline (cross-project leakage).
+    const projectRecIds = new Set(recommendations.map((r) => r.id))
+    const actions = (await this.actionRepository.getByWorkspace({ workspaceId: wsId })).filter(
+      (a) => projectRecIds.has(a.relatedRecommendationId)
+    )
     for (const a of actions) {
       const transitions = await this.actionRepository.getTransitionsByAction(a.id, wsId)
       for (const t of transitions) {
@@ -634,6 +647,16 @@ export class APEXProductService {
     )
     if (!rec) {
       throw new Error(`Recommendation "${recommendationId}" not found`)
+    }
+    // Project-scoping invariant: the persisted recommendation row carries its
+    // owning project id; calibrating a recommendation of project A against
+    // project B's profile/signals would silently mix scopes. (Same class as
+    // the createOutcome project check.)
+    const recProjectId = (rec as Recommendation & { projectId?: string }).projectId
+    if (!recProjectId || recProjectId !== projectId) {
+      throw new Error(
+        `Recommendation "${recommendationId}" belongs to project "${recProjectId ?? '(unknown)'}", not the claimed project "${projectId}". Calibration rejected.`
+      )
     }
     const profile = await this.profileRepository.getProfile(wsId, projectId)
     const signals = await this.profileRepository.getSignals(wsId, projectId)

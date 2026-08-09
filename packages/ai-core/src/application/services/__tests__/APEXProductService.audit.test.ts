@@ -171,6 +171,92 @@ describe('APEXProductService audit-regression tests', () => {
     expect(metricsA.acceptanceRate).toBeGreaterThan(0)
   })
 
+  it('createOutcome rejects a recommendation that does not belong to the claimed project', async () => {
+    await ctx.productService.connectRepository('ws-a', 'proj-a', {
+      provider: 'github',
+      owner: 'acme',
+      repository: 'apex-ai-product-manager',
+      defaultBranch: 'main',
+    })
+    await ctx.productService.runAnalysis('ws-a', 'proj-a')
+    const recs = await ctx.productService.getRecommendations('ws-a', 'proj-a')
+    const rec = recs[0]
+
+    // Same workspace, WRONG project id → the outcome must NOT be created
+    // (otherwise it would contaminate proj-b's outcome metrics).
+    await expect(ctx.productService.createOutcome(rec.id, 'ws-a', 'proj-b')).rejects.toThrow(
+      /belongs to project/
+    )
+    const outcomesB = await ctx.productService.getOutcomesByProject('ws-a', 'proj-b')
+    expect(outcomesB).toHaveLength(0)
+  })
+
+  it('createOutcome rejects a non-existent recommendation (no phantom PENDING outcomes)', async () => {
+    await expect(
+      ctx.productService.createOutcome('rec-does-not-exist', 'ws-a', 'proj-a')
+    ).rejects.toThrow(/not found/)
+    const outcomesA = await ctx.productService.getOutcomesByProject('ws-a', 'proj-a')
+    expect(outcomesA).toHaveLength(0)
+  })
+
+  it('getPriorityCalibration rejects a recommendation from another project', async () => {
+    await ctx.productService.connectRepository('ws-a', 'proj-a', {
+      provider: 'github',
+      owner: 'acme',
+      repository: 'apex-ai-product-manager',
+      defaultBranch: 'main',
+    })
+    await ctx.productService.runAnalysis('ws-a', 'proj-a')
+    const recs = await ctx.productService.getRecommendations('ws-a', 'proj-a')
+    const rec = recs[0]
+
+    // Calibrating proj-a's recommendation with proj-b's profile/signals
+    // would silently mix scopes — must be rejected.
+    await expect(
+      ctx.productService.getPriorityCalibration('ws-a', 'proj-b', rec.id)
+    ).rejects.toThrow(/belongs to project/)
+  })
+
+  it('getActivityLog scopes action/execution events to the project, not the workspace', async () => {
+    // Two projects in the SAME workspace; approve an action only in proj-a.
+    await ctx.productService.connectRepository('ws-a', 'proj-a', {
+      provider: 'github',
+      owner: 'acme',
+      repository: 'apex-ai-product-manager',
+      defaultBranch: 'main',
+    })
+    await ctx.productService.runAnalysis('ws-a', 'proj-a')
+    const recsA = await ctx.productService.getRecommendations('ws-a', 'proj-a')
+    await ctx.productService.approveAction(
+      'ws-a',
+      'proj-a',
+      recsA[0].id,
+      recsA[0].proposedActions[0].id
+    )
+
+    // Create a second project with its own analysis (creates proposed
+    // actions in the same workspace) but no approvals.
+    await ctx.productService.createProject('ws-a', 'proj-extra', 'Project Extra')
+    await ctx.productService.connectRepository('ws-a', 'proj-extra', {
+      provider: 'github',
+      owner: 'acme',
+      repository: 'apex-ai-product-manager',
+      defaultBranch: 'main',
+    })
+    await ctx.productService.runAnalysis('ws-a', 'proj-extra')
+
+    const logA = await ctx.productService.getActivityLog('ws-a', 'proj-a')
+    const logExtra = await ctx.productService.getActivityLog('ws-a', 'proj-extra')
+
+    const actionEventsA = logA.filter((e) => e.type === 'action')
+    const actionEventsExtra = logExtra.filter((e) => e.type === 'action')
+
+    // proj-a has its own approval transition; proj-extra must NOT see it
+    // (the legacy implementation surfaced ALL workspace actions).
+    expect(actionEventsA.length).toBeGreaterThan(0)
+    expect(actionEventsExtra.length).toBe(0)
+  })
+
   it('refuses to run a mock analysis in production when the clone cannot happen', async () => {
     const prev = process.env.NODE_ENV
     process.env.NODE_ENV = 'production'
