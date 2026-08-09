@@ -173,7 +173,13 @@ export class AdaptiveProfileCompiler {
       const confidence = smoothConfidence(pop.recommendationCount)
       // Range: 0.85 to 1.15; bounded by confidence so we never inflate
       // a single data point into a strong signal.
-      const pmCalibrationWeight = 1.0 + (adoptionRate - 0.5) * 0.6 * confidence
+      // Hard clamp to the documented [0.85, 1.15] range. Without the clamp
+      // the asymptote at n → ∞ with 100% adoption reaches ≈1.30, exceeding
+      // the bound this comment block claims and amplifying noise at scale.
+      const pmCalibrationWeight = Math.min(
+        1.15,
+        Math.max(0.85, 1.0 + (adoptionRate - 0.5) * 0.6 * confidence)
+      )
 
       const evidenceState: 'observed' | 'estimated' | 'insufficient_evidence' =
         pop.recommendationCount < MIN_OBSERVATIONS_FOR_FAVORED
@@ -291,9 +297,12 @@ export class AdaptiveProfileCompiler {
       calibrationVersion: CALIBRATION_VERSION,
     }
 
-    // Persist signals with deterministic IDs, replacing any prior signals
-    // for the same (workspace, project, category, type) tuple. The repository
-    // implementation is expected to upsert by ID.
+    // Signals are a PURE function of the current observation set: first
+    // remove every previously compiled signal for this project, then persist
+    // the freshly generated ones. Without the deletion, a category that
+    // disappears (or drops below the generation threshold) would leave stale
+    // signals behind that still influence the calibrator.
+    await this.profileRepository.deleteSignalsByProject(workspaceId, projectId)
     if (signals.length > 0) {
       await this.profileRepository.saveSignals(signals)
     }

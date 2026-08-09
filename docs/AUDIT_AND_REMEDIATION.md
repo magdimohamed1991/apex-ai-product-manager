@@ -29,7 +29,12 @@ fabricated metric fallbacks), and **broken contracts** (non-deterministic
 metrics leaking across projects, duplicated pipeline execution).
 
 All four gates pass after remediation: `pnpm type-check`, `pnpm lint`,
-`pnpm test` (582 tests), `pnpm build`.
+`pnpm test` (591 tests), `pnpm build`. `pnpm audit` reports no known
+vulnerabilities. A follow-up pass (same date) closed the remaining
+coverage gaps listed at the end of the original register: observability
+correlation IDs, accessibility, ID-substitution tests on every resource,
+the H6 extreme-value matrix, DB concurrency, and the dependency scan
+(see findings F41+ and sections 7–9).
 
 ## 2. Findings register
 
@@ -138,3 +143,70 @@ Baseline before this pass: 561 tests (502 + 36 + 23). This pass added 21 tests.
 | `biasAdjustments` always false                                  | INFO     | No computation exists; no UI claim made.                                                                                                                                              |
 
 None of the remaining items block H7 observation; none require H8.
+
+## 7. Route inventory (API server)
+
+All routes require a valid session; workspace-scoped routes additionally
+require workspace membership (`authenticateAndAuthorize`), enforced on the
+server — never client-side.
+
+| Method   | Route                                  | Auth                  | Scope check                | Coverage                           |
+| -------- | -------------------------------------- | --------------------- | -------------------------- | ---------------------------------- |
+| POST     | `/api/auth/signup`                     | public (rate-limited) | —                          | api-server test                    |
+| POST     | `/api/auth/login`                      | public (rate-limited) | —                          | api-server test                    |
+| POST     | `/api/auth/logout`                     | token (optional)      | —                          | manual                             |
+| GET      | `/api/auth/session`                    | token                 | —                          | api-server test                    |
+| GET      | `/api/workspaces`                      | token                 | membership                 | api-server test                    |
+| POST     | `/api/workspaces`                      | token                 | membership grant           | manual                             |
+| GET      | `/api/projects`                        | token                 | membership                 | api-server test (403 sweep)        |
+| POST     | `/api/projects`                        | token                 | membership                 | manual                             |
+| GET/POST | `/api/projects/:id/repository`         | token                 | membership                 | api-server test (POST) + 403 sweep |
+| POST     | `/api/projects/:id/analysis`           | token                 | membership                 | api-server test + 403 sweep        |
+| GET      | `/api/projects/:id/findings`           | token                 | membership                 | 403 sweep                          |
+| GET      | `/api/projects/:id/recommendations`    | token                 | membership                 | api-server test + 403 sweep        |
+| GET      | `/api/projects/:id/activity`           | token                 | membership                 | 403 sweep                          |
+| GET      | `/api/projects/:id/decision-metrics`   | token                 | membership                 | 403 sweep                          |
+| GET      | `/api/projects/:id/outcomes`           | token                 | membership                 | 403 sweep                          |
+| GET      | `/api/projects/:id/profile`            | token                 | membership                 | 403 sweep                          |
+| POST     | `/api/projects/:id/compile-profile`    | token                 | membership                 | manual                             |
+| GET      | `/api/projects/:id/learning-signals`   | token                 | membership                 | 403 sweep                          |
+| GET      | `/api/projects/:id/product-value`      | token                 | membership                 | 403 sweep                          |
+| POST     | `/api/actions/approve`                 | token                 | membership + project scope | api-server test (idempotent)       |
+| GET      | `/api/actions/:id`                     | token                 | membership                 | manual                             |
+| GET      | `/api/actions/:id/executions`          | token                 | membership                 | manual                             |
+| GET      | `/api/recommendations/:id/reasoning`   | token                 | membership                 | api-server test (404) + 403 sweep  |
+| POST     | `/api/recommendations/:id/reasoning`   | token                 | membership                 | manual                             |
+| GET      | `/api/recommendations/:id/calibration` | token                 | membership                 | 403 sweep                          |
+| POST     | `/api/outcomes/create`                 | token                 | membership                 | manual                             |
+| POST     | `/api/outcomes/verify`                 | token                 | membership                 | manual                             |
+
+Shared hardening for every route: 1 MB body limit, malformed-JSON → typed
+`VALIDATION_ERROR`, safe error envelope (no stack traces), `no-store` cache
+headers, `X-Content-Type-Options` / `X-Frame-Options` / `Referrer-Policy`,
+per-request `X-Request-Id` echoed AND bound to structured logs.
+
+## 8. Test coverage matrix
+
+| Layer                                   | Happy path           | Invalid input                       | Boundaries                     | Concurrency    | Failure             | Recovery                   | Authorization / tenant isolation | Idempotency            |
+| --------------------------------------- | -------------------- | ----------------------------------- | ------------------------------ | -------------- | ------------------- | -------------------------- | -------------------------------- | ---------------------- |
+| Domain (Action/Execution/Transition)    | ✓                    | ✓                                   | ✓                              | —              | ✓                   | —                          | ✓                                | ✓                      |
+| Application (promotion/executor/worker) | ✓                    | ✓                                   | ✓                              | ✓ (lease)      | ✓                   | ✓ (lease takeover)         | ✓                                | ✓                      |
+| H3 scoring                              | ✓                    | —                                   | ✓ (rounding)                   | —              | —                   | —                          | —                                | ✓ (determinism)        |
+| H4 reasoning                            | ✓                    | ✓ (malformed JSON/schema/grounding) | ✓ (confidence bounds)          | —              | ✓ (provider errors) | ✓ (persisted unavailable)  | ✓ (workspace-scoped)             | ✓ (context-hash dedup) |
+| H5 verification                         | ✓                    | ✓                                   | ✓                              | —              | ✓ (missing rec)     | —                          | ✓                                | —                      |
+| H6 compiler/calibrator                  | ✓                    | ✓                                   | ✓ (0/1/4/5/19/20/1000/100000)  | —              | —                   | ✓ (category disappearance) | ✓                                | ✓ (determinism)        |
+| H7 metrics                              | ✓                    | —                                   | ✓ (epistemic states)           | —              | —                   | —                          | ✓ (project scoping)              | —                      |
+| DB engine                               | ✓                    | ✓ (constraints)                     | —                              | ✓ (mutex, new) | ✓ (malformed file)  | ✓ (rollback)               | ✓ (unique keys)                  | ✓                      |
+| Repositories                            | ✓                    | ✓                                   | —                              | ✓ (new)        | —                   | —                          | ✓ (cross-workspace id collision) | ✓ (signals)            |
+| API server                              | ✓                    | ✓ (body/JSON)                       | ✓ (1 MB)                       | —              | ✓ (safe envelope)   | —                          | ✓ (403 sweep, 13 endpoints)      | ✓ (approve)            |
+| Security primitives                     | ✓                    | ✓                                   | ✓ (scrypt params, rate limits) | —              | —                   | —                          | ✓                                | —                      |
+| Frontend                                | ✓ (build/type-check) | —                                   | —                              | —              | —                   | —                          | —                                | —                      |
+
+## 9. Remaining issues (second pass)
+
+| Issue                                                                                                               | Severity | Why it remains                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| H7 frontend timing instrumentation (browser refresh / tab switch / suspension / duplicate events / concurrent tabs) | MEDIUM   | The `PMDecisionTelemetryService` stream is intentionally NOT wired into the UI (documented in README), so no frontend timing is recorded and there is nothing to test; there is also no frontend test harness (React Testing Library/jsdom) in the repo — adding one is a dependency decision for a later pass. |
+| `getActivityLog` N+1 reads (per-action transitions/executions)                                                      | LOW      | Repository contract exposes only per-action queries; adding batch queries would modify the frozen `ActionRepository` interface. Bounded by typical action counts; revisit in a non-frozen pass.                                                                                                                 |
+| Frozen-core items from section 3                                                                                    | HIGH/LOW | Unchanged — see section 3.                                                                                                                                                                                                                                                                                      |
+| Single-process rate limiter & DB                                                                                    | INFO     | Documented architecture limits.                                                                                                                                                                                                                                                                                 |

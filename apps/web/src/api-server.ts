@@ -530,12 +530,6 @@ export async function handleApiRequest(
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<boolean> {
-  await initApiServer()
-  if (!productService || !productRepository || !authService) {
-    sendError(res, new Error('Service not initialized'))
-    return true
-  }
-
   const url = req.url || ''
   const method = req.method || 'GET'
   const pathname = url.split('?')[0]
@@ -545,9 +539,18 @@ export async function handleApiRequest(
   const requestId =
     (typeof reqIdHeader === 'string' ? reqIdHeader : undefined) || SecureIdGenerator.token(8)
   if (typeof res.setHeader === 'function') res.setHeader('X-Request-Id', requestId)
-  void requestId // currently used for log enrichment only
 
-  try {
+  // Dispatch inside the async-local request context so every structured log
+  // line emitted while handling this request carries the correlation ID.
+  // The service-null guard lives INSIDE the closure so TypeScript narrowing
+  // applies to every route below.
+  const dispatch = async (): Promise<boolean> => {
+    await initApiServer()
+    if (!productService || !productRepository || !authService) {
+      sendError(res, new Error('Service not initialized'))
+      return true
+    }
+
     // -- Auth endpoints (public) --
 
     if (pathname === '/api/auth/signup' && method === 'POST') {
@@ -1047,6 +1050,10 @@ export async function handleApiRequest(
     // No matching route
     sendError(res, new NotFoundError('Route not found'))
     return true
+  }
+
+  try {
+    return await Logger.withRequestId(requestId, dispatch)
   } catch (err) {
     logger.error('API request failed', { err: err instanceof Error ? err.message : String(err) })
     if (err instanceof AppError) {

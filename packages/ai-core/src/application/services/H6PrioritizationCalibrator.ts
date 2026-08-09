@@ -75,6 +75,26 @@ export class H6PrioritizationCalibrator {
     // Check if any signal in this category has insufficient evidence.
     // If so, we MUST NOT inflate the multiplier. We dampen to 1.0.
     const catSignals = signals.filter((s) => s.category === category)
+
+    // ZERO compiled signals for the category: there is no empirical evidence
+    // at all (e.g. 0 observations, or a category whose history disappeared).
+    // Applying the coefficient (which is still computed for transparency)
+    // would let an empty history deflate a critical score (e.g. the 0.9
+    // outcome-reliability term alone turns a 9.5 into 8.6). No evidence
+    // must mean no influence.
+    if (catSignals.length === 0) {
+      return {
+        baseScore,
+        calibratedScore: baseScore,
+        preferenceMultiplier: 1.0,
+        outcomeReliabilityMultiplier: 1.0,
+        appliedSignals: [],
+        explanation: `Category "${category}" has no compiled learning signals. H6 will not influence the baseline H3 score.`,
+        safetyFloorEnforced: false,
+        calibrationVersion: CALIBRATION_VERSION,
+      }
+    }
+
     const hasInsufficientEvidence = catSignals.some(
       (s) => s.evidenceState === 'insufficient_evidence'
     )

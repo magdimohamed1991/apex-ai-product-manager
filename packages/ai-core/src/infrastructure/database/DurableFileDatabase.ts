@@ -59,6 +59,7 @@ export class DurableFileDatabase {
   private inTransaction = false
   private transactionState: DatabaseState | null = null
   private writeMutex: Promise<void> = Promise.resolve()
+  private commitInFlight = false
 
   constructor(dbDir: string) {
     this.dbPath = path.join(dbDir, 'db.json')
@@ -160,40 +161,67 @@ export class DurableFileDatabase {
   /**
    * Atomically commit the current transaction by writing to a temp file
    * and renaming. Rename is atomic within the same filesystem on POSIX.
+   *
+   * Fast path: when no other commit is in flight, the ENTIRE commit runs
+   * synchronously so the transaction is closed before the caller's next
+   * statement. This is what makes `beginTransaction()`-followed-by-
+   * `commit()` safe for callers that fire multiple commits without
+   * awaiting each one (e.g. `Promise.all` of repository saves). The
+   * previous implementation deferred the actual write to a microtask,
+   * so a second `beginTransaction()` could observe the first transaction
+   * still open and throw "Transaction already in progress".
+   *
+   * Slow path (defensive): serializes through the in-process write mutex.
    */
   async commit(): Promise<void> {
     if (!this.inTransaction || !this.transactionState) {
       throw new Error('No transaction in progress to commit')
     }
-    // Serialize concurrent commits with the in-process mutex.
+    if (!this.commitInFlight) {
+      this.commitInFlight = true
+      try {
+        this.writeSnapshot(this.transactionState)
+        this.state = this.transactionState
+        this.transactionState = null
+        this.inTransaction = false
+      } finally {
+        this.commitInFlight = false
+      }
+      return
+    }
+
+    // Serialize concurrent commits with the in-process mutex (defensive).
     const previous = this.writeMutex
     let release!: () => void
     this.writeMutex = new Promise<void>((res) => (release = res))
     try {
       await previous
-      const tempPath = this.dbPath + '.tmp'
-      // Write the snapshot. fdatasync is best-effort; on some platforms
-      // we settle for the rename atomicity guarantee.
-      const data = JSON.stringify(this.transactionState, null, 2)
-      const fd = fs.openSync(tempPath, 'w')
-      try {
-        fs.writeSync(fd, data, 0, 'utf8')
-        // Best-effort fsync — not all platforms support it but we try.
-        try {
-          fs.fsyncSync(fd)
-        } catch {
-          // ignore — platform doesn't support fsync
-        }
-      } finally {
-        fs.closeSync(fd)
-      }
-      fs.renameSync(tempPath, this.dbPath)
+      this.writeSnapshot(this.transactionState)
       this.state = this.transactionState
     } finally {
       this.transactionState = null
       this.inTransaction = false
       release()
     }
+  }
+
+  /** Write the snapshot to a temp file, fsync (best-effort), and rename. */
+  private writeSnapshot(snapshot: DatabaseState): void {
+    const tempPath = this.dbPath + '.tmp'
+    const data = JSON.stringify(snapshot, null, 2)
+    const fd = fs.openSync(tempPath, 'w')
+    try {
+      fs.writeSync(fd, data, 0, 'utf8')
+      // Best-effort fsync — not all platforms support it but we try.
+      try {
+        fs.fsyncSync(fd)
+      } catch {
+        // ignore — platform doesn't support fsync
+      }
+    } finally {
+      fs.closeSync(fd)
+    }
+    fs.renameSync(tempPath, this.dbPath)
   }
 
   rollback(): void {

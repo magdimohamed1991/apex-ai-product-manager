@@ -86,10 +86,13 @@ export function OverviewPanel({ data, onSelectRecommendation }: Props) {
           ) : (
             <div className="flex flex-col gap-4">
               {data.recommendations.slice(0, 3).map((rec) => (
-                <div
+                // Real <button>: keyboard-focusable and screen-reader
+                // accessible (the legacy <div onClick> was not).
+                <button
                   key={rec.id}
+                  type="button"
                   onClick={() => onSelectRecommendation(rec)}
-                  className="rounded-xl border border-slate-800 bg-slate-900/10 p-5 hover:bg-slate-900/30 transition-all cursor-pointer flex justify-between items-start"
+                  className="rounded-xl border border-slate-800 bg-slate-900/10 p-5 hover:bg-slate-900/30 transition-all cursor-pointer flex justify-between items-start text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   <div className="flex flex-col gap-1.5 min-w-0 pr-4">
                     <span className="text-[10px] uppercase tracking-wider font-bold text-indigo-400">
@@ -101,7 +104,7 @@ export function OverviewPanel({ data, onSelectRecommendation }: Props) {
                   <span className="text-xs font-bold text-indigo-400 flex items-center gap-1 shrink-0">
                     Review Center ➔
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}

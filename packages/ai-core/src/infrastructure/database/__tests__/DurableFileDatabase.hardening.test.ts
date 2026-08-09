@@ -122,4 +122,54 @@ describe('DurableFileDatabase (Milestone I - Production Hardening)', () => {
     expect(txs).toBeDefined()
     database.rollback()
   })
+
+  it('serializes concurrent commits through the write mutex without losing writes', async () => {
+    // Fire several transactions "simultaneously". The in-process write mutex
+    // must serialize the commit phase so every committed snapshot survives.
+    const writes = Array.from({ length: 8 }, (_, i) =>
+      (async () => {
+        database.beginTransaction()
+        database.insertUser({
+          id: `usr-concurrent-${i}`,
+          email: `concurrent-${i}@b.com`,
+          passwordHash: 'scrypt$placeholder',
+          createdAt: new Date().toISOString(),
+        })
+        await database.commit()
+      })()
+    )
+    await Promise.all(writes)
+
+    // Every committed row must be visible after the dust settles.
+    for (let i = 0; i < 8; i++) {
+      expect(database.getUserById(`usr-concurrent-${i}`)).not.toBeNull()
+    }
+
+    // And the on-disk snapshot agrees (re-open from disk).
+    const db2 = new DurableFileDatabase(TEST_DB_DIR)
+    await db2.initialize()
+    expect(db2.getUserById('usr-concurrent-7')).not.toBeNull()
+  })
+
+  it('rolls back a transaction that throws mid-commit', async () => {
+    database.beginTransaction()
+    database.insertUser({
+      id: 'usr-rollback',
+      email: 'rollback@b.com',
+      passwordHash: 'scrypt$placeholder',
+      createdAt: new Date().toISOString(),
+    })
+    // Force a constraint violation inside the transaction.
+    expect(() =>
+      database.insertUser({
+        id: 'usr-rollback-dup',
+        email: 'rollback@b.com',
+        passwordHash: 'scrypt$placeholder',
+        createdAt: new Date().toISOString(),
+      })
+    ).toThrow(/already exists/)
+    // Nothing may be committed: rollback discards the whole snapshot.
+    database.rollback()
+    expect(database.getUserById('usr-rollback')).toBeNull()
+  })
 })

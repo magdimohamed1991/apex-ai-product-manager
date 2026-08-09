@@ -175,6 +175,50 @@ describe('API server — composition root & route security', () => {
     expect(cross2.status).toBe(403)
   })
 
+  it('denies ID-substitution access on every project-scoped resource (findings, recommendations, outcomes, metrics, profile, reasoning)', async () => {
+    await api.initApiServer()
+    const signupA = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'owner@acme.com', password: 'super-secure-password' },
+    })
+    const signupB = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'intruder@acme.com', password: 'super-secure-password' },
+    })
+    const tokenB = signupB.json.token as string
+    const wsA = (signupA.json.workspace as { id: string }).id
+
+    // Attacker B holds a valid session for THEIR workspace but requests
+    // workspace A's resources by id. Every endpoint must return 403.
+    const attempts = [
+      ['GET', `/api/projects?workspaceId=${wsA}`],
+      ['GET', `/api/projects/proj-core/repository?workspaceId=${wsA}`],
+      ['GET', `/api/projects/proj-core/findings?workspaceId=${wsA}`],
+      ['GET', `/api/projects/proj-core/recommendations?workspaceId=${wsA}`],
+      ['GET', `/api/projects/proj-core/activity?workspaceId=${wsA}`],
+      ['GET', `/api/projects/proj-core/decision-metrics?workspaceId=${wsA}`],
+      ['GET', `/api/projects/proj-core/outcomes?workspaceId=${wsA}`],
+      ['GET', `/api/projects/proj-core/profile?workspaceId=${wsA}`],
+      ['GET', `/api/projects/proj-core/learning-signals?workspaceId=${wsA}`],
+      ['GET', `/api/projects/proj-core/product-value?workspaceId=${wsA}`],
+      ['GET', `/api/recommendations/rec-any/reasoning?workspaceId=${wsA}`],
+      ['GET', `/api/recommendations/rec-any/calibration?workspaceId=${wsA}&projectId=proj-core`],
+      ['POST', `/api/projects/proj-core/analysis`],
+    ] as const
+
+    for (const [method, url] of attempts) {
+      const res = await request(api, {
+        method,
+        url,
+        headers: { Authorization: `Bearer ${tokenB}` },
+        body: method === 'POST' ? { workspaceId: wsA } : undefined,
+      })
+      expect(res.status, `${method} ${url}`).toBe(403)
+    }
+  })
+
   it('approves idempotently through the canonical /api/actions/approve route', async () => {
     await api.initApiServer()
     const signup = await request(api, {

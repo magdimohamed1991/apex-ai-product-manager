@@ -61,6 +61,22 @@ export class SqlAdaptiveLearningProfileRepository implements AdaptiveLearningPro
       .map(mapSignalFromDb)
   }
 
+  async deleteSignalsByProject(workspaceId: WorkspaceId, projectId: string): Promise<void> {
+    this.db.beginTransaction()
+    try {
+      const state = this.db.getActiveState()
+      if (state.learningSignals) {
+        state.learningSignals = state.learningSignals.filter(
+          (s) => !(s.workspaceId === workspaceId && s.projectId === projectId)
+        )
+      }
+      await this.db.commit()
+    } catch (err) {
+      this.db.rollback()
+      throw err
+    }
+  }
+
   async saveSignals(signals: LearningSignal[]): Promise<void> {
     if (signals.length === 0) return
     this.db.beginTransaction()

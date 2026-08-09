@@ -33,21 +33,24 @@ export function RecommendationsPanel({
           {recommendations.map((rec) => {
             const isActive = selected?.id === rec.id
             return (
-              <div
+              // Real <button>: keyboard-focusable, Enter/Space activates,
+              // and screen readers announce it as an action.
+              <button
                 key={rec.id}
+                type="button"
                 onClick={() => onSelect(rec)}
                 className={`p-4 rounded-xl border transition-all text-left cursor-pointer flex flex-col gap-1.5 ${
                   isActive
                     ? 'bg-indigo-600/10 border-indigo-500 text-indigo-300 ring-1 ring-indigo-500/20'
                     : 'bg-slate-900/10 border-slate-800 text-slate-300 hover:bg-slate-900/30'
-                }`}
+                } focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
               >
                 <div className="flex justify-between items-center text-[10px]">
                   <span className="uppercase font-extrabold tracking-wider">{rec.priority}</span>
                   <span>{Math.round(rec.confidence * 100)}% match</span>
                 </div>
                 <h4 className="font-bold text-sm truncate text-white">{rec.title}</h4>
-              </div>
+              </button>
             )
           })}
         </div>

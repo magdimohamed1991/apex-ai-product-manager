@@ -213,6 +213,27 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
       }
       await profileRepository.saveProfile(adverseProfile)
 
+      // The profile alone is NOT enough evidence to calibrate — the H6
+      // contract gates calibration on compiled LEARNING SIGNALS with an
+      // explicit evidence state. Save the signals that a real compilation
+      // over 20 observed decisions (0% adoption) would have produced.
+      await profileRepository.saveSignals([
+        {
+          id: 'sig-typescript-adoption-adverse',
+          workspaceId: WORKSPACE_A,
+          projectId: 'proj-1',
+          category: 'TYPESCRIPT',
+          type: 'ADOPTION',
+          observationCount: 20,
+          value: 0,
+          confidence: 20 / 30,
+          sourceRecommendationIds: [tsRec.id],
+          generatedAt: new Date(),
+          evidenceState: 'observed',
+          calibrationVersion: 'h6-v1',
+        },
+      ])
+
       // Calibrate
       const calibration = await productService.getPriorityCalibration(
         'ws-adaptive-a',
