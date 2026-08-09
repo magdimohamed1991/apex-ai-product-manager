@@ -32,13 +32,14 @@ let actionRepository: SqlActionRepository | null = null
 let productRepository: SqlProductRepository | null = null
 let worker: ActionExecutionWorker | null = null
 let credentialProvider: EnvCredentialProvider | null = null
+let database: DurableFileDatabase | null = null
 
 // Initialize database and services
 export async function initApiServer() {
   if (productService) return
 
   const dbDir = path.join(process.cwd(), 'dev-database')
-  const database = new DurableFileDatabase(dbDir)
+  database = new DurableFileDatabase(dbDir)
   await database.initialize()
 
   actionRepository = new SqlActionRepository(database)
@@ -169,6 +170,49 @@ function getQueryParam(url: string, param: string): string | null {
   }
 }
 
+async function getAuthorizedUserIdAndWorkspace(req: any, res: any, targetWorkspaceId?: string): Promise<{ userId: string; workspaceId: string } | null> {
+  const authHeader = req.headers['authorization'] || ''
+  const customHeader = req.headers['x-apex-session'] || ''
+  let token = ''
+
+  if (authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7)
+  } else if (customHeader) {
+    token = customHeader
+  }
+
+  if (!token) {
+    sendJson(res, { error: 'Authentication required. Missing session token.' }, 401)
+    return null
+  }
+
+  const session = database?.getSession(token)
+  if (!session || new Date(session.expiresAt).getTime() < Date.now()) {
+    sendJson(res, { error: 'Session expired or invalid.' }, 401)
+    return null
+  }
+
+  const userId = session.userId
+  let wsId = targetWorkspaceId || session.workspaceId
+
+  if (wsId) {
+    const isMember = database?.isUserMemberOfWorkspace(userId, wsId)
+    if (!isMember) {
+      sendJson(res, { error: 'Access denied: You do not have membership in this workspace.' }, 403)
+      return null
+    }
+  } else {
+    const memberships = database?.getMembershipsForUser(userId) || []
+    if (memberships.length === 0) {
+      sendJson(res, { error: 'No workspace context found.' }, 403)
+      return null
+    }
+    wsId = memberships[0].workspaceId
+  }
+
+  return { userId, workspaceId: wsId }
+}
+
 // Main Request Handler middleware
 export async function handleApiRequest(req: any, res: any): Promise<boolean> {
   await initApiServer()
@@ -182,15 +226,184 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
   const pathname = url.split('?')[0]
 
   try {
+    // --- AUTHENTICATION & SESSION ENDPOINTS (Milestone I) ---
+    if (pathname === '/api/auth/signup' && method === 'POST') {
+      const body = await getBody(req)
+      const { email, password } = body
+      if (!email || !password) {
+        sendJson(res, { error: 'Missing email or password' }, 400)
+        return true
+      }
+
+      const existingUser = database?.getUserByEmail(email)
+      if (existingUser) {
+        sendJson(res, { error: 'Email already registered' }, 400)
+        return true
+      }
+
+      database?.beginTransaction()
+      try {
+        const userId = `usr-${Math.floor(Math.random() * 1000000)}`
+        const passwordHash = `mock-hash:${password.split('').reverse().join('')}`
+        const user = { id: userId, email, passwordHash, createdAt: new Date().toISOString() }
+
+        // Workspace Onboarding
+        const userSlug = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]+/g, '-')
+        const workspaceId = `ws-${userSlug}`
+        const workspaceName = `${email.split('@')[0]}'s Workspace`
+
+        database?.insertUser(user)
+        await productService?.createWorkspace(workspaceId, workspaceName, userSlug)
+        await productService?.createProject(workspaceId, 'proj-core', 'APEX System Core')
+
+        const membership = {
+          id: `mbr-${Math.floor(Math.random() * 1000000)}`,
+          userId,
+          workspaceId,
+          role: 'owner' as const,
+          createdAt: new Date().toISOString()
+        }
+        database?.insertMembership(membership)
+
+        const sessionId = `sess-${Math.floor(Math.random() * 1000000000)}`
+        const session = {
+          id: sessionId,
+          userId,
+          workspaceId,
+          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString()
+        }
+        database?.insertSession(session)
+
+        await database?.commit()
+
+        sendJson(res, {
+          token: sessionId,
+          user: { id: userId, email },
+          workspace: { id: workspaceId, name: workspaceName, slug: userSlug }
+        })
+      } catch (err) {
+        database?.rollback()
+        throw err
+      }
+      return true
+    }
+
+    if (pathname === '/api/auth/login' && method === 'POST') {
+      const body = await getBody(req)
+      const { email, password } = body
+      if (!email || !password) {
+        sendJson(res, { error: 'Missing email or password' }, 400)
+        return true
+      }
+
+      const user = database?.getUserByEmail(email)
+      if (!user) {
+        sendJson(res, { error: 'Invalid email or password' }, 401)
+        return true
+      }
+
+      const expectedHash = `mock-hash:${password.split('').reverse().join('')}`
+      if (user.passwordHash !== expectedHash) {
+        sendJson(res, { error: 'Invalid email or password' }, 401)
+        return true
+      }
+
+      database?.beginTransaction()
+      try {
+        const memberships = database?.getMembershipsForUser(user.id) || []
+        const workspaceId = memberships[0]?.workspaceId || 'ws-default'
+
+        const sessionId = `sess-${Math.floor(Math.random() * 1000000000)}`
+        const session = {
+          id: sessionId,
+          userId: user.id,
+          workspaceId,
+          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString()
+        }
+        database?.insertSession(session)
+        await database?.commit()
+
+        const ws = await productService?.getWorkspace(workspaceId)
+
+        sendJson(res, {
+          token: sessionId,
+          user: { id: user.id, email: user.email },
+          workspace: ws ? { id: ws.id, name: ws.name, slug: ws.slug } : null
+        })
+      } catch (err) {
+        database?.rollback()
+        throw err
+      }
+      return true
+    }
+
+    if (pathname === '/api/auth/logout' && method === 'POST') {
+      const authHeader = req.headers['authorization'] || ''
+      const customHeader = req.headers['x-apex-session'] || ''
+      let token = ''
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7)
+      } else if (customHeader) {
+        token = customHeader
+      }
+
+      if (token) {
+        database?.beginTransaction()
+        database?.deleteSession(token)
+        await database?.commit()
+      }
+      sendJson(res, { success: true })
+      return true
+    }
+
+    if (pathname === '/api/auth/session' && method === 'GET') {
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res)
+      if (!auth) return true
+
+      const sessionToken = req.headers['x-apex-session'] || (req.headers['authorization'] || '').substring(7)
+      const session = database?.getSession(sessionToken)
+      const userRecord = database?.getActiveState().users?.find((u) => u.id === session?.userId)
+
+      const memberships = database?.getMembershipsForUser(auth.userId) || []
+      const workspaces: any[] = []
+      for (const m of memberships) {
+        const ws = await productService?.getWorkspace(m.workspaceId)
+        if (ws) {
+          workspaces.push({ id: ws.id, name: ws.name, slug: ws.slug })
+        }
+      }
+
+      sendJson(res, {
+        user: userRecord ? { id: userRecord.id, email: userRecord.email } : null,
+        workspaces
+      })
+      return true
+    }
+
+    // --- PROTECTED API ENDPOINTS (Milestone I) ---
+
     // 1. GET /api/workspaces
     if (pathname === '/api/workspaces' && method === 'GET') {
-      const workspaces = await productService.getAllWorkspaces()
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res)
+      if (!auth) return true
+
+      const memberships = database?.getMembershipsForUser(auth.userId) || []
+      const workspaces: any[] = []
+      for (const m of memberships) {
+        const ws = await productService.getWorkspace(m.workspaceId)
+        if (ws) {
+          workspaces.push(ws)
+        }
+      }
       sendJson(res, workspaces)
       return true
     }
 
     // 2. POST /api/workspaces
     if (pathname === '/api/workspaces' && method === 'POST') {
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res)
+      if (!auth) return true
+
       const body = await getBody(req)
       const { id, name, slug } = body
       if (!id || !name || !slug) {
@@ -198,6 +411,18 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         return true
       }
       const ws = await productService.createWorkspace(id, name, slug)
+
+      database?.beginTransaction()
+      const membership = {
+        id: `mbr-${Math.floor(Math.random() * 1000000)}`,
+        userId: auth.userId,
+        workspaceId: id,
+        role: 'owner' as const,
+        createdAt: new Date().toISOString()
+      }
+      database?.insertMembership(membership)
+      await database?.commit()
+
       sendJson(res, ws)
       return true
     }
@@ -205,11 +430,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     // 3. GET /api/projects
     if (pathname === '/api/projects' && method === 'GET') {
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const projects = await productService.getProjects(workspaceId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const projects = await productService.getProjects(auth.workspaceId)
       sendJson(res, projects)
       return true
     }
@@ -222,7 +446,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         sendJson(res, { error: 'Missing workspaceId, id, or name' }, 400)
         return true
       }
-      const project = await productService.createProject(workspaceId, id, name)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      if (!auth) return true
+
+      const project = await productService.createProject(auth.workspaceId, id, name)
       sendJson(res, project)
       return true
     }
@@ -232,11 +459,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (repoMatch && method === 'GET') {
       const projectId = repoMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const conn = await productService.getRepositoryConnection(workspaceId, projectId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const conn = await productService.getRepositoryConnection(auth.workspaceId, projectId)
       sendJson(res, conn || { status: 'not_connected' })
       return true
     }
@@ -250,7 +476,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         sendJson(res, { error: 'Missing fields' }, 400)
         return true
       }
-      const conn = await productService.connectRepository(workspaceId, projectId, {
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      if (!auth) return true
+
+      const conn = await productService.connectRepository(auth.workspaceId, projectId, {
         provider,
         owner,
         repository,
@@ -270,7 +499,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         sendJson(res, { error: 'Missing workspaceId' }, 400)
         return true
       }
-      const run = await productService.runAnalysis(workspaceId, projectId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      if (!auth) return true
+
+      const run = await productService.runAnalysis(auth.workspaceId, projectId)
       sendJson(res, run)
       return true
     }
@@ -280,11 +512,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (findingsMatch && method === 'GET') {
       const projectId = findingsMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const findings = await productService.getFindings(workspaceId, projectId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const findings = await productService.getFindings(auth.workspaceId, projectId)
       sendJson(res, findings)
       return true
     }
@@ -294,11 +525,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (recsMatch && method === 'GET') {
       const projectId = recsMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const recs = await productService.getRecommendations(workspaceId, projectId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const recs = await productService.getRecommendations(auth.workspaceId, projectId)
       sendJson(res, recs)
       return true
     }
@@ -312,7 +542,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         sendJson(res, { error: 'Missing fields' }, 400)
         return true
       }
-      const action = await productService.approveAction(workspaceId, projectId, recommendationId, proposedActionId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      if (!auth) return true
+
+      const action = await productService.approveAction(auth.workspaceId, projectId, recommendationId, proposedActionId)
       sendJson(res, action)
       return true
     }
@@ -322,11 +555,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (execsMatch && method === 'GET') {
       const actionId = execsMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const execs = await productService.getExecutions(workspaceId, actionId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const execs = await productService.getExecutions(auth.workspaceId, actionId)
       sendJson(res, execs)
       return true
     }
@@ -336,11 +568,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (actionMatch && method === 'GET') {
       const actionId = actionMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const action = await productService.getAction(workspaceId, actionId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const action = await productService.getAction(auth.workspaceId, actionId)
       sendJson(res, action || { error: 'Action not found' }, action ? 200 : 404)
       return true
     }
@@ -350,11 +581,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (activityMatch && method === 'GET') {
       const projectId = activityMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const activityLog = await productService.getActivityLog(workspaceId, projectId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const activityLog = await productService.getActivityLog(auth.workspaceId, projectId)
       sendJson(res, activityLog)
       return true
     }
@@ -364,12 +594,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (reasoningMatch && method === 'GET') {
       const recId = reasoningMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
 
-      const rec = await productRepository.getRecommendationByIdAndWorkspace(recId, createWorkspaceId(workspaceId))
+      const rec = await productRepository.getRecommendationByIdAndWorkspace(recId, createWorkspaceId(auth.workspaceId))
       if (!rec) {
         sendJson(res, { error: 'Recommendation not found' }, 404)
         return true
@@ -415,8 +643,8 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
       }))
 
       const reasoningService = new ProductReasoningService(productRepository, mockProvider)
-      let reasoning = await productRepository.getAIProductReasoning(recId, createWorkspaceId(workspaceId))
-      
+      let reasoning = await productRepository.getAIProductReasoning(recId, createWorkspaceId(auth.workspaceId))
+
       if (!reasoning) {
         reasoning = await reasoningService.generateReasoning(rec as any)
       }
@@ -433,8 +661,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         sendJson(res, { error: 'Missing workspaceId' }, 400)
         return true
       }
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      if (!auth) return true
 
-      const rec = (await productRepository.getRecommendationByIdAndWorkspace(recId, createWorkspaceId(workspaceId))) as any
+      const rec = (await productRepository.getRecommendationByIdAndWorkspace(recId, createWorkspaceId(auth.workspaceId))) as any
       if (!rec) {
         sendJson(res, { error: 'Recommendation not found' }, 404)
         return true
@@ -486,11 +716,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (metricsMatch && method === 'GET') {
       const projectId = metricsMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const metrics = await productService.getDecisionQualityMetrics(workspaceId, projectId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const metrics = await productService.getDecisionQualityMetrics(auth.workspaceId, projectId)
       sendJson(res, metrics)
       return true
     }
@@ -500,11 +729,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (outcomesMatch && method === 'GET') {
       const projectId = outcomesMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const outcomes = await productService.getOutcomesByProject(workspaceId, projectId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const outcomes = await productService.getOutcomesByProject(auth.workspaceId, projectId)
       sendJson(res, outcomes)
       return true
     }
@@ -517,7 +745,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         sendJson(res, { error: 'Missing workspaceId, outcomeId, or filesAfterChange' }, 400)
         return true
       }
-      const verified = await productService.verifyOutcome(outcomeId, workspaceId, filesAfterChange)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      if (!auth) return true
+
+      const verified = await productService.verifyOutcome(outcomeId, auth.workspaceId, filesAfterChange)
       sendJson(res, verified)
       return true
     }
@@ -530,7 +761,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         sendJson(res, { error: 'Missing fields' }, 400)
         return true
       }
-      const outcome = await productService.createOutcome(recommendationId, workspaceId, projectId, actionId, executionId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      if (!auth) return true
+
+      const outcome = await productService.createOutcome(recommendationId, auth.workspaceId, projectId, actionId, executionId)
       sendJson(res, outcome)
       return true
     }
@@ -545,7 +779,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         sendJson(res, { error: 'Missing workspaceId' }, 400)
         return true
       }
-      const profile = await productService.compileAdaptiveProfile(workspaceId, projectId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      if (!auth) return true
+
+      const profile = await productService.compileAdaptiveProfile(auth.workspaceId, projectId)
       sendJson(res, profile)
       return true
     }
@@ -555,11 +792,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (profileMatch && method === 'GET') {
       const projectId = profileMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const profile = await productService.getAdaptiveProfile(workspaceId, projectId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const profile = await productService.getAdaptiveProfile(auth.workspaceId, projectId)
       sendJson(res, profile || { error: 'Profile not found' }, profile ? 200 : 404)
       return true
     }
@@ -569,11 +805,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (signalsMatch && method === 'GET') {
       const projectId = signalsMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const signals = await productService.getLearningSignals(workspaceId, projectId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const signals = await productService.getLearningSignals(auth.workspaceId, projectId)
       sendJson(res, signals)
       return true
     }
@@ -588,7 +823,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         sendJson(res, { error: 'Missing workspaceId or projectId' }, 400)
         return true
       }
-      const calibration = await productService.getPriorityCalibration(workspaceId, projectId, recId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      if (!auth) return true
+
+      const calibration = await productService.getPriorityCalibration(auth.workspaceId, projectId, recId)
       sendJson(res, calibration)
       return true
     }
@@ -598,11 +836,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     if (valMatch && method === 'GET') {
       const projectId = valMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const metrics = await productService.getProductValidationMetrics(workspaceId, projectId)
+      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      if (!auth) return true
+
+      const metrics = await productService.getProductValidationMetrics(auth.workspaceId, projectId)
       sendJson(res, metrics)
       return true
     }

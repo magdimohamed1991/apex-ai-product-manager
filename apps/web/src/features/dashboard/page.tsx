@@ -686,10 +686,21 @@ export function DashboardPage() {
           </div>
         )}
 
-        <div className="mt-auto border-t border-slate-800 pt-4 flex flex-col gap-1.5 text-[11px] text-slate-500 font-medium">
-          <p>🔒 Security: Double-Key Tenant Isolation</p>
-          <p>💾 Storage: File-Backed ACID Persistence</p>
-          <p>❄️ Infrastructure: Locked Core Engine</p>
+        <div className="mt-auto border-t border-slate-800 pt-4 flex flex-col gap-3 text-[11px] text-slate-500 font-medium">
+          <button
+            onClick={() => {
+              localStorage.removeItem('apex_session_token')
+              window.dispatchEvent(new Event('apex_unauthorized'))
+            }}
+            className="w-full text-center rounded-lg border border-slate-800 hover:bg-slate-800 py-2 text-xs font-bold text-slate-300 transition-colors"
+          >
+            🚪 Sign Out Session
+          </button>
+          <div className="flex flex-col gap-1">
+            <p>🔒 Security: Double-Key Tenant Isolation</p>
+            <p>💾 Storage: File-Backed ACID Persistence</p>
+            <p>❄️ Infrastructure: Locked Core Engine</p>
+          </div>
         </div>
       </div>
 

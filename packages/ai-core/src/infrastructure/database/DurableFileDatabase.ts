@@ -6,6 +6,28 @@ import * as path from 'path'
 import type { Action, Execution, ActionTransition, Project, RepositoryConnection, PipelineRun, Finding, Recommendation, Workspace } from '../../domain/entities'
 import { validateAction, validateExecution, validateActionTransitionRecord } from '../../domain/entities'
 
+export interface UserRecord {
+  id: string
+  email: string
+  passwordHash: string
+  createdAt: string
+}
+
+export interface SessionRecord {
+  id: string
+  userId: string
+  workspaceId?: string
+  expiresAt: string
+}
+
+export interface WorkspaceMembership {
+  id: string
+  userId: string
+  workspaceId: string
+  role: 'owner' | 'member'
+  createdAt: string
+}
+
 export interface DatabaseState {
   version: number
   actions: Action[]
@@ -21,6 +43,9 @@ export interface DatabaseState {
   outcomes?: any[]
   learningProfiles?: any[]
   learningSignals?: any[]
+  users?: UserRecord[]
+  sessions?: SessionRecord[]
+  memberships?: WorkspaceMembership[]
 }
 
 /**
@@ -65,6 +90,9 @@ export class DurableFileDatabase {
         pipelineRuns: [],
         findings: [],
         recommendations: [],
+        users: [],
+        sessions: [],
+        memberships: [],
       }
       this.saveStateDirect(this.state)
     } else {
@@ -80,6 +108,9 @@ export class DurableFileDatabase {
       if (!this.state!.outcomes) this.state!.outcomes = []
       if (!this.state!.learningProfiles) this.state!.learningProfiles = []
       if (!this.state!.learningSignals) this.state!.learningSignals = []
+      if (!this.state!.users) this.state!.users = []
+      if (!this.state!.sessions) this.state!.sessions = []
+      if (!this.state!.memberships) this.state!.memberships = []
     }
 
     await this.runMigrations()
@@ -205,6 +236,52 @@ export class DurableFileDatabase {
 
   private saveStateDirect(targetState: DatabaseState): void {
     fs.writeFileSync(this.dbPath, JSON.stringify(targetState, null, 2), 'utf8')
+  }
+
+  // User Authentication Helper Methods (Milestone I)
+  getUserByEmail(email: string): UserRecord | null {
+    const state = this.getActiveState()
+    return state.users?.find((u) => u.email.toLowerCase() === email.toLowerCase()) || null
+  }
+
+  insertUser(user: UserRecord): void {
+    const state = this.getActiveState()
+    if (!state.users) state.users = []
+    state.users.push(user)
+  }
+
+  insertSession(session: SessionRecord): void {
+    const state = this.getActiveState()
+    if (!state.sessions) state.sessions = []
+    state.sessions.push(session)
+  }
+
+  getSession(id: string): SessionRecord | null {
+    const state = this.getActiveState()
+    return state.sessions?.find((s) => s.id === id) || null
+  }
+
+  deleteSession(id: string): void {
+    const state = this.getActiveState()
+    if (state.sessions) {
+      state.sessions = state.sessions.filter((s) => s.id !== id)
+    }
+  }
+
+  insertMembership(membership: WorkspaceMembership): void {
+    const state = this.getActiveState()
+    if (!state.memberships) state.memberships = []
+    state.memberships.push(membership)
+  }
+
+  getMembershipsForUser(userId: string): WorkspaceMembership[] {
+    const state = this.getActiveState()
+    return state.memberships?.filter((m) => m.userId === userId) || []
+  }
+
+  isUserMemberOfWorkspace(userId: string, workspaceId: string): boolean {
+    const state = this.getActiveState()
+    return state.memberships?.some((m) => m.userId === userId && m.workspaceId === workspaceId) || false
   }
 
   private async runMigrations(): Promise<void> {
