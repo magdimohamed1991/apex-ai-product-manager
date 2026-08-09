@@ -42,13 +42,13 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
     actionRepository = new SqlActionRepository(database)
     productRepository = new SqlProductRepository(database)
     outcomeRepository = new SqlRecommendationOutcomeRepository(database)
-    
+
     actionAppService = new ActionApplicationService(actionRepository)
     pipeline = new RepositoryDiscoveryPipeline()
     orchestrator = new PipelineActionOrchestrator(pipeline, actionAppService)
     credentialProvider = new EnvCredentialProvider()
     intelligenceService = new ProductIntelligenceService()
-    
+
     outcomeService = new RecommendationOutcomeService(
       outcomeRepository,
       productRepository,
@@ -68,7 +68,7 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
     githubAdapter = new GitHubAdapter()
     adapterRegistry.clear()
     adapterRegistry.register(githubAdapter)
-    GitHubAdapter.mockExternalIssues.clear()
+    GitHubAdapter.resetMockState()
   })
 
   describe('1. Closed-Loop Outcome Verification (Item 3 & Item 4)', () => {
@@ -94,7 +94,12 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
       expect(action.status).toBe('approved')
 
       // 3. Create initial pending outcome track record
-      const outcome = await productService.createOutcome(testRec.id, 'ws-outcome-a', 'proj-1', action.id)
+      const outcome = await productService.createOutcome(
+        testRec.id,
+        'ws-outcome-a',
+        'proj-1',
+        action.id
+      )
       expect(outcome.status).toBe('PENDING')
 
       // 4. Code changes happen (Vitest config is introduced in the repo)
@@ -105,8 +110,12 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
       }
 
       // 5. APEX rescans and verifies codebase state changes
-      const verified = await productService.verifyOutcome(outcome.id, 'ws-outcome-a', filesAfterChange)
-      
+      const verified = await productService.verifyOutcome(
+        outcome.id,
+        'ws-outcome-a',
+        filesAfterChange
+      )
+
       expect(verified.status).toBe('VERIFIED_SUCCESS') // Loop successfully closed! (Item 3 & Item 4)
       expect(verified.resolvedAt).not.toBeNull()
       expect(verified.verificationEvidence[0]).toContain('Detected vitest.config.ts')
@@ -127,13 +136,17 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
       const testRec = recs.find((r) => r.title.toLowerCase().includes('test'))!
 
       const outcome = await productService.createOutcome(testRec.id, 'ws-outcome-a', 'proj-1')
-      
+
       const filesAfterChange = {
         url: 'https://github.com/acme/apex',
         hasVitestConfig: false, // Remains unconfigured
       }
 
-      const verified = await productService.verifyOutcome(outcome.id, 'ws-outcome-a', filesAfterChange)
+      const verified = await productService.verifyOutcome(
+        outcome.id,
+        'ws-outcome-a',
+        filesAfterChange
+      )
       expect(verified.status).toBe('FAILED')
     })
   })
@@ -152,12 +165,20 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
       // Run scan to generate 3 recommendations
       await productService.runAnalysis('ws-outcome-a', 'proj-1')
       const recs = await productService.getRecommendations('ws-outcome-a', 'proj-1')
-      
+
       // Approve 1 recommendation
-      await productService.approveAction('ws-outcome-a', 'proj-1', recs[0].id, recs[0].proposedActions[0].id)
+      await productService.approveAction(
+        'ws-outcome-a',
+        'proj-1',
+        recs[0].id,
+        recs[0].proposedActions[0].id
+      )
 
       // Create 1 success outcome, 1 failed outcome
-      const tsRec = recs.find((r) => r.title.toLowerCase().includes('typescript') || r.title.toLowerCase().includes('type'))!
+      const tsRec = recs.find(
+        (r) =>
+          r.title.toLowerCase().includes('typescript') || r.title.toLowerCase().includes('type')
+      )!
       const testRec = recs.find((r) => r.title.toLowerCase().includes('test'))!
 
       const o1 = await productService.createOutcome(tsRec.id, 'ws-outcome-a', 'proj-1')
@@ -168,7 +189,7 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
 
       // Load Metrics
       const metrics = await productService.getDecisionQualityMetrics('ws-outcome-a', 'proj-1')
-      
+
       expect(metrics.totalRecommendations).toBe(recs.length)
       expect(metrics.totalApproved).toBe(1)
       expect(metrics.acceptanceRate).toBeGreaterThan(0)

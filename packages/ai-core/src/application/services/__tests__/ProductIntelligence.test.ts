@@ -54,7 +54,7 @@ describe('Milestone H3 — Product Intelligence & Decision Quality Tests', () =>
       productRepository,
       actionRepository
     )
-    
+
     productService = new APEXProductService(
       productRepository,
       actionRepository,
@@ -69,7 +69,7 @@ describe('Milestone H3 — Product Intelligence & Decision Quality Tests', () =>
 
     adapterRegistry.clear()
     adapterRegistry.register(githubAdapter)
-    GitHubAdapter.mockExternalIssues.clear()
+    GitHubAdapter.resetMockState()
   })
 
   describe('1. Product Impact & Scoring Model (Item 1 & Item 2)', () => {
@@ -85,10 +85,13 @@ describe('Milestone H3 — Product Intelligence & Decision Quality Tests', () =>
 
       // Run discovery and let ProductIntelligenceService generate rich decorated recommendations
       await productService.runAnalysis('ws-intel-a', 'proj-1')
-      const recs = (await productService.getRecommendations('ws-intel-a', 'proj-1')) as RichRecommendation[]
+      const recs = (await productService.getRecommendations(
+        'ws-intel-a',
+        'proj-1'
+      )) as RichRecommendation[]
 
       expect(recs.length).toBeGreaterThan(0)
-      
+
       // Ensure all required structured dimensions are populated and deterministic (Item 1)
       for (const rec of recs) {
         expect(rec.pmCategory).toBeDefined()
@@ -102,7 +105,9 @@ describe('Milestone H3 — Product Intelligence & Decision Quality Tests', () =>
       }
 
       // Assert that CI Setup outranks Testing Setup due to Low Effort vs Medium Effort (Higher ROI!) (Item 2)
-      const ciRec = recs.find((r) => r.title.toLowerCase().includes('ci') || r.title.toLowerCase().includes('integration'))
+      const ciRec = recs.find(
+        (r) => r.title.toLowerCase().includes('ci') || r.title.toLowerCase().includes('integration')
+      )
       const testRec = recs.find((r) => r.title.toLowerCase().includes('test'))
 
       if (ciRec && testRec) {
@@ -124,7 +129,10 @@ describe('Milestone H3 — Product Intelligence & Decision Quality Tests', () =>
       })
 
       await productService.runAnalysis('ws-intel-a', 'proj-1')
-      const recs = (await productService.getRecommendations('ws-intel-a', 'proj-1')) as RichRecommendation[]
+      const recs = (await productService.getRecommendations(
+        'ws-intel-a',
+        'proj-1'
+      )) as RichRecommendation[]
 
       expect(recs[0].rankingReason).toContain('Ranked #1')
       expect(recs[0].rankingReason).toContain('effort')
@@ -166,11 +174,17 @@ describe('Milestone H3 — Product Intelligence & Decision Quality Tests', () =>
 
       // Run 1
       await productService.runAnalysis('ws-intel-a', 'proj-1')
-      const recs1 = (await productService.getRecommendations('ws-intel-a', 'proj-1')) as RichRecommendation[]
+      const recs1 = (await productService.getRecommendations(
+        'ws-intel-a',
+        'proj-1'
+      )) as RichRecommendation[]
 
       // Run 2
       await productService.runAnalysis('ws-intel-a', 'proj-1')
-      const recs2 = (await productService.getRecommendations('ws-intel-a', 'proj-1')) as RichRecommendation[]
+      const recs2 = (await productService.getRecommendations(
+        'ws-intel-a',
+        'proj-1'
+      )) as RichRecommendation[]
 
       expect(recs2.length).toBe(recs1.length)
       expect(recs2[0].priorityScore).toBe(recs1[0].priorityScore)

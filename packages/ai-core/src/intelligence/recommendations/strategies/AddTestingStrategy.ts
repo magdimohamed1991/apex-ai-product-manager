@@ -25,6 +25,7 @@ export class AddTestingStrategy implements RecommendationStrategy {
       confidence: 0.95,
       insightIds: [insight.id],
       findingIds: [],
+      category: 'TESTING',
       proposedActions: [
         {
           id: `${insight.id}:add-vitest`,

@@ -31,7 +31,7 @@ describe('Milestone F — End-to-End Hardening & Production Readiness Test Matri
 
     adapterRegistry.clear()
     adapterRegistry.register(githubAdapter)
-    GitHubAdapter.mockExternalIssues.clear()
+    GitHubAdapter.resetMockState()
   })
 
   const baseInput = {
@@ -51,11 +51,21 @@ describe('Milestone F — End-to-End Hardening & Production Readiness Test Matri
       await repository.save(action)
 
       // Thread A claims action
-      const claimA = await repository.claimForExecution(action.id, WORKSPACE_A, 'exec-worker-A', 5000)
+      const claimA = await repository.claimForExecution(
+        action.id,
+        WORKSPACE_A,
+        'exec-worker-A',
+        5000
+      )
       expect(claimA).toBe(true)
 
       // Thread B tries to claim concurrently (must fail because Thread A owns an active lease) (Item 2)
-      const claimB = await repository.claimForExecution(action.id, WORKSPACE_A, 'exec-worker-B', 5000)
+      const claimB = await repository.claimForExecution(
+        action.id,
+        WORKSPACE_A,
+        'exec-worker-B',
+        5000
+      )
       expect(claimB).toBe(false)
     })
 
@@ -70,7 +80,12 @@ describe('Milestone F — End-to-End Hardening & Production Readiness Test Matri
       await new Promise((resolve) => setTimeout(resolve, 20))
 
       // Worker 2 takes over and claims Action (reconciling Worker 1)
-      const claimWorker2 = await repository.claimForExecution(action.id, WORKSPACE_A, 'exec-worker-2', 10000)
+      const claimWorker2 = await repository.claimForExecution(
+        action.id,
+        WORKSPACE_A,
+        'exec-worker-2',
+        10000
+      )
       expect(claimWorker2).toBe(true)
 
       // Worker 1 finishes its late side-effect and attempts to save (must fail with lease ownership violation!)
@@ -94,7 +109,11 @@ describe('Milestone F — End-to-End Hardening & Production Readiness Test Matri
         reason: 'Late success',
       })
 
-      const completedAction = { ...action, status: 'completed' as const, externalId: 'gh-issue-111' }
+      const completedAction = {
+        ...action,
+        status: 'completed' as const,
+        externalId: 'gh-issue-111',
+      }
 
       await expect(
         repository.persistExecutionOutcome(completedAction, executionWorker1, transition)
@@ -134,7 +153,9 @@ describe('Milestone F — End-to-End Hardening & Production Readiness Test Matri
 
       // Workspace B must NEVER be able to read, write, claim, or interact with Workspace A actions (Security matrix)
       expect(await repository.getByIdAndWorkspace(action.id, WORKSPACE_B)).toBeNull()
-      expect(await repository.getByIdempotencyKeyAndWorkspace(action.idempotencyKey, WORKSPACE_B)).toBeNull()
+      expect(
+        await repository.getByIdempotencyKeyAndWorkspace(action.idempotencyKey, WORKSPACE_B)
+      ).toBeNull()
       expect(await repository.getByWorkspace({ workspaceId: WORKSPACE_B })).toEqual([])
       expect(await repository.getExecutionsByAction(action.id, WORKSPACE_B)).toEqual([])
       expect(await repository.getTransitionsByAction(action.id, WORKSPACE_B)).toEqual([])

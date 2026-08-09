@@ -30,7 +30,7 @@ describe('ActionExecutor — Milestone B: Action Application & Execution Integra
     adapterRegistry.register(jiraAdapter)
 
     // Clear mock server records across runs to ensure test isolation
-    GitHubAdapter.mockExternalIssues.clear()
+    GitHubAdapter.resetMockState()
     JiraAdapter.mockExternalIssues.clear()
   })
 
@@ -130,7 +130,11 @@ describe('ActionExecutor — Milestone B: Action Application & Execution Integra
   })
 
   it('4. Crash Recovery Reclaim: Reconciles and fails orphaned executions after lease expiration', async () => {
-    const action = createAction({ ...baseInput, status: 'in-progress', claimedByExecutionId: 'exec-crashed' })
+    const action = createAction({
+      ...baseInput,
+      status: 'in-progress',
+      claimedByExecutionId: 'exec-crashed',
+    })
     await repository.save(action)
 
     const crashedExec = {
@@ -186,7 +190,9 @@ describe('ActionExecutor — Milestone B: Action Application & Execution Integra
     expect(fulfilled.length).toBe(1)
     expect(rejected.length).toBe(1)
     if (rejected[0].status === 'rejected') {
-      expect(rejected[0].reason.message).toMatch(/Concurrency Lock Failed|Lease ownership violation/)
+      expect(rejected[0].reason.message).toMatch(
+        /Concurrency Lock Failed|Lease ownership violation/
+      )
     }
   })
 
@@ -230,7 +236,7 @@ describe('ActionExecutor — Milestone B: Action Application & Execution Integra
 
     // Worker 1 claims action and writes external side effect but crashes before database commit
     const context = { workspaceId: WORKSPACE_A, credentials: { token: 'gh-valid-token' } }
-    
+
     // Simulate Worker 1 successful API write on Github mock server (using stable Action idempotency key!) (Item 3 & Item 4)
     const result1 = await githubAdapter.executeAction(action, context, action.idempotencyKey)
     expect(result1.resolution).toBe('created')
@@ -278,7 +284,10 @@ describe('ActionExecutor — Milestone B: Action Application & Execution Integra
 
     const context = {
       workspaceId: WORKSPACE_A,
-      credentials: { token: 'secret-token-value', triggerError: '401 Unauthorized: token="secret-token-value" failed' },
+      credentials: {
+        token: 'secret-token-value',
+        triggerError: '401 Unauthorized: token="secret-token-value" failed',
+      },
     }
     const attempt = await executor.execute(action.id, WORKSPACE_A, context)
 

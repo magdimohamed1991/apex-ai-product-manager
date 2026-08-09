@@ -25,7 +25,7 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
   let productRepository: SqlProductRepository
   let outcomeRepository: SqlRecommendationOutcomeRepository
   let profileRepository: SqlAdaptiveLearningProfileRepository
-  
+
   let actionAppService: ActionApplicationService
   let pipeline: RepositoryDiscoveryPipeline
   let orchestrator: PipelineActionOrchestrator
@@ -43,17 +43,17 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
 
     database = new DurableFileDatabase(TEST_DB_DIR)
     await database.initialize()
-    
+
     actionRepository = new SqlActionRepository(database)
     productRepository = new SqlProductRepository(database)
     outcomeRepository = new SqlRecommendationOutcomeRepository(database)
     profileRepository = new SqlAdaptiveLearningProfileRepository(database)
-    
+
     actionAppService = new ActionApplicationService(actionRepository)
     pipeline = new RepositoryDiscoveryPipeline()
     orchestrator = new PipelineActionOrchestrator(pipeline, actionAppService)
     credentialProvider = new EnvCredentialProvider()
-    
+
     outcomeService = new RecommendationOutcomeService(
       outcomeRepository,
       productRepository,
@@ -93,10 +93,12 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
     it('verifies that registering a user hashes password, creates onboarding workspace/project, and grants ownership membership', async () => {
       // 1. Setup registration details
       const email = 'pm@acme.com'
-      const password = 'my-secure-password'
+      const password = 'my-secure-password-12chars'
+      const { ScryptPasswordHasher } = await import('../../../security/PasswordHasher')
+      const hasher = new ScryptPasswordHasher()
+      const passwordHash = await hasher.hash(password)
+
       const userId = 'usr-test-123'
-      const passwordHash = `mock-hash:${password.split('').reverse().join('')}`
-      
       const user = { id: userId, email, passwordHash, createdAt: new Date().toISOString() }
       database.insertUser(user)
 
@@ -110,14 +112,20 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
         userId,
         workspaceId: 'ws-acme-onboarding',
         role: 'owner' as const,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       }
       database.insertMembership(membership)
 
       // Verify that database state contains the user record and proper memberships
       const fetchedUser = database.getUserByEmail(email)
       expect(fetchedUser).not.toBeNull()
-      expect(fetchedUser?.passwordHash).toBe(passwordHash)
+      // Verify the password is stored as a real scrypt hash, not the legacy mock-hash format
+      expect(fetchedUser?.passwordHash.startsWith('scrypt$')).toBe(true)
+      // The original plaintext password must NOT be derivable from the hash
+      expect(fetchedUser?.passwordHash).not.toContain(password)
+      // The hash must be verifiable
+      const ok = await hasher.verify(password, fetchedUser!.passwordHash)
+      expect(ok).toBe(true)
 
       const isMember = database.isUserMemberOfWorkspace(userId, 'ws-acme-onboarding')
       expect(isMember).toBe(true)
@@ -133,7 +141,7 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
         id: sessionId,
         userId,
         workspaceId: 'ws-acme-onboarding',
-        expiresAt: new Date(Date.now() + 1000 * 3600).toISOString() // expires in 1 hour
+        expiresAt: new Date(Date.now() + 1000 * 3600).toISOString(), // expires in 1 hour
       }
 
       database.insertSession(session)
@@ -160,7 +168,7 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
         provider: 'github',
         owner: 'acme',
         repository: 'core-platform',
-        defaultBranch: 'main'
+        defaultBranch: 'main',
       })
 
       expect(conn.status).toBe('connected')
@@ -187,7 +195,7 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
         provider: 'github',
         owner: 'acme',
         repository: 'core-platform',
-        defaultBranch: 'main'
+        defaultBranch: 'main',
       })
 
       // Run analysis to generate recommendations
@@ -196,14 +204,27 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
 
       // Perform a decision and record telemetry
       const testingRec = recs.find((r) => r.title.toLowerCase().includes('test'))!
-      await productService.approveAction(workspaceId, projectId, testingRec.id, testingRec.proposedActions[0].id)
+      await productService.approveAction(
+        workspaceId,
+        projectId,
+        testingRec.id,
+        testingRec.proposedActions[0].id
+      )
 
       // Evaluate H7 metrics
       const metrics = await productService.getProductValidationMetrics(workspaceId, projectId)
-      
-      // Declared Baseline Cost assumption must be exactly 2700s (45 minutes) as specified in H7
-      expect(metrics.efficiency).toBe(0) // Since scan and approval happens instantly in tests
-      expect(metrics.decisionQuality).toBeGreaterThan(0) // Approved vs total recommendations
+
+      // H7 — empirical decision-quality must be properly observed and reported
+      // (no synthetic baselines, no fabricated numbers).
+      expect(metrics.decisionAcceptanceRate.value).not.toBeNull()
+      expect(metrics.decisionAcceptanceRate.value!).toBeGreaterThan(0)
+      expect(metrics.decisionAcceptanceRate.epistemicState).toBe('observed')
+      // The legacy `efficiency` field is REMOVED — PM decision latency is
+      // not measurable from rec.createdAt -> action.updatedAt and the new
+      // PMDecisionTelemetry stream is not yet in use. The metric MUST be
+      // marked unavailable so the UI doesn't display a fake number.
+      expect(metrics.measuredDecisionLatencySeconds.epistemicState).toBe('unavailable')
+      expect(metrics.measuredDecisionLatencySeconds.value).toBeNull()
     })
   })
 })

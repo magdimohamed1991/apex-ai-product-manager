@@ -1,0 +1,25 @@
+APEX — All Rights Reserved (UNLICENSED)
+
+Copyright (c) APEX contributors. All rights reserved.
+
+This repository does NOT currently grant any license to use, copy,
+modify, or distribute the code. The project is being developed
+internally and the license model has not been finalized.
+
+Until an explicit LICENSE file (e.g. MIT, Apache-2.0, or a commercial
+EULA) is added, the following applies by default under copyright law
+in most jurisdictions:
+
+  - You may READ the source code (you already have it).
+  - You may NOT copy, modify, redistribute, or create derivative
+    works without prior written permission from the rights holder.
+  - You may NOT use the code in production or in any commercial
+    setting.
+
+If you would like to use, fork, or contribute to APEX, please open
+a GitHub issue or contact the project maintainers to discuss
+licensing.
+
+When the license is decided, this file will be replaced with the
+chosen license text and the README + ROADMAP will be updated to
+reflect the decision.
