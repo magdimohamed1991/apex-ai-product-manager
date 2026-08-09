@@ -26,8 +26,15 @@ check).
   priorities)
 - **Prompt path:** `PromptRegistry → PromptRenderer → versioned prompt
 string → LLMProvider`. No inline prompt building in the agent.
-- **Behavior on invalid LLM output:** the agent returns a typed
-  `unavailable` result. **No fabricated facts are produced.**
+- **Behavior on invalid LLM output:** the agent retries within the
+  `BudgetPolicy.maxAttempts` budget and, on terminal failure, throws a
+  hard error — pipeline execution terminates immediately and **no
+  fabricated facts are produced or persisted** (see
+  `docs/ARCHITECTURE.md`, "LLM Validation and Retry Terminal Failure
+  Contract").
+- **Production guard:** the budget-based fallback to `MockLLMProvider`
+  throws `SecurityError` when `NODE_ENV=production` — a mock assessment
+  is never produced in production.
 
 ## Contract
 

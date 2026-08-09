@@ -42,13 +42,11 @@ export function ValidationPanel({ metrics, profile, signals, onCompileProfile }:
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
                 H7 Confidence Bucket
               </span>
-              <EpistemicBadge
-                state={
-                  metrics.confidence.bucket === 'high_within_apex_framework'
-                    ? 'validated'
-                    : 'estimated'
-                }
-              />
+              {/* The bucket is a DERIVED classification computed from
+                  observation counts. It must never carry a VALIDATED badge:
+                  the H7 framework explicitly denies universal statistical
+                  significance at any N (see the rationale text below). */}
+              <EpistemicBadge state="derived" />
             </div>
             <div className="text-xl font-extrabold text-white">
               {H7_BUCKET_LABEL[metrics.confidence.bucket]}

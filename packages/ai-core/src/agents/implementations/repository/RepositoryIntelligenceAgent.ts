@@ -4,6 +4,7 @@ import type { LLMProvider } from '../../../providers'
 import type { BudgetPolicy } from '../../../providers'
 import { MockLLMProvider, shouldFallbackToMock } from '../../../providers'
 import { RepositoryAssessmentValidator } from '../../../validation'
+import { SecurityError } from '../../../errors/AppError'
 import { RepositoryAssessmentMapper } from './RepositoryAssessmentMapper'
 import type { RepositoryAssessmentEntity } from './RepositoryAssessmentMapper'
 import type { RepositoryAssessmentRequest } from './RepositoryAssessmentRequest'
@@ -84,9 +85,19 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
 
     const prompt = rendered.content
 
-    // Budget check — fallback to mock if over limit
+    // Budget check — fallback to mock if over limit. This is a DEV/TEST
+    // convenience: a canned mock assessment would silently fabricate
+    // executive-summary intelligence. In production, exceeding the budget
+    // must fail explicitly (SecurityError) instead of downgrading to a mock,
+    // mirroring the composition-root rule for the H4 reasoning provider.
     const estimatedTokens = Math.ceil(prompt.length / 4)
-    const activeProvider = shouldFallbackToMock(this.budgetPolicy, estimatedTokens, dailySpendUsd)
+    const shouldFallback = shouldFallbackToMock(this.budgetPolicy, estimatedTokens, dailySpendUsd)
+    if (shouldFallback && process.env.NODE_ENV === 'production') {
+      throw new SecurityError(
+        'RepositoryIntelligenceAgent budget exceeded in production. Refusing to fall back to MockLLMProvider; configure a real provider or raise the budget.'
+      )
+    }
+    const activeProvider = shouldFallback
       ? new MockLLMProvider(this.getValidMockResponse())
       : this.provider
 
@@ -218,7 +229,9 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       parsed = this.validator.parseJSON(content)
     } catch (parseError) {
       if (attempts >= maxAttempts) {
-        throw new Error(`LLM output was not valid JSON after ${attempts} attempt(s)`, { cause: parseError })
+        throw new Error(`LLM output was not valid JSON after ${attempts} attempt(s)`, {
+          cause: parseError,
+        })
       }
       attempts++
       const retryPrompt = this.buildRetryPrompt(originalPrompt, [
@@ -232,7 +245,9 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       try {
         parsed = this.validator.parseJSON(retry.content)
       } catch (innerError) {
-        throw new Error(`LLM output was not valid JSON after ${attempts} attempt(s)`, { cause: innerError })
+        throw new Error(`LLM output was not valid JSON after ${attempts} attempt(s)`, {
+          cause: innerError,
+        })
       }
     }
 

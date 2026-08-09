@@ -201,7 +201,7 @@ function RecommendationDetail({
           ) : (
             <span className="text-xs text-slate-500">Priority Score: —</span>
           )}
-          <span className="text-[10px] text-slate-400">empirical (H3)</span>
+          <span className="text-[10px] text-slate-400">deterministic (H3)</span>
         </div>
         <h3 className="text-xl font-black text-white">{recommendation.title}</h3>
         <p className="text-xs text-slate-400 leading-relaxed">{recommendation.rationale}</p>

@@ -1,6 +1,7 @@
 import type { WorkspaceId } from '../../domain/value-objects'
 import { createRecommendationOutcome } from '../../domain/entities/RecommendationOutcome'
 import type { RecommendationOutcome } from '../../domain/entities/RecommendationOutcome'
+import type { Recommendation } from '../../domain/entities/Recommendation'
 import type { RecommendationOutcomeRepository } from '../../domain/repositories/RecommendationOutcomeRepository'
 import type { ProductRepository } from '../../domain/repositories/ProductRepository'
 import type { ActionRepository } from '../../domain/repositories/ActionRepository'
@@ -40,6 +41,12 @@ export class RecommendationOutcomeService {
 
   /**
    * Tracks and persists an initial pending outcome for an approved recommendation
+   *
+   * Project-scoping invariant: the recommendation must exist in the workspace
+   * AND its persisted project must match the claimed `projectId`. Without this
+   * check a workspace member could attach an outcome for a recommendation of
+   * project A to project B, contaminating B's outcome metrics (H2: projectId
+   * is never ignored; H5: verification is project-scoped).
    */
   async createOutcome(
     recommendationId: string,
@@ -48,6 +55,23 @@ export class RecommendationOutcomeService {
     actionId: string | null = null,
     executionId: string | null = null
   ): Promise<RecommendationOutcome> {
+    const rec = await this.productRepository.getRecommendationByIdAndWorkspace(
+      recommendationId,
+      workspaceId
+    )
+    if (!rec) {
+      throw new Error(
+        `Recommendation "${recommendationId}" not found in workspace "${workspaceId}"; cannot create an outcome for a non-existent recommendation.`
+      )
+    }
+    // Persisted recommendation rows carry the owning project id (StoredRecommendation).
+    const recProjectId = (rec as Recommendation & { projectId?: string }).projectId
+    if (!recProjectId || recProjectId !== projectId) {
+      throw new Error(
+        `Recommendation "${recommendationId}" belongs to project "${recProjectId ?? '(unknown)'}", not the claimed project "${projectId}". Outcome creation rejected.`
+      )
+    }
+
     const outcome = createRecommendationOutcome({
       recommendationId,
       workspaceId,

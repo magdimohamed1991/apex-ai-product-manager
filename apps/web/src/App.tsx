@@ -467,15 +467,15 @@ export default function App() {
             <div className="flex items-center gap-3">
               <span className="text-indigo-400 text-lg">🔒</span>
               <span>
-                <strong>Double-Key Tenant Isolation</strong>: Perfect multi-tenant storage &
-                calibration security.
+                <strong>Double-Key Tenant Isolation</strong>: every workspace-scoped read and write
+                is gated by (id, workspaceId).
               </span>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-indigo-400 text-lg">💾</span>
               <span>
-                <strong>Durable ACID Relational Engine</strong>: Temporary atomic file swaps prevent
-                corruption.
+                <strong>Durable Single-Process Persistence</strong>: atomic file-swap commits with
+                deterministic migrations (see docs/DATABASE.md).
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -489,7 +489,7 @@ export default function App() {
         </div>
 
         <div className="text-[11px] text-slate-600 font-medium">
-          APEX Operational OS — Version 1.2.0 • Security Audited
+          APEX Operational OS — Version 1.2.0 • In-Repo Security Audit Pass
         </div>
       </div>
 

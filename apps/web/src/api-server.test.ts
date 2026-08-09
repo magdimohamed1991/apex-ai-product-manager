@@ -415,4 +415,132 @@ describe('API server — composition root & route security', () => {
     expect(metrics.measuredDecisionLatencySeconds.value).toBe(120)
     expect(metrics.measuredDecisionLatencySeconds.observationCount).toBe(1)
   })
+
+  it('accepts every H7 decision kind (ACCEPT/REJECT/DEFER/OVERRIDE) with correct override semantics', async () => {
+    await api.initApiServer()
+    const signup = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'kinds@acme.com', password: 'super-secure-password' },
+    })
+    const token = signup.json.token as string
+    const wsId = (signup.json.workspace as { id: string }).id
+
+    await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/repository',
+      headers: { Authorization: `Bearer ${token}` },
+      body: {
+        workspaceId: wsId,
+        provider: 'github',
+        owner: 'acme',
+        repository: 'apex-ai-product-manager',
+        defaultBranch: 'main',
+      },
+    })
+    await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/analysis',
+      headers: { Authorization: `Bearer ${token}` },
+      body: { workspaceId: wsId },
+    })
+    const recs = await request(api, {
+      method: 'GET',
+      url: `/api/projects/proj-core/recommendations?workspaceId=${wsId}`,
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const list = recs.json as unknown as Array<{ id: string }>
+    const recId = list[0].id
+
+    // Each decision is a DISTINCT decision window (different decisionStartedAt)
+    // — the deterministic telemetry id collapses only identical submissions.
+    const windows = [
+      {
+        decisionStartedAt: '2026-08-09T10:00:00.000Z',
+        decisionCompletedAt: '2026-08-09T10:01:00.000Z',
+        decision: 'REJECT',
+      },
+      {
+        decisionStartedAt: '2026-08-09T11:00:00.000Z',
+        decisionCompletedAt: '2026-08-09T11:01:00.000Z',
+        decision: 'DEFER',
+      },
+    ] as const
+    for (const w of windows) {
+      const res = await request(api, {
+        method: 'POST',
+        url: '/api/projects/proj-core/decision-telemetry',
+        headers: { Authorization: `Bearer ${token}` },
+        body: {
+          workspaceId: wsId,
+          recommendationId: recId,
+          decision: w.decision,
+          decisionStartedAt: w.decisionStartedAt,
+          decisionCompletedAt: w.decisionCompletedAt,
+          recommendationPresentedAt: '2026-08-09T09:59:00.000Z',
+        },
+      })
+      expect(res.status, w.decision).toBe(200)
+    }
+    // OVERRIDE with a numeric PM priority: overrideOccurred must be true and
+    // the delta must be |H6 calibrated - PM priority|.
+    const override = await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/decision-telemetry',
+      headers: { Authorization: `Bearer ${token}` },
+      body: {
+        workspaceId: wsId,
+        recommendationId: recId,
+        decision: 'OVERRIDE',
+        pmSelectedPriority: 1,
+        decisionStartedAt: '2026-08-09T12:00:00.000Z',
+        decisionCompletedAt: '2026-08-09T12:01:00.000Z',
+        recommendationPresentedAt: '2026-08-09T11:59:00.000Z',
+      },
+    })
+    expect(override.status).toBe(200)
+    const ov = override.json as {
+      overrideOccurred: boolean
+      overrideDelta: number
+      calibratedH6Score: number
+    }
+    expect(ov.overrideOccurred).toBe(true)
+    expect(ov.overrideDelta).toBeCloseTo(Math.abs(ov.calibratedH6Score - 1), 5)
+  })
+
+  it('logout invalidates the session server-side: the token is dead immediately', async () => {
+    await api.initApiServer()
+    const signup = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'logout@acme.com', password: 'super-secure-password' },
+    })
+    expect(signup.status).toBe(200)
+    const token = signup.json.token as string
+
+    // Session is valid before logout.
+    const before = await request(api, {
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    expect(before.status).toBe(200)
+
+    const logout = await request(api, {
+      method: 'POST',
+      url: '/api/auth/logout',
+      headers: { Authorization: `Bearer ${token}` },
+      body: {},
+    })
+    expect(logout.status).toBe(200)
+
+    // The same token must now be rejected — server-side invalidation, not
+    // merely client-side localStorage clearing.
+    const after = await request(api, {
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    expect(after.status).toBe(401)
+  })
 })

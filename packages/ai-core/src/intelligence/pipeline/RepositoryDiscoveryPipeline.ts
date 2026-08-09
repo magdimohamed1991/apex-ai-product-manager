@@ -26,6 +26,13 @@ export interface PipelineInput {
   workspaceId: WorkspaceId
   files: RepositoryFiles
   externalEvidence?: Evidence[]
+  /**
+   * Project-scoped deterministic identity. When provided, insight and
+   * recommendation ids are scoped to the project so two projects inside the
+   * same workspace cannot produce colliding ids (and therefore cannot
+   * clobber each other's persisted rows on re-analysis).
+   */
+  projectId?: string
 }
 
 export interface PipelineResult {
@@ -99,7 +106,8 @@ export class RepositoryDiscoveryPipeline {
     const { insights, explanations: insightExplanations } = this.buildInsightsWithExplanations(
       ruleResults,
       evidence,
-      input.workspaceId
+      input.workspaceId,
+      input.projectId
     )
 
     const { findings, explanations: findingExplanations } = this.buildFindings(
@@ -129,13 +137,14 @@ export class RepositoryDiscoveryPipeline {
   private buildInsightsWithExplanations(
     ruleResults: RuleResult[],
     evidence: Evidence[],
-    workspaceId: WorkspaceId
+    workspaceId: WorkspaceId,
+    projectId?: string
   ): { insights: Insight[]; explanations: Explanation[] } {
     const insights: Insight[] = []
     const explanations: Explanation[] = []
 
     for (const result of ruleResults) {
-      const [insight] = this.mapper.toInsights([result], workspaceId)
+      const [insight] = this.mapper.toInsights([result], workspaceId, 'github', projectId)
       const explanation = this.explanationBuilder.build(insight, result, evidence, workspaceId)
       insight.explanationId = explanation.id
       insights.push(insight)

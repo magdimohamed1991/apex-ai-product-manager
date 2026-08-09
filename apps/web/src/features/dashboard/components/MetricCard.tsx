@@ -27,7 +27,8 @@ const epistemicLabels: Record<
   validated: {
     label: 'VALIDATED',
     color: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20',
-    description: 'Sufficient data and consistent cross-checks. H7 N >= 20.',
+    description:
+      'Reserved: would only be claimed with sufficient data and consistent cross-checks. The H7 framework never claims universal statistical significance.',
   },
   insufficient_evidence: {
     label: 'INSUFFICIENT EVIDENCE',

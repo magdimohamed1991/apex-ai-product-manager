@@ -155,6 +155,26 @@ describe('RepositoryIntelligenceAgent', () => {
       expect(result.success).toBe(true)
       expect(result.data?.provider).toBe('mock')
     })
+
+    it('refuses to fall back to MockLLMProvider in production (SecurityError, no fabricated assessment)', async () => {
+      const prev = process.env.NODE_ENV
+      process.env.NODE_ENV = 'production'
+      try {
+        const provider = new MockLLMProvider(validMockResponse)
+        const agent = new RepositoryIntelligenceAgent(provider, DevelopmentBudgetPolicy)
+        // dailySpendUsd > DevelopmentBudgetPolicy.maxDailyCostUsd (0) →
+        // the budget check would normally fall back to MockLLMProvider.
+        // In production that must be a hard failure instead.
+        const result = await agent.execute(
+          { request: mockRequest, dailySpendUsd: 0.01 },
+          mockContext
+        )
+        expect(result.success).toBe(false)
+        expect(result.error?.message).toMatch(/MockLLMProvider/)
+      } finally {
+        process.env.NODE_ENV = prev
+      }
+    })
   })
 
   describe('validation error handling', () => {

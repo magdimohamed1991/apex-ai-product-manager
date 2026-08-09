@@ -5,6 +5,7 @@ import type {
   LearningSignal,
 } from '../../domain/entities/ProductAdaptive'
 import { Logger } from '../../observability/Logger'
+import { ValidationError } from '../../errors/AppError'
 
 const log = new Logger('h6.calibrator')
 
@@ -40,7 +41,18 @@ export class H6PrioritizationCalibrator {
     profile: AdaptiveLearningProfile | null,
     signals: LearningSignal[]
   ): PriorityCalibration {
-    const baseScore = recommendation.priorityScore || 5.0
+    // Epistemic integrity: the H3 base score is a REAL number computed by
+    // the deterministic scoring engine and persisted with the
+    // recommendation. If it is missing or invalid, we must NOT fabricate a
+    // baseline (the legacy `|| 5.0` silently invented a score whenever the
+    // field was falsy). Fail loudly so callers surface the data anomaly.
+    const rawScore = recommendation.priorityScore
+    if (typeof rawScore !== 'number' || !Number.isFinite(rawScore) || rawScore <= 0) {
+      throw new ValidationError(
+        'Recommendation lacks a valid deterministic H3 priorityScore; cannot calibrate (no fabricated baseline).'
+      )
+    }
+    const baseScore = rawScore
     const category = (recommendation as RichRecommendation & { category?: string }).category ?? null
 
     if (!profile || !category) {
