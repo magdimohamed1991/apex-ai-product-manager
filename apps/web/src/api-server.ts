@@ -1004,6 +1004,46 @@ export async function handleApiRequest(
         )
         return true
       }
+
+      // Server-side telemetry integrity checks (Part 5 — clock skew policy).
+      // Client timestamps are labeled `client-observed telemetry` and must
+      // pass basic sanity checks before entering the measurement stream.
+      const serverNow = Date.now()
+      const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000 // 5 minutes
+      const MAX_DECISION_DURATION_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+      // Reject timestamps more than 5 minutes in the future.
+      if (decisionCompletedAt.getTime() > serverNow + MAX_CLOCK_SKEW_MS) {
+        sendError(
+          res,
+          new ValidationError(
+            'decisionCompletedAt is more than 5 minutes in the future; clock skew exceeds allowed tolerance'
+          )
+        )
+        return true
+      }
+      if (recommendationPresentedAt.getTime() > serverNow + MAX_CLOCK_SKEW_MS) {
+        sendError(
+          res,
+          new ValidationError(
+            'recommendationPresentedAt is more than 5 minutes in the future; clock skew exceeds allowed tolerance'
+          )
+        )
+        return true
+      }
+
+      // Reject unreasonably large durations (> 24 hours).
+      const durationMs = decisionCompletedAt.getTime() - decisionStartedAt.getTime()
+      if (durationMs > MAX_DECISION_DURATION_MS) {
+        sendError(
+          res,
+          new ValidationError(
+            `Decision duration ${Math.round(durationMs / 1000 / 60)} minutes exceeds maximum allowed (24 hours)`
+          )
+        )
+        return true
+      }
+
       const pmSelectedPriority =
         typeof body?.pmSelectedPriority === 'number' && Number.isFinite(body.pmSelectedPriority)
           ? (body.pmSelectedPriority as number)

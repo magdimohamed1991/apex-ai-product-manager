@@ -218,6 +218,7 @@ export class ProductValidationService {
       projectId,
       workspaceId
     )
+    const decisionCount = telemetry.length
     const latenciesMs = telemetry
       .map((t) => t.decisionCompletedAt.getTime() - t.decisionStartedAt.getTime())
       .filter((ms) => ms >= 0)
@@ -246,17 +247,21 @@ export class ProductValidationService {
       epistemicState: latencyCount > 0 ? 'observed' : 'unavailable',
     }
 
-    const totalObservations = totalRecommendations + totalTrackedOutcomes + terminalActions
-    // For brand-new projects with zero observations we still expose the
-    // default bucket so the UI has a non-null epistemic anchor.
+    // Separate observation populations for H7 measurement integrity.
+    // The confidence classification for PM decision telemetry uses
+    // decisionCount ONLY — not the combined recommendation+outcome+action
+    // count, because those are different observational populations.
+
+    // H7 Confidence: the classification for PM decision telemetry MUST use
+    // decisionCount ONLY (real PM decisions from the telemetry stream).
     const confidenceBucket =
-      totalObservations === 0 ? DEFAULT_TELEMETRY_BUCKET : bucketFor(totalObservations)
+      decisionCount === 0 ? DEFAULT_TELEMETRY_BUCKET : bucketFor(decisionCount)
 
     return {
       workspaceId,
       projectId,
       generatedAt: new Date(),
-      observationCount: totalObservations,
+      observationCount: decisionCount,
       decisionAcceptanceRate,
       outcomeSuccessRate,
       unverifiableRate,

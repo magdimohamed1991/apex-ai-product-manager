@@ -22,7 +22,16 @@ export interface LearningSignal {
 
   category: string
   type:
-    'ADOPTION' | 'EXECUTION_SUCCESS' | 'OUTCOME_SUCCESS' | 'REJECTION' | 'IGNORED' | 'CALIBRATION'
+    | 'ADOPTION'
+    | 'EXECUTION_SUCCESS'
+    | 'OUTCOME_SUCCESS'
+    | 'REJECTION'
+    | 'IGNORED'
+    | 'CALIBRATION'
+    | 'DEFER'
+    | 'OVERRIDE'
+    | 'DECISION_LATENCY'
+    | 'PRIORITY_OVERRIDE_DELTA'
 
   observationCount: number
   value: number // Rate or multiplier value, e.g. 0.85
