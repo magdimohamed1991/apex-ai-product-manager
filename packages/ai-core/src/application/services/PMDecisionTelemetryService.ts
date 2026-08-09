@@ -1,34 +1,26 @@
 import { createHash } from 'node:crypto'
 import { Logger } from '../../observability/Logger'
-import type { PMDecisionTelemetry, PMDecisionKind } from './ProductValidationService'
+import type { PMDecisionTelemetry, PMDecisionKind } from '../../domain/entities'
+import { validatePMDecisionTelemetry } from '../../domain/entities'
 import type { WorkspaceId } from '../../domain/value-objects'
 
 const log = new Logger('h7.telemetry')
 
 /**
- * PMDecisionTelemetryService (Milestone I - Production Hardening)
- *
- * Captures REAL PM decisions on recommendations, including:
- *   - When the recommendation was presented
- *   - When the PM started their decision process
- *   - When the PM completed the decision
- *   - The actual decision (ACCEPT / REJECT / DEFER / OVERRIDE)
- *   - Original H3 baseline + H6 calibrated score
- *   - PM override value (numeric OR rank)
- *   - Override delta (|H6 - PM|) or rank displacement
- *
- * Storage: in-memory for the single-process architecture. Persist via
- * a real repository adapter when scaling out.
- *
- * Why this is real telemetry, not the legacy `recommendation.createdAt ->
- * action.updatedAt`:
- *   - The legacy measurement conflates recommendation generation with
- *     action approval (a different user action, possibly a different time).
- *   - The new model tracks the PM's explicit decision window on a single
- *     recommendation, with a typed decision kind.
+ * Persistence boundary for PM decision telemetry. Implemented by the
+ * product repository (single-process durable store); swap for any real
+ * repository adapter without domain changes.
  */
+export interface PMDecisionTelemetryStore {
+  savePMDecisionTelemetry(telemetry: PMDecisionTelemetry): Promise<void>
+  getPMDecisionTelemetryByProject(
+    projectId: string,
+    workspaceId: WorkspaceId
+  ): Promise<PMDecisionTelemetry[]>
+}
+
 export interface RecordDecisionInput {
-  workspaceId: string
+  workspaceId: WorkspaceId
   projectId: string
   recommendationId: string
   category?: string
@@ -43,14 +35,45 @@ export interface RecordDecisionInput {
   pmRank?: number
 }
 
+/**
+ * PMDecisionTelemetryService (Milestone I - Production Hardening)
+ *
+ * Captures REAL PM decisions on recommendations, including:
+ *   - When the recommendation was presented
+ *   - When the PM started their decision process
+ *   - When the PM completed the decision
+ *   - The actual decision (ACCEPT / REJECT / DEFER / OVERRIDE)
+ *   - Original H3 baseline + H6 calibrated score
+ *   - PM override value (numeric OR rank)
+ *   - Override delta (|H6 - PM|) or rank displacement
+ *
+ * Storage: persisted through the injected `PMDecisionTelemetryStore`
+ * (the durable file database in the single-process architecture).
+ *
+ * Why this is real telemetry, not the legacy `recommendation.createdAt ->
+ * action.updatedAt`:
+ *   - The legacy measurement conflates recommendation generation with
+ *     action approval (a different user action, possibly a different time).
+ *   - This stream tracks the PM's explicit decision window on a single
+ *     recommendation, with a typed decision kind, and the record id is a
+ *     deterministic hash of (workspace, recommendation, decisionStartedAt)
+ *     so duplicate submissions are idempotently collapsed.
+ */
 export class PMDecisionTelemetryService {
-  private readonly decisions = new Map<string, PMDecisionTelemetry>()
-  private readonly list: PMDecisionTelemetry[] = []
+  constructor(private readonly store: PMDecisionTelemetryStore) {}
 
-  recordDecision(input: RecordDecisionInput): PMDecisionTelemetry {
+  async recordDecision(input: RecordDecisionInput): Promise<PMDecisionTelemetry> {
     const id = this.computeId(input)
-    const existing = this.decisions.get(id)
-    if (existing) return existing
+
+    // Idempotency: a repeated submission of the SAME decision window
+    // (same workspace + recommendation + decisionStartedAt) must not create
+    // a second record. The deterministic id makes the store upsert a no-op.
+    const existing = await this.store.getPMDecisionTelemetryByProject(
+      input.projectId,
+      input.workspaceId
+    )
+    const prior = existing.find((t) => t.id === id)
+    if (prior) return prior
 
     const overrideOccurred =
       input.pmSelectedPriority !== undefined
@@ -87,8 +110,12 @@ export class PMDecisionTelemetryService {
       rankDisplacement,
       recordedAt: new Date(),
     }
-    this.decisions.set(id, telemetry)
-    this.list.push(telemetry)
+
+    // Strict domain validation BEFORE persistence — a malformed record must
+    // never enter the store (this is measurement data, not free text).
+    validatePMDecisionTelemetry(telemetry)
+
+    await this.store.savePMDecisionTelemetry(telemetry)
     log.info('PM decision recorded', {
       workspaceId: input.workspaceId,
       recommendationId: input.recommendationId,
@@ -98,16 +125,22 @@ export class PMDecisionTelemetryService {
     return telemetry
   }
 
-  listForProject(workspaceId: WorkspaceId, projectId: string): PMDecisionTelemetry[] {
-    return this.list.filter((t) => t.workspaceId === workspaceId && t.projectId === projectId)
+  async listForProject(
+    workspaceId: WorkspaceId,
+    projectId: string
+  ): Promise<PMDecisionTelemetry[]> {
+    return this.store.getPMDecisionTelemetryByProject(projectId, workspaceId)
   }
 
   /**
    * Compute the measured PM decision latency (seconds) for a project.
    * Returns null when no decisions are recorded.
    */
-  measuredDecisionLatency(workspaceId: WorkspaceId, projectId: string): number | null {
-    const list = this.listForProject(workspaceId, projectId)
+  async measuredDecisionLatency(
+    workspaceId: WorkspaceId,
+    projectId: string
+  ): Promise<number | null> {
+    const list = await this.listForProject(workspaceId, projectId)
     if (list.length === 0) return null
     const totalMs = list.reduce(
       (sum, t) => sum + (t.decisionCompletedAt.getTime() - t.decisionStartedAt.getTime()),
@@ -116,8 +149,8 @@ export class PMDecisionTelemetryService {
     return totalMs / list.length / 1000
   }
 
-  overrideRate(workspaceId: WorkspaceId, projectId: string): number | null {
-    const list = this.listForProject(workspaceId, projectId)
+  async overrideRate(workspaceId: WorkspaceId, projectId: string): Promise<number | null> {
+    const list = await this.listForProject(workspaceId, projectId)
     if (list.length === 0) return null
     const overrides = list.filter((t) => t.overrideOccurred).length
     return overrides / list.length
@@ -132,6 +165,3 @@ export class PMDecisionTelemetryService {
     return `pmd-${h.slice(0, 24)}`
   }
 }
-
-/** Module-scoped default for the single-process server. */
-export const globalPMDecisionTelemetry = new PMDecisionTelemetryService()

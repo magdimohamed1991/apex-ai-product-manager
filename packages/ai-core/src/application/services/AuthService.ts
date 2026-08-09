@@ -182,15 +182,7 @@ export class AuthService {
     try {
       const session = this.createSession(user.id, workspaceId || undefined)
       await this.database.commit()
-      const workspaces: { id: string; name: string; slug: string }[] = []
-      for (const m of memberships) {
-        const ws = await this.workspaceProvisioner({
-          workspaceId: m.workspaceId,
-          name: m.workspaceId,
-          slug: m.workspaceId,
-        })
-        if (ws) workspaces.push(ws)
-      }
+      const workspaces = this.listWorkspacesForUser(user.id)
       log.info('User logged in', { userId: user.id, workspaceCount: workspaces.length })
       return {
         user: { id: user.id, email: user.email },
@@ -219,7 +211,16 @@ export class AuthService {
     const session = this.database.getSession(token)
     if (!session) return null
     if (new Date(session.expiresAt).getTime() < Date.now()) {
-      this.database.deleteSession(token)
+      // Durably remove the expired session (not just from the in-memory
+      // snapshot — the previous code mutated memory only and relied on an
+      // unrelated future commit to persist the cleanup).
+      this.database.beginTransaction()
+      try {
+        this.database.deleteSession(token)
+        await this.database.commit()
+      } catch {
+        this.database.rollback()
+      }
       return null
     }
     return {
@@ -244,7 +245,21 @@ export class AuthService {
 
   listWorkspacesForUser(userId: string): { id: string; name: string; slug: string }[] {
     const memberships = this.database.getMembershipsForUser(userId)
-    return memberships.map((m) => ({ id: m.workspaceId, name: m.workspaceId, slug: m.workspaceId }))
+    // Resolve REAL workspace names/slugs from the workspace table. The
+    // previous implementation echoed `workspaceId` into the name/slug
+    // fields (and called the signup provisioner on login), which either
+    // fabricated metadata or overwrote the real workspace name on every
+    // login. Membership IDs are never used as display names.
+    const workspaces = this.database.getActiveState().workspaces || []
+    const byId = new Map(workspaces.map((w) => [String(w.id), w]))
+    return memberships.map((m) => {
+      const ws = byId.get(m.workspaceId)
+      return {
+        id: m.workspaceId,
+        name: ws?.name ?? m.workspaceId,
+        slug: ws?.slug ?? m.workspaceId,
+      }
+    })
   }
 
   isMember(userId: string, workspaceId: WorkspaceId | string): boolean {

@@ -39,15 +39,28 @@ function validateAlternative(a: unknown, index: number): AIAlternative {
   const label = typeof obj.label === 'string' && obj.label.trim().length > 0 ? obj.label : null
   if (!label) throw new ValidationError(`alternatives[${index}].label must be a non-empty string`)
 
-  const effort = ALLOWED_EFFORT.includes(obj.effort as AIAlternative['effort'])
-    ? (obj.effort as AIAlternative['effort'])
-    : 'medium'
-  const impact = ALLOWED_IMPACT.includes(obj.impact as AIAlternative['impact'])
-    ? (obj.impact as AIAlternative['impact'])
-    : 'high'
+  // Strict validation: an out-of-enum value MUST reject the response
+  // (reasoning becomes unavailable) rather than being silently coerced to
+  // a default. Silently rewriting the LLM's stated effort/impact would
+  // fabricate data the model never produced.
+  if (!ALLOWED_EFFORT.includes(obj.effort as AIAlternative['effort'])) {
+    throw new ValidationError(
+      `alternatives[${index}].effort must be one of ${ALLOWED_EFFORT.join('|')}`
+    )
+  }
+  if (!ALLOWED_IMPACT.includes(obj.impact as AIAlternative['impact'])) {
+    throw new ValidationError(
+      `alternatives[${index}].impact must be one of ${ALLOWED_IMPACT.join('|')}`
+    )
+  }
   const description = typeof obj.description === 'string' ? obj.description : ''
 
-  return { label, effort, impact, description }
+  return {
+    label,
+    effort: obj.effort as AIAlternative['effort'],
+    impact: obj.impact as AIAlternative['impact'],
+    description,
+  }
 }
 
 export interface ValidatedReasoning {
@@ -200,7 +213,7 @@ export class ProductReasoningService {
       })
     } catch (err) {
       log.warn('LLM provider failure', { err: err instanceof Error ? err.message : String(err) })
-      return this.buildUnavailableReasoning(rec, 'provider_error', contextHash)
+      return await this.saveAndReturnUnavailable(rec, 'provider_error', contextHash)
     }
 
     // Strict parse + schema validation
@@ -211,7 +224,7 @@ export class ProductReasoningService {
       log.warn('LLM output was not valid JSON', {
         err: err instanceof Error ? err.message : String(err),
       })
-      return this.buildUnavailableReasoning(rec, 'invalid_json', contextHash)
+      return await this.saveAndReturnUnavailable(rec, 'invalid_json', contextHash)
     }
 
     let validated: ValidatedReasoning
@@ -221,7 +234,7 @@ export class ProductReasoningService {
       log.warn('LLM output failed schema validation', {
         err: err instanceof Error ? err.message : String(err),
       })
-      return this.buildUnavailableReasoning(rec, 'schema_violation', contextHash)
+      return await this.saveAndReturnUnavailable(rec, 'schema_violation', contextHash)
     }
 
     // Grounding check: every `known` claim must trace to supplied evidence.
@@ -244,7 +257,7 @@ export class ProductReasoningService {
       // were traceable to the evidence we supplied. Falling back to a
       // fabricated `knowns` list would directly violate the H4 invariant.
       log.warn('All known claims rejected by grounding check', { rejected: rejectedKnowns.length })
-      return this.buildUnavailableReasoning(rec, 'grounding_violation', contextHash)
+      return await this.saveAndReturnUnavailable(rec, 'grounding_violation', contextHash)
     }
 
     const reasoning: AIProductReasoning = {
@@ -389,6 +402,28 @@ Schema:
   "recommendedDecision": "Which option is best and why?"
 }
 `
+  }
+
+  /**
+   * Persist and return an "unavailable" reasoning record. Persisting the
+   * typed failure prevents repeated GET requests from re-invoking the LLM
+   * for the same poisoned input; a PM can force regeneration via the
+   * context-submission (POST) path, which overwrites the record.
+   */
+  private async saveAndReturnUnavailable(
+    rec: RichRecommendation,
+    failureReason: 'provider_error' | 'invalid_json' | 'schema_violation' | 'grounding_violation',
+    contextHash: string
+  ): Promise<AIProductReasoning> {
+    const reasoning = this.buildUnavailableReasoning(rec, failureReason, contextHash)
+    try {
+      await this.productRepository.saveAIProductReasoning(reasoning)
+    } catch (err) {
+      log.warn('Failed to persist unavailable reasoning', {
+        err: err instanceof Error ? err.message : String(err),
+      })
+    }
+    return reasoning
   }
 
   /**

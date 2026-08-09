@@ -1,11 +1,11 @@
-/* eslint-disable react-hooks/set-state-in-effect */
-/* eslint-disable react-hooks/exhaustive-deps */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Recommendation, Workspace, AIProductReasoning } from '../types'
 import { ReasoningPanel } from './ReasoningPanel'
+import { apiClient, ApiError } from '../api/client'
 
 interface Props {
   workspace: Workspace | null
+  projectId: string | null
   recommendations: Recommendation[]
   selected: Recommendation | null
   onSelect: (r: Recommendation) => void
@@ -14,6 +14,7 @@ interface Props {
 
 export function RecommendationsPanel({
   workspace,
+  projectId,
   recommendations,
   selected,
   onSelect,
@@ -25,25 +26,33 @@ export function RecommendationsPanel({
         <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">
           Select Recommendation
         </span>
+        {recommendations.length === 0 && (
+          <div className="rounded-xl border border-dashed border-slate-800 p-8 text-center text-slate-500 text-sm">
+            No recommendations yet. Run a repository analysis to generate them.
+          </div>
+        )}
         <div className="flex flex-col gap-3 max-h-[580px] overflow-y-auto pr-2">
           {recommendations.map((rec) => {
             const isActive = selected?.id === rec.id
             return (
-              <div
+              // Real <button>: keyboard-focusable, Enter/Space activates,
+              // and screen readers announce it as an action.
+              <button
                 key={rec.id}
+                type="button"
                 onClick={() => onSelect(rec)}
                 className={`p-4 rounded-xl border transition-all text-left cursor-pointer flex flex-col gap-1.5 ${
                   isActive
                     ? 'bg-indigo-600/10 border-indigo-500 text-indigo-300 ring-1 ring-indigo-500/20'
                     : 'bg-slate-900/10 border-slate-800 text-slate-300 hover:bg-slate-900/30'
-                }`}
+                } focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
               >
                 <div className="flex justify-between items-center text-[10px]">
                   <span className="uppercase font-extrabold tracking-wider">{rec.priority}</span>
                   <span>{Math.round(rec.confidence * 100)}% match</span>
                 </div>
                 <h4 className="font-bold text-sm truncate text-white">{rec.title}</h4>
-              </div>
+              </button>
             )
           })}
         </div>
@@ -51,8 +60,13 @@ export function RecommendationsPanel({
 
       <div className="lg:col-span-3">
         {selected ? (
+          // key={id} remounts the detail view on selection change so all
+          // per-recommendation state (reasoning, loading) resets naturally
+          // instead of being reset via setState inside an effect.
           <RecommendationDetail
+            key={selected.id}
             workspace={workspace}
+            projectId={projectId}
             recommendation={selected}
             onAction={onAction}
           />
@@ -68,61 +82,99 @@ export function RecommendationsPanel({
 
 function RecommendationDetail({
   workspace,
+  projectId,
   recommendation,
   onAction,
 }: {
   workspace: Workspace | null
+  projectId: string | null
   recommendation: Recommendation
   onAction: (recId: string, paId: string) => Promise<void>
 }) {
+  // All per-recommendation state starts fresh on every selection because the
+  // parent remounts this component with key={recommendation.id}. No state is
+  // reset synchronously inside effects.
   const [reasoning, setReasoning] = useState<AIProductReasoning | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [approving, setApproving] = useState(false)
+  const [reasoningError, setReasoningError] = useState<string | null>(null)
   const [answer, setAnswer] = useState('')
-  const [activeRecId, setActiveRecId] = useState(recommendation.id)
+  // The REAL decision window: recorded when the detail view opens (the PM
+  // cannot decide before the recommendation is presented), sent to the H7
+  // telemetry stream on approval. Both timestamps share the client clock,
+  // so the measured latency is skew-free. Captured in the mount effect
+  // (NOT during render — Date.now() is impure and would violate the
+  // render-purity rule).
+  const decisionWindowRef = useRef<{ presentedAt: number; startedAt: number } | null>(null)
 
   useEffect(() => {
-    if (!workspace) {
-      setReasoning(null)
-      return
+    if (decisionWindowRef.current === null) {
+      decisionWindowRef.current = { presentedAt: Date.now(), startedAt: Date.now() }
     }
+    if (!workspace) return
     let active = true
-    setLoading(true)
-    setActiveRecId(recommendation.id)
-    fetch(`/api/recommendations/${recommendation.id}/reasoning?workspaceId=${workspace.id}`)
-      .then(async (r) => {
-        if (!r.ok) return null
-        return (await r.json()) as AIProductReasoning
-      })
+    apiClient
+      .getReasoning(workspace.id, recommendation.id)
       .then((data) => {
         if (!active) return
         setReasoning(data)
       })
-      .catch(() => undefined)
+      .catch((err: unknown) => {
+        if (!active) return
+        setReasoningError(err instanceof ApiError ? err.message : 'Reasoning unavailable')
+      })
       .finally(() => {
         if (active) setLoading(false)
       })
     return () => {
       active = false
     }
-  }, [workspace?.id, recommendation.id])
+  }, [workspace, recommendation.id])
 
   async function submitContext(e: React.FormEvent) {
     e.preventDefault()
     if (!workspace || !answer.trim()) return
     setLoading(true)
+    setReasoningError(null)
     try {
-      const r = await fetch(`/api/recommendations/${activeRecId}/reasoning`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId: workspace.id, projectContext: answer }),
-      })
-      if (r.ok) {
-        const data = (await r.json()) as AIProductReasoning
-        setReasoning(data)
-        setAnswer('')
-      }
+      const data = await apiClient.submitContext(workspace.id, recommendation.id, answer)
+      setReasoning(data)
+      setAnswer('')
+    } catch (err) {
+      setReasoningError(err instanceof ApiError ? err.message : 'Reasoning unavailable')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleApprove(paId: string) {
+    if (approving) return
+    setApproving(true)
+    try {
+      await onAction(recommendation.id, paId)
+      // Record the real PM decision into the H7 telemetry stream. The
+      // server computes the H3/H6 scores; the client only supplies the
+      // decision kind and the real decision-window timestamps. Telemetry
+      // failure must never block the approval flow.
+      if (workspace && projectId) {
+        const window = decisionWindowRef.current ?? {
+          presentedAt: Date.now(),
+          startedAt: Date.now(),
+        }
+        try {
+          await apiClient.recordDecision(workspace.id, projectId, {
+            recommendationId: recommendation.id,
+            decision: 'ACCEPT',
+            recommendationPresentedAt: new Date(window.presentedAt).toISOString(),
+            decisionStartedAt: new Date(window.startedAt).toISOString(),
+            decisionCompletedAt: new Date().toISOString(),
+          })
+        } catch (err) {
+          console.warn('Failed to record decision telemetry', err)
+        }
+      }
+    } finally {
+      setApproving(false)
     }
   }
 
@@ -130,18 +182,36 @@ function RecommendationDetail({
     <div className="rounded-2xl border border-slate-800 bg-slate-900/20 flex flex-col overflow-hidden">
       <div className="p-6 bg-slate-900/50 border-b border-slate-800 flex flex-col gap-3">
         <div className="flex items-center gap-2">
-          <span className="px-2.5 py-1 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 uppercase tracking-widest">
-            {recommendation.pmCategory || 'TECHNICAL_DEBT'}
-          </span>
-          <span className="text-xs font-bold text-white">
-            Priority Score: {(recommendation.priorityScore ?? 5.0).toFixed(1)}
-          </span>
+          {/* Render ONLY backend-provided values. The legacy fallbacks
+              (`|| 'TECHNICAL_DEBT'` and `?? 5.0`) fabricated a category and
+              a priority score when the row lacked them. */}
+          {recommendation.pmCategory ? (
+            <span className="px-2.5 py-1 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 uppercase tracking-widest">
+              {recommendation.pmCategory}
+            </span>
+          ) : (
+            <span className="px-2.5 py-1 rounded text-[10px] font-bold bg-slate-800 text-slate-500 uppercase tracking-widest">
+              No category
+            </span>
+          )}
+          {recommendation.priorityScore !== undefined ? (
+            <span className="text-xs font-bold text-white">
+              Priority Score: {recommendation.priorityScore.toFixed(1)}
+            </span>
+          ) : (
+            <span className="text-xs text-slate-500">Priority Score: —</span>
+          )}
           <span className="text-[10px] text-slate-400">empirical (H3)</span>
         </div>
         <h3 className="text-xl font-black text-white">{recommendation.title}</h3>
         <p className="text-xs text-slate-400 leading-relaxed">{recommendation.rationale}</p>
       </div>
 
+      {reasoningError && (
+        <div className="p-4 border-b border-slate-800 bg-rose-500/5 text-xs text-rose-300">
+          {reasoningError}
+        </div>
+      )}
       <ReasoningPanel
         reasoning={reasoning}
         loading={loading}
@@ -192,10 +262,11 @@ function RecommendationDetail({
                 <p className="text-xs text-slate-400">{pa.description}</p>
               </div>
               <button
-                onClick={() => onAction(recommendation.id, pa.id)}
-                className="w-full rounded-lg py-3 text-xs font-bold text-white transition-colors flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/10"
+                onClick={() => handleApprove(pa.id)}
+                disabled={approving}
+                className="w-full rounded-lg py-3 text-xs font-bold text-white transition-colors flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/10 disabled:opacity-50"
               >
-                Approve &amp; Execute
+                {approving ? 'Approving...' : 'Approve & Execute'}
               </button>
             </div>
           ))}

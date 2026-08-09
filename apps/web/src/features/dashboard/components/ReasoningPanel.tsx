@@ -1,5 +1,4 @@
 import type { AIProductReasoning } from '../types'
-import { EpistemicBadge } from './MetricCard'
 
 export function ReasoningPanel({
   reasoning,
@@ -57,7 +56,11 @@ export function ReasoningPanel({
           <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest block">
             AI PM Strategic Rationale
           </span>
-          <EpistemicBadge state="observed" />
+          {/* AI reasoning is an LLM inference, not an H7-observed metric —
+              it must not carry the OBSERVED epistemic badge. */}
+          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded border uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
+            AI REASONING
+          </span>
         </div>
         <p className="text-sm text-slate-300 leading-relaxed italic">
           &ldquo;{reasoning.rationale}&rdquo;

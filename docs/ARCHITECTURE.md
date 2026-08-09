@@ -55,6 +55,7 @@ All domain entities live in `@apex/ai-core/src/domain/entities/`:
 ### Priority vs. Severity Semantics
 
 To prevent interchangeably using Priority and Severity during domain translation:
+
 - **Severity**: Measures **how serious the underlying problem is** (critical, high, medium, low, info) from a technical adoption, vulnerability, or performance perspective.
 - **Priority**: Measures **how urgently the organization should act** (critical, high, medium, low) taking into account business risk, engineering capacity, and dependencies.
 
@@ -108,6 +109,7 @@ Abstract base providing timing, error handling, and telemetry hooks. Subclasses 
 ### LLM Validation and Retry Terminal Failure Contract
 
 To prevent corrupted downstream data and partial generation states:
+
 - **No Partial Downstream States:** If the LLM response fails validation (malformed JSON or violated schema constraints) and exceeds the maximum retry budget (default: 3 attempts), the agent **always throws a hard ValidationError** and terminates pipeline execution immediately.
 - **Fail Fast:** No partial or corrupt Recommendations or Actions are ever persisted or created on terminal LLM failure.
 
@@ -171,6 +173,7 @@ type SourceType =
 ### ProposedAction vs Action Semantics
 
 To establish a clear boundary before Step 2C, we define:
+
 1. **ProposedAction**: An AI-generated recommended task, packaged as a readonly metadata record attached to a `Recommendation` (e.g. "Add Vitest configuration"). It has no state machine or connection target of its own.
 2. **Action**: An accepted, tracked unit of executable work inside a Workspace. It has a state machine, a connection target (e.g. GitHub or Jira), and tracks external identifiers.
 
@@ -180,6 +183,7 @@ To establish a clear boundary before Step 2C, we define:
 ### ProposedAction → Action Mapping Contract
 
 When converting a `ProposedAction` into an `Action`, the following mapping rules apply:
+
 - **Default Target:** Actions are initialized with target `internal` by default.
 - **Export Targets:** Supported targets include `github`, `jira`, `linear`, `slack`. When an export is triggered, the Action's `externalId` is populated with the ID returned by the external system.
 - **Unsupported/Mismatched Targets:** If a specific execution target is requested but the respective Integration/Source is not connected or fails, the Action falls back to `internal` as a tracked, workspace-local item.
@@ -187,6 +191,7 @@ When converting a `ProposedAction` into an `Action`, the following mapping rules
 ### Action Lifecycle and Status Semantics
 
 Actions function as both PM tasks and execution jobs. The Action lifecycle transitions through the following statuses:
+
 - `proposed` (default state upon Recommendation generation, before user approval)
 - `approved` (user has approved the action, queued for export/execution)
 - `queued` (export request is being pushed to Jira/GitHub or execution job is scheduled)
@@ -268,6 +273,3 @@ Every prioritization calibration computed by H6 is fully inspectable, auditable,
             ↓
   Final Calibrated Priority Score
 ```
-
-
-

@@ -86,10 +86,13 @@ export function OverviewPanel({ data, onSelectRecommendation }: Props) {
           ) : (
             <div className="flex flex-col gap-4">
               {data.recommendations.slice(0, 3).map((rec) => (
-                <div
+                // Real <button>: keyboard-focusable and screen-reader
+                // accessible (the legacy <div onClick> was not).
+                <button
                   key={rec.id}
+                  type="button"
                   onClick={() => onSelectRecommendation(rec)}
-                  className="rounded-xl border border-slate-800 bg-slate-900/10 p-5 hover:bg-slate-900/30 transition-all cursor-pointer flex justify-between items-start"
+                  className="rounded-xl border border-slate-800 bg-slate-900/10 p-5 hover:bg-slate-900/30 transition-all cursor-pointer flex justify-between items-start text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                 >
                   <div className="flex flex-col gap-1.5 min-w-0 pr-4">
                     <span className="text-[10px] uppercase tracking-wider font-bold text-indigo-400">
@@ -101,7 +104,7 @@ export function OverviewPanel({ data, onSelectRecommendation }: Props) {
                   <span className="text-xs font-bold text-indigo-400 flex items-center gap-1 shrink-0">
                     Review Center ➔
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -114,20 +117,20 @@ export function OverviewPanel({ data, onSelectRecommendation }: Props) {
           <div className="rounded-2xl border border-slate-800 bg-slate-900/10 p-5 flex flex-col gap-3 text-xs">
             <Row
               label="Acceptance Rate"
-              value={data.decisionMetrics?.acceptanceRate ?? 0}
+              value={data.decisionMetrics?.acceptanceRate ?? null}
               unit="%"
             />
             <Row
               label="Outcome Success Rate"
-              value={data.decisionMetrics?.successRate ?? 0}
+              value={data.decisionMetrics?.successRate ?? null}
               unit="%"
             />
             <Row
-              label="False Positive Rate"
-              value={data.decisionMetrics?.falsePositiveRate ?? 0}
+              label="Unverifiable Rate"
+              value={data.decisionMetrics?.unverifiableRate ?? null}
               unit="%"
             />
-            <Row label="Tracked Decisions" value={data.decisionMetrics?.totalOutcomes ?? 0} />
+            <Row label="Tracked Decisions" value={data.decisionMetrics?.totalOutcomes ?? null} />
             <div className="flex items-center justify-between text-slate-500 font-mono text-[10px] pt-1 border-t border-slate-800/40">
               <span>active executions: {inProgressExecs}</span>
             </div>
@@ -181,13 +184,14 @@ export function OverviewPanel({ data, onSelectRecommendation }: Props) {
   )
 }
 
-function Row({ label, value, unit }: { label: string; value: number; unit?: string }) {
+function Row({ label, value, unit }: { label: string; value: number | null; unit?: string }) {
   return (
     <div className="flex justify-between items-center text-xs">
       <span className="text-slate-400 font-medium">{label}:</span>
+      {/* null (metrics not tracked yet) renders as an em dash — never a
+          fabricated 0% that could be read as a measured value. */}
       <span className="font-extrabold text-indigo-400 text-sm">
-        {value}
-        {unit ?? ''}
+        {value === null || value === undefined ? '—' : `${value}${unit ?? ''}`}
       </span>
     </div>
   )

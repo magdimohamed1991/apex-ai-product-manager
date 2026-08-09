@@ -16,6 +16,7 @@ import { RecommendationOutcomeService } from '../RecommendationOutcomeService'
 import { AdaptiveProfileCompiler } from '../AdaptiveProfileCompiler'
 import { H6PrioritizationCalibrator } from '../H6PrioritizationCalibrator'
 import { ProductValidationService } from '../ProductValidationService'
+import { PMDecisionTelemetryService } from '../PMDecisionTelemetryService'
 
 const TEST_DB_DIR = path.join(process.cwd(), 'database-production-test')
 
@@ -34,6 +35,7 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
   let profileCompiler: AdaptiveProfileCompiler
   let calibrator: H6PrioritizationCalibrator
   let validationService: ProductValidationService
+  let telemetryService: PMDecisionTelemetryService
   let productService: APEXProductService
 
   beforeEach(async () => {
@@ -73,6 +75,7 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
       actionRepository,
       outcomeRepository
     )
+    telemetryService = new PMDecisionTelemetryService(productRepository)
 
     productService = new APEXProductService(
       productRepository,
@@ -85,7 +88,8 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
       profileCompiler,
       profileRepository,
       calibrator,
-      validationService
+      validationService,
+      telemetryService
     )
   })
 
@@ -220,11 +224,90 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
       expect(metrics.decisionAcceptanceRate.value!).toBeGreaterThan(0)
       expect(metrics.decisionAcceptanceRate.epistemicState).toBe('observed')
       // The legacy `efficiency` field is REMOVED — PM decision latency is
-      // not measurable from rec.createdAt -> action.updatedAt and the new
-      // PMDecisionTelemetry stream is not yet in use. The metric MUST be
-      // marked unavailable so the UI doesn't display a fake number.
+      // never measured from rec.createdAt -> action.updatedAt. With no
+      // decision recorded in this flow, the metric MUST remain unavailable
+      // (no fake numbers), and the telemetry-wiring test below records a
+      // real decision to elevate it to observed.
       expect(metrics.measuredDecisionLatencySeconds.epistemicState).toBe('unavailable')
       expect(metrics.measuredDecisionLatencySeconds.value).toBeNull()
+    })
+
+    it('records a real PM decision and elevates decision latency to observed with the measured value', async () => {
+      const workspaceId = 'ws-acme'
+      const projectId = 'proj-core'
+      await productService.createWorkspace(workspaceId, 'Acme Corp', 'acme')
+      await productService.createProject(workspaceId, projectId, 'Default Project')
+      await productService.connectRepository(workspaceId, projectId, {
+        provider: 'github',
+        owner: 'acme',
+        repository: 'apex-ai-product-manager',
+        defaultBranch: 'main',
+      })
+
+      await productService.runAnalysis(workspaceId, projectId)
+      const recs = await productService.getRecommendations(workspaceId, projectId)
+      const rec = recs[0]
+
+      const startedAt = new Date('2026-08-09T10:00:00Z')
+      const recorded = await productService.recordPMDecision({
+        workspaceId,
+        projectId,
+        recommendationId: rec.id,
+        decision: 'ACCEPT',
+        decisionStartedAt: startedAt,
+        decisionCompletedAt: new Date('2026-08-09T10:02:00Z'), // 120s
+        recommendationPresentedAt: new Date('2026-08-09T09:58:00Z'),
+      })
+      expect(recorded.originalH3Score).toBeGreaterThan(0)
+      expect(recorded.overrideOccurred).toBe(false)
+
+      // The metric must now be OBSERVED with the real measured value.
+      const metrics = await productService.getProductValidationMetrics(workspaceId, projectId)
+      expect(metrics.measuredDecisionLatencySeconds.epistemicState).toBe('observed')
+      expect(metrics.measuredDecisionLatencySeconds.value).toBeCloseTo(120, 5)
+      expect(metrics.measuredDecisionLatencySeconds.observationCount).toBe(1)
+
+      // Re-recording the same decision window must not double-count.
+      await productService.recordPMDecision({
+        workspaceId,
+        projectId,
+        recommendationId: rec.id,
+        decision: 'ACCEPT',
+        decisionStartedAt: startedAt,
+        decisionCompletedAt: new Date('2026-08-09T10:02:00Z'),
+        recommendationPresentedAt: new Date('2026-08-09T09:58:00Z'),
+      })
+      const metrics2 = await productService.getProductValidationMetrics(workspaceId, projectId)
+      expect(metrics2.measuredDecisionLatencySeconds.observationCount).toBe(1)
+      expect(metrics2.measuredDecisionLatencySeconds.value).toBeCloseTo(120, 5)
+    })
+
+    it('rejects telemetry for a recommendation outside the claimed project (ID substitution)', async () => {
+      const workspaceId = 'ws-acme'
+      await productService.createWorkspace(workspaceId, 'Acme Corp', 'acme')
+      await productService.createProject(workspaceId, 'proj-a', 'Project A')
+      await productService.createProject(workspaceId, 'proj-b', 'Project B')
+      await productService.connectRepository(workspaceId, 'proj-a', {
+        provider: 'github',
+        owner: 'acme',
+        repository: 'apex-ai-product-manager',
+        defaultBranch: 'main',
+      })
+      await productService.runAnalysis(workspaceId, 'proj-a')
+      const recsA = await productService.getRecommendations(workspaceId, 'proj-a')
+      const rec = recsA[0]
+
+      await expect(
+        productService.recordPMDecision({
+          workspaceId,
+          projectId: 'proj-b', // rec belongs to proj-a
+          recommendationId: rec.id,
+          decision: 'ACCEPT',
+          decisionStartedAt: new Date('2026-08-09T10:00:00Z'),
+          decisionCompletedAt: new Date('2026-08-09T10:01:00Z'),
+          recommendationPresentedAt: new Date('2026-08-09T09:59:00Z'),
+        })
+      ).rejects.toThrow(/not found in project/)
     })
   })
 })

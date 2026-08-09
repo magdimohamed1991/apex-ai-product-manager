@@ -21,8 +21,19 @@ export {
 export type { Explanation } from './Explanation'
 
 // Milestone B & C: Execution & Action Transition Audit entities
-export type { Execution, ExecutionStatus, ExecutionFailureClass, ExecutionError, RetryPolicy } from './Execution'
-export { createExecution, validateExecution, DEFAULT_RETRY_POLICY, calculateBackoffDelay } from './Execution'
+export type {
+  Execution,
+  ExecutionStatus,
+  ExecutionFailureClass,
+  ExecutionError,
+  RetryPolicy,
+} from './Execution'
+export {
+  createExecution,
+  validateExecution,
+  DEFAULT_RETRY_POLICY,
+  calculateBackoffDelay,
+} from './Execution'
 
 export type { ActionTransition } from './ActionTransition'
 export { createActionTransitionRecord, validateActionTransitionRecord } from './ActionTransition'
@@ -32,7 +43,4 @@ export * from './ProductIntelligence'
 export * from './ProductReasoning'
 export * from './RecommendationOutcome'
 export * from './ProductAdaptive'
-
-
-
-
+export * from './PMDecisionTelemetry'

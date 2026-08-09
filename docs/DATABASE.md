@@ -20,6 +20,7 @@ The `DurableFileDatabase` provides the following properties:
   - `(action_id, sequence)` on ActionTransitions
   - `email` on Users (case-insensitive)
   - `(user_id, workspace_id)` on Memberships
+  - `id` on Sessions (duplicate session tokens are rejected)
 - **Foreign-key constraints**:
   - `executions.action_id -> actions.id`
   - `transitions.action_id -> actions.id`
@@ -31,6 +32,10 @@ The `DurableFileDatabase` provides the following properties:
   `migrations/<NNN>_migration.json`.
 - **Cooperative write mutex** — concurrent commits are serialized
   in-process.
+- **Synchronous fast-path commits** — when no other commit is in flight,
+  `commit()` completes entirely before returning, so callers can fire
+  multiple unawaited commits (e.g. `Promise.all` of repository saves)
+  without tripping over a still-open transaction.
 
 ## What is NOT guaranteed (must not be claimed by callers)
 

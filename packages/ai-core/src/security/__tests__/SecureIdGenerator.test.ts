@@ -28,11 +28,7 @@ describe('SecureIdGenerator (Milestone I - Production Hardening)', () => {
     expect(m1.startsWith('apex-marker:ws-1:rec-1:pa-1:')).toBe(true)
   })
 
-  it('signalIdentity is stable per (workspaceId, projectId, category, type, source) tuple', () => {
-    // Note: signalIdentity uses randomBytes for stableMix so it is NOT
-    // strictly deterministic across processes. But within a process the
-    // same input tuple must produce a different ID than a different
-    // tuple, and the format must be canonical.
+  it('signalIdentity is deterministic: same tuple → same ID, different tuple → different ID', () => {
     const a = SecureIdGenerator.signalIdentity(
       'ws-1',
       'proj-1',
@@ -40,8 +36,22 @@ describe('SecureIdGenerator (Milestone I - Production Hardening)', () => {
       'ADOPTION',
       'src-hash-1'
     )
+    const a2 = SecureIdGenerator.signalIdentity(
+      'ws-1',
+      'proj-1',
+      'TESTING',
+      'ADOPTION',
+      'src-hash-1'
+    )
     const b = SecureIdGenerator.signalIdentity('ws-1', 'proj-1', 'CI_CD', 'ADOPTION', 'src-hash-1')
+    // Deterministic: repeated compilation over the same observation set
+    // must produce the same signal ID (across calls and process restarts).
+    expect(a).toBe(a2)
     expect(a).not.toBe(b)
     expect(a).toMatch(/^sig-[0-9a-f]{16}-[0-9a-f]{8}$/)
+    // Order must not matter for canonical stability.
+    expect(SecureIdGenerator.signalIdentity('x', 'y')).toBe(
+      SecureIdGenerator.signalIdentity('x', 'y')
+    )
   })
 })

@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from 'react'
 import { DashboardPage } from './features/dashboard/page'
 import type { Workspace } from './features/dashboard/types'
@@ -42,13 +41,19 @@ export default function App() {
   const [projectName, setProjectName] = useState('My Core Project')
   const [repoOwner, setRepoOwner] = useState('magdimohamed1991')
   const [repoName, setRepoName] = useState('apex-ai-product-manager')
-  const [repoBranch, setRepoBranch] = useState('arena/019fe224-apex-ai-product-manager')
+  const [repoBranch, setRepoBranch] = useState('main')
 
-  // Analysis live progression (Item I.5)
-  const [analysisStatus, setAnalysisStatus] = useState<
-    'idle' | 'queued' | 'scanning' | 'analyzing' | 'reasoning' | 'ready' | 'failed'
-  >('idle')
+  // Analysis progression — states mirror REAL server state only:
+  // 'idle' → 'running' (request in flight) → 'ready' | 'failed'.
+  // The legacy flow fabricated intermediate stages ('scanning',
+  // 'analyzing', 'reasoning') on timers and force-advanced to 'ready'
+  // with a fixed 6s delay, even before the server answered. That was
+  // fake progress; it has been removed.
+  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'running' | 'ready' | 'failed'>(
+    'idle'
+  )
   const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [isAnalysisRunning, setIsAnalysisRunning] = useState(false)
 
   // Listen to session expiry events
   useEffect(() => {
@@ -82,6 +87,10 @@ export default function App() {
 
   useEffect(() => {
     if (token) {
+      // Session rehydration: the async checkSession call resolves the
+      // session token against the server and restores user state. The
+      // suppression is scoped to this single effect (external-system sync).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       checkSession(token)
     }
   }, [token])
@@ -122,59 +131,77 @@ export default function App() {
     }
   }
 
-  // Onboarding Progression handlers
+  // Onboarding Progression handler — drives REAL server state only.
+  // Every intermediate stage ('scanning'/'analyzing'/'reasoning') and the
+  // fixed 6-second completion delay were timer-fabricated; the API call is
+  // synchronous and returns 'completed' or 'failed', so the UI now reflects
+  // exactly that.
   const startAnalysisProgress = async () => {
-    setAnalysisStatus('queued')
+    if (isAnalysisRunning) return // prevent duplicate concurrent runs
+    setIsAnalysisRunning(true)
+    setAnalysisStatus('running')
     setAnalysisError(null)
 
-    // Simulate progression timings exactly matching server confirms completion
-    setTimeout(() => setAnalysisStatus('scanning'), 1000)
-    setTimeout(() => setAnalysisStatus('analyzing'), 2500)
-    setTimeout(() => setAnalysisStatus('reasoning'), 4500)
-
     try {
-      // Create project first
+      const workspaceId = workspaces[0]?.id || `ws-${email.split('@')[0].toLowerCase()}`
+
+      // Create project first. The project id is generated SERVER-SIDE and
+      // returned — the client must use the returned id for all subsequent
+      // calls (client-supplied ids are ignored by the API).
       const pRes = await fetch('/api/projects', {
         method: 'POST',
         body: JSON.stringify({
-          workspaceId: workspaces[0]?.id || `ws-${email.split('@')[0].toLowerCase()}`,
-          id: 'proj-core',
+          workspaceId,
           name: projectName,
         }),
       })
-      await pRes.json()
+      const pData = await pRes.json().catch(() => ({}))
+      if (!pRes.ok) {
+        throw new Error(pData?.error?.message || 'Failed to create project')
+      }
+      const projectId = (pData as { id?: string }).id
+      if (!projectId) {
+        throw new Error('Server did not return a project id')
+      }
 
       // Connect repository connections securely (Item I.3)
-      const rRes = await fetch(`/api/projects/proj-core/repository`, {
+      const rRes = await fetch(`/api/projects/${projectId}/repository`, {
         method: 'POST',
         body: JSON.stringify({
-          workspaceId: workspaces[0]?.id || `ws-${email.split('@')[0].toLowerCase()}`,
+          workspaceId,
           provider: 'github',
           owner: repoOwner,
           repository: repoName,
           defaultBranch: repoBranch,
         }),
       })
-      await rRes.json()
+      if (!rRes.ok) {
+        const errData = await rRes.json().catch(() => ({}))
+        throw new Error(errData?.error?.message || 'Failed to connect repository')
+      }
 
-      // Run analysis
-      const runRes = await fetch(`/api/projects/proj-core/analysis`, {
+      // Run analysis (synchronous server call)
+      const runRes = await fetch(`/api/projects/${projectId}/analysis`, {
         method: 'POST',
-        body: JSON.stringify({ workspaceId: workspaces[0]?.id }),
+        body: JSON.stringify({ workspaceId }),
       })
       const runData = await runRes.json()
 
-      if (runRes.ok && runData.status !== 'failed') {
-        setTimeout(() => {
-          setAnalysisStatus('ready')
-        }, 6000)
+      if (runRes.ok && runData.status === 'completed') {
+        setAnalysisStatus('ready')
       } else {
         setAnalysisStatus('failed')
-        setAnalysisError(runData.error || 'Repository analysis pipeline aborted.')
+        setAnalysisError(
+          runData?.error?.message || runData?.error || 'Repository analysis pipeline aborted.'
+        )
       }
-    } catch {
+    } catch (err) {
       setAnalysisStatus('failed')
-      setAnalysisError('Network failure occurred during codebase cloner operations.')
+      setAnalysisError(
+        err instanceof Error ? err.message : 'Network failure occurred during analysis.'
+      )
+    } finally {
+      setIsAnalysisRunning(false)
     }
   }
 
@@ -335,11 +362,12 @@ export default function App() {
                   Back
                 </button>
                 <button
+                  disabled={isAnalysisRunning}
                   onClick={() => {
                     setOnboardingStep(4)
-                    startAnalysisProgress()
+                    void startAnalysisProgress()
                   }}
-                  className="flex-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 py-2.5 text-sm font-bold text-white transition-colors"
+                  className="flex-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 py-2.5 text-sm font-bold text-white transition-colors disabled:opacity-50"
                 >
                   Run First Discovery Scan 🚀
                 </button>
@@ -353,7 +381,7 @@ export default function App() {
               <h2 className="text-xl font-bold text-white">Discovery Scan Progress</h2>
 
               <div className="flex flex-col items-center gap-4 py-4">
-                {analysisStatus !== 'ready' && analysisStatus !== 'failed' ? (
+                {analysisStatus === 'running' ? (
                   <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-850 border-t-indigo-500" />
                 ) : analysisStatus === 'ready' ? (
                   <span className="text-5xl">✅</span>
@@ -366,16 +394,10 @@ export default function App() {
                     Pipeline: {analysisStatus}
                   </span>
                   <p className="text-xs text-slate-400 max-w-sm">
-                    {analysisStatus === 'queued' &&
-                      'Scheduling workspace analysis in the cloner queue...'}
-                    {analysisStatus === 'scanning' &&
-                      'Cloning target codebase using shallow depth-1 parameters...'}
-                    {analysisStatus === 'analyzing' &&
-                      'Inspecting configurations and comparing AST signatures...'}
-                    {analysisStatus === 'reasoning' &&
-                      'Triggering LLM Product Reasoner for risk alignments...'}
+                    {analysisStatus === 'running' &&
+                      'Repository analysis is running on the server...'}
                     {analysisStatus === 'ready' &&
-                      'Your Production Product Workspace is compiled and ready!'}
+                      'Analysis completed. Your Product Workspace is compiled and ready!'}
                     {analysisStatus === 'failed' && `Pipeline error: ${analysisError}`}
                   </p>
                 </div>

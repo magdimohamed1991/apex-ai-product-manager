@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 /**
  * Structured operational logger (Milestone I - Production Hardening)
@@ -6,7 +7,9 @@ import { randomUUID } from 'node:crypto'
  * Replaces the existing network of `console.log` / `console.error` calls with a
  * correlation-aware, secret-redacting structured logger.
  *
- *   - `requestId` / `correlationId` flow across boundaries
+ *   - `requestId` / `correlationId` flow across boundaries via
+ *     AsyncLocalStorage (correct under concurrent requests, unlike a
+ *     module-global context variable)
  *   - never logs passwords, access tokens, API keys, raw credentials
  *   - safe to call in the browser (falls back to console)
  *   - never throws — observability must never crash the host process
@@ -26,12 +29,18 @@ const SENSITIVE_KEYS = new Set([
   'secret',
   'authorization',
   'cookie',
-  'idempotencykey',
-  'externalid',
   'privatekey',
   'clientsecret',
   'bearer',
 ])
+
+/**
+ * Keys that CONTAIN sensitive substrings but are NOT credentials:
+ * - `idempotencyKey` is a deterministic business key (promo:<ws>:<rec>:<pa>)
+ * - `externalId` is a public GitHub/Jira issue URL or ID
+ * Redacting them previously destroyed the audit trail in execution logs.
+ */
+const NON_SENSITIVE_KEYS = new Set(['idempotencykey', 'externalid'])
 
 const REDACTED = '[REDACTED]'
 
@@ -53,6 +62,10 @@ function redact(value: unknown, depth = 0): unknown {
     const out: Record<string, unknown> = {}
     for (const k of Object.keys(obj)) {
       const lk = k.toLowerCase()
+      if (NON_SENSITIVE_KEYS.has(lk)) {
+        out[k] = redact(obj[k], depth + 1)
+        continue
+      }
       if (
         SENSITIVE_KEYS.has(lk) ||
         lk.includes('token') ||
@@ -83,19 +96,19 @@ export interface LogEntry {
 }
 
 export class Logger {
-  private static context: { requestId?: string } = {}
+  /**
+   * Async-local request context. AsyncLocalStorage keeps the correlation ID
+   * scoped to the current async chain, so interleaved requests never leak
+   * their request IDs into each other's log lines (the previous
+   * module-global `context` object was racy under concurrency).
+   */
+  private static readonly context = new AsyncLocalStorage<{ requestId?: string }>()
 
   constructor(private readonly scope: string) {}
 
   /** Bind a correlation/request ID to the current async context. */
   static withRequestId<T>(id: string, fn: () => T): T {
-    const prev = Logger.context.requestId
-    Logger.context.requestId = id
-    try {
-      return fn()
-    } finally {
-      Logger.context.requestId = prev
-    }
+    return Logger.context.run({ requestId: id }, fn)
   }
 
   static newRequestId(): string {
@@ -109,7 +122,7 @@ export class Logger {
         level,
         scope: this.scope,
         message,
-        requestId: Logger.context.requestId,
+        requestId: Logger.context.getStore()?.requestId,
         fields: redact(fields) as LogFields,
       }
       const line = JSON.stringify(entry)

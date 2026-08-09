@@ -1,14 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { WorkspaceId } from '../../domain/value-objects'
 import type { RecommendationOutcome } from '../../domain/entities/RecommendationOutcome'
 import type { RecommendationOutcomeRepository } from '../../domain/repositories/RecommendationOutcomeRepository'
 import { DurableFileDatabase } from '../database/DurableFileDatabase'
 
-function mapOutcomeFromDb(o: any): RecommendationOutcome {
+function mapOutcomeFromDb(o: RecommendationOutcome): RecommendationOutcome {
   return {
     ...o,
-    detectedAt: new Date(o.detectedAt as string),
-    resolvedAt: o.resolvedAt ? new Date(o.resolvedAt as string) : null,
+    detectedAt: new Date(String(o.detectedAt)),
+    resolvedAt: o.resolvedAt ? new Date(String(o.resolvedAt)) : null,
   } as RecommendationOutcome
 }
 
@@ -21,21 +20,32 @@ function mapOutcomeFromDb(o: any): RecommendationOutcome {
 export class SqlRecommendationOutcomeRepository implements RecommendationOutcomeRepository {
   constructor(private readonly db: DurableFileDatabase) {}
 
-  async getByIdAndWorkspace(id: string, workspaceId: WorkspaceId): Promise<RecommendationOutcome | null> {
+  async getByIdAndWorkspace(
+    id: string,
+    workspaceId: WorkspaceId
+  ): Promise<RecommendationOutcome | null> {
     const state = this.db.getActiveState()
     const found = state.outcomes?.find((o) => o.id === id && o.workspaceId === workspaceId)
     if (!found) return null
     return mapOutcomeFromDb(found)
   }
 
-  async getByRecommendation(recId: string, workspaceId: WorkspaceId): Promise<RecommendationOutcome | null> {
+  async getByRecommendation(
+    recId: string,
+    workspaceId: WorkspaceId
+  ): Promise<RecommendationOutcome | null> {
     const state = this.db.getActiveState()
-    const found = state.outcomes?.find((o) => o.recommendationId === recId && o.workspaceId === workspaceId)
+    const found = state.outcomes?.find(
+      (o) => o.recommendationId === recId && o.workspaceId === workspaceId
+    )
     if (!found) return null
     return mapOutcomeFromDb(found)
   }
 
-  async getByProject(projectId: string, workspaceId: WorkspaceId): Promise<RecommendationOutcome[]> {
+  async getByProject(
+    projectId: string,
+    workspaceId: WorkspaceId
+  ): Promise<RecommendationOutcome[]> {
     const state = this.db.getActiveState()
     const list = state.outcomes || []
     return list

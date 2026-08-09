@@ -1,6 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /// <reference types="node" />
 
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as path from 'node:path'
 import {
   DurableFileDatabase,
@@ -37,30 +37,126 @@ import type {
   LLMProvider,
   RichRecommendation,
   Recommendation as ApiRecommendation,
+  Recommendation,
+  AIProductReasoning,
+  UserRecord,
+  VerificationEvidence,
+  PMDecisionKind,
+} from '@apex/ai-core'
+import {
+  OpenAIResponsesProvider,
+  RepositorySummaryProfile,
+  SecurityError,
+  MockLLMProvider,
+  PMDecisionTelemetryService,
 } from '@apex/ai-core'
 
 /**
- * The persisted Recommendation shape does not carry the RichRecommendation
- * decoration (pmCategory, assessment, etc.). For reasoning we build a
- * minimal RichRecommendation so the LLM contract is honored without
- * depending on the assessment pipeline having run.
+ * The persisted Recommendation rows ARE RichRecommendations: runAnalysis
+ * persists the assessAndRank output (pmCategory, assessment, priorityScore,
+ * expectedOutcome, rankingReason) for every recommendation.
+ *
+ * The legacy helper here FABRICATED a rich decoration (`CRITICAL_PRODUCT_RISK`,
+ * `priorityScore: 5.0`, all-medium assessment) whenever the fields were
+ * missing, and then fed that fabricated input to the LLM. That violated the
+ * epistemic contract: the LLM would reason over invented facts.
+ *
+ * Now: if the persisted row is genuinely missing the decoration, we return
+ * null and the API answers with a typed "reasoning unavailable" record
+ * instead of inventing input for the model.
  */
-function buildRichRecommendationFromPersisted(rec: ApiRecommendation): RichRecommendation {
+function buildRichRecommendationFromPersisted(rec: ApiRecommendation): RichRecommendation | null {
+  const r = rec as Partial<RichRecommendation>
+  if (
+    r.pmCategory &&
+    r.assessment &&
+    typeof r.priorityScore === 'number' &&
+    r.expectedOutcome &&
+    typeof r.rankingReason === 'string'
+  ) {
+    return rec as RichRecommendation
+  }
+  return null
+}
+
+function unavailableReasoning(rec: ApiRecommendation, model: string): AIProductReasoning {
   return {
-    ...rec,
-    pmCategory: 'CRITICAL_PRODUCT_RISK',
-    assessment: {
-      severity: 'medium',
-      businessImpact: 'medium',
-      userImpact: 'medium',
-      deliveryRisk: 'medium',
-      operationalRisk: 'medium',
-      effort: 'medium',
-      confidence: rec.confidence,
-    },
-    priorityScore: 5.0,
-    expectedOutcome: '',
-    rankingReason: '',
+    recommendationId: rec.id,
+    workspaceId: rec.workspaceId,
+    model,
+    version: 'h4-v2',
+    contextHash: '',
+    rationale: 'AI reasoning is currently unavailable for this recommendation.',
+    impactExplanation:
+      'The persisted recommendation is missing its deterministic H3 decoration (category, assessment, priority score). Re-run the analysis pipeline to restore reasoning input, or rely on the deterministic evidence already shown.',
+    tradeoffs: ['Reasoning unavailable — proceed with deterministic H3 evidence only'],
+    alternatives: [
+      {
+        label: 'Re-run the repository analysis to regenerate decorated recommendations',
+        effort: 'low',
+        impact: 'medium',
+        description: 'Restores the H3 decoration required as reasoning input.',
+      },
+    ],
+    knowns: [],
+    inferences: [],
+    unknowns: ['Why is the H3 decoration missing from this recommendation?'],
+    clarifyingQuestions: [],
+    confidence: 0,
+    recommendedDecision: 'Reasoning unavailable — defer to H3 evidence and PM judgment.',
+    timestamp: new Date(),
+    unavailable: true,
+    failureReason: 'schema_violation',
+  }
+}
+
+/**
+ * Development-only mock LLM provider whose canned reasoning is grounded in
+ * the actual recommendation id present in the prompt (the id is a grounding
+ * keyword per the H4 contract), so the dev flow exercises the full
+ * validation/grounding pipeline without an API key. NEVER used in
+ * production — the composition root fails hard instead.
+ */
+class DevReasoningMockProvider extends MockLLMProvider {
+  async complete(
+    prompt: string,
+    options?: Parameters<LLMProvider['complete']>[1]
+  ): Promise<Awaited<ReturnType<LLMProvider['complete']>>> {
+    void options // LLMOptions are intentionally ignored by the deterministic mock
+    const idMatch = prompt.match(/Recommendation ID:\s*(\S+)/)
+    const recId = idMatch?.[1] ?? 'unknown-recommendation'
+    const response = JSON.stringify({
+      rationale: 'This recommendation addresses an observed configuration gap in the repository.',
+      impactExplanation:
+        'Closing this gap reduces regression risk and stabilizes release velocity.',
+      tradeoffs: ['Improves reliability gates', 'Slight setup time'],
+      alternatives: [
+        {
+          label: 'Option A — Standard configuration',
+          effort: 'low',
+          impact: 'high',
+          description: 'Apply the recommended configuration incrementally across the codebase.',
+        },
+      ],
+      knowns: [
+        `Recommendation ${recId} was produced by the deterministic analysis pipeline from observed repository evidence.`,
+      ],
+      inferences: ['Without this change, future regressions are likely to reach production'],
+      unknowns: ['Telemetry on production incidents is currently not captured by the system'],
+      clarifyingQuestions: ['How frequently does the team deploy to production?'],
+      confidence: 0.75,
+      recommendedDecision: 'Adopt incrementally with the standard configuration approach.',
+    })
+    return {
+      content: response,
+      model: this.model,
+      usage: {
+        promptTokens: Math.ceil(prompt.length / 4),
+        completionTokens: Math.ceil(response.length / 4),
+        totalTokens: Math.ceil((prompt.length + response.length) / 4),
+      },
+      durationMs: 1,
+    }
   }
 }
 
@@ -81,7 +177,7 @@ const authRateLimiter = new AuthRateLimiter(5, 15 * 60 * 1000)
 
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024 // 1MB
 
-function sendJson(res: any, data: any, status = 200) {
+function sendJson(res: ServerResponse, data: unknown, status = 200) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'X-Content-Type-Options': 'nosniff',
@@ -92,12 +188,12 @@ function sendJson(res: any, data: any, status = 200) {
   res.end(JSON.stringify(data))
 }
 
-function sendError(res: any, err: unknown) {
+function sendError(res: ServerResponse, err: unknown) {
   const { envelope, status } = toSafeEnvelope(err)
   sendJson(res, envelope, status)
 }
 
-function getBody(req: any): Promise<any> {
+function getBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let total = 0
     const chunks: Buffer[] = []
@@ -121,7 +217,7 @@ function getBody(req: any): Promise<any> {
           resolve({})
           return
         }
-        resolve(JSON.parse(text))
+        resolve(JSON.parse(text) as Record<string, unknown>)
       } catch {
         reject(new ValidationError('Request body is not valid JSON'))
       }
@@ -141,22 +237,24 @@ function getQueryParam(url: string, param: string): string | null {
   }
 }
 
-function getBearerToken(req: any): string | null {
-  const authHeader = req.headers['authorization'] || ''
+function getBearerToken(req: IncomingMessage): string | null {
+  const authHeader = req.headers['authorization']
   if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
     return authHeader.substring(7)
   }
   return null
 }
 
-function getSessionToken(req: any): string | null {
+function getSessionToken(req: IncomingMessage): string | null {
   // Custom header support retained for backward compatibility with the
   // existing frontend (apps/web). Bearer is the preferred transport.
-  return getBearerToken(req) || (req.headers['x-apex-session'] as string) || null
+  const legacy = req.headers['x-apex-session']
+  return getBearerToken(req) || (typeof legacy === 'string' ? legacy : null) || null
 }
 
-function clientIp(req: any): string {
-  return (req.headers['x-forwarded-for'] as string) || req.socket?.remoteAddress || 'unknown'
+function clientIp(req: IncomingMessage): string {
+  const fwd = req.headers['x-forwarded-for']
+  return (typeof fwd === 'string' ? fwd : undefined) || req.socket?.remoteAddress || 'unknown'
 }
 
 interface AuthorizedContext {
@@ -166,8 +264,8 @@ interface AuthorizedContext {
 }
 
 async function authenticateAndAuthorize(
-  req: any,
-  res: any,
+  req: IncomingMessage,
+  res: ServerResponse,
   requiredWorkspaceId?: string
 ): Promise<AuthorizedContext | null> {
   const token = getSessionToken(req)
@@ -209,7 +307,9 @@ async function authenticateAndAuthorize(
 export async function initApiServer() {
   if (productService) return
 
-  const dbDir = path.join(process.cwd(), 'dev-database')
+  const dbDir = process.env.DATABASE_PATH
+    ? path.resolve(process.env.DATABASE_PATH)
+    : path.join(process.cwd(), 'dev-database')
   database = new DurableFileDatabase(dbDir)
   await database.initialize()
 
@@ -239,6 +339,7 @@ export async function initApiServer() {
     actionRepository,
     outcomeRepository
   )
+  const telemetryService = new PMDecisionTelemetryService(productRepository)
 
   productService = new APEXProductService(
     productRepository,
@@ -251,7 +352,8 @@ export async function initApiServer() {
     profileCompiler,
     profileRepository,
     calibrator,
-    validationService
+    validationService,
+    telemetryService
   )
 
   authService = new AuthService(
@@ -269,34 +371,37 @@ export async function initApiServer() {
     }
   )
 
-  // Mock LLM provider used for H4 reasoning in this development server.
-  // In production, replace with OpenAIResponsesProvider.
-  const { MockLLMProvider } = await import('@apex/ai-core')
-  llmProvider = new MockLLMProvider(
-    JSON.stringify({
-      rationale: 'This recommendation addresses an observed configuration gap in the repository.',
-      impactExplanation:
-        'Closing this gap reduces regression risk and stabilizes release velocity.',
-      tradeoffs: ['Improves reliability gates', 'Slight setup time'],
-      alternatives: [
-        {
-          label: 'Option A — Standard configuration',
-          effort: 'low',
-          impact: 'high',
-          description: 'Apply the recommended configuration incrementally across the codebase.',
-        },
-      ],
-      knowns: [
-        'The current repository configuration has been observed via the analysis pipeline',
-        'No working automated verification exists for the current state',
-      ],
-      inferences: ['Without this change, future regressions are likely to reach production'],
-      unknowns: ['Telemetry on production incidents is currently not captured by the system'],
-      clarifyingQuestions: ['How frequently does the team deploy to production?'],
-      confidence: 0.75,
-      recommendedDecision: 'Adopt incrementally with the standard configuration approach.',
+  // H4 LLM provider selection (composition root).
+  //
+  // Production (NODE_ENV=production):
+  //   - Requires OPENAI_API_KEY. If the key is missing, the server refuses
+  //     to start with a mock provider — a hard SecurityError. No fabricated
+  //     reasoning can ever be produced in production.
+  //   - The OpenAI provider never falls back to a mock internally.
+  //
+  // Development / test:
+  //   - Uses a deterministic DevReasoningMockProvider (clearly labeled
+  //     `provider: mock`, `model: mock-v1`) whose canned output is grounded
+  //     in the actual recommendation id, so the full H4 validation +
+  //     grounding pipeline is exercised without an API key.
+  const openAiKey = process.env.OPENAI_API_KEY
+  if (openAiKey) {
+    llmProvider = new OpenAIResponsesProvider({
+      apiKey: openAiKey,
+      profile: RepositorySummaryProfile,
+      timeoutMs: 30000,
+      maxRetries: 2,
     })
-  )
+  } else if (process.env.NODE_ENV === 'production') {
+    throw new SecurityError(
+      'OPENAI_API_KEY is not configured. Production reasoning requires a real OpenAI key; refusing to run with a mock LLM provider.'
+    )
+  } else {
+    logger.warn(
+      'OPENAI_API_KEY not set — using DevReasoningMockProvider (development only). Production requires a real OpenAI key.'
+    )
+    llmProvider = new DevReasoningMockProvider()
+  }
 
   // Adapter registry
   adapterRegistry.clear()
@@ -304,10 +409,12 @@ export async function initApiServer() {
   GitHubAdapter.resetMockState()
 
   // Pre-seed an onboarding workspace only on a completely fresh database
-  // (no users exist). This is a development convenience, NOT a production
-  // behavior — production must never pre-seed user data.
+  // (no users exist) AND outside production. This is a development
+  // convenience, NOT a production behavior — production must never
+  // pre-seed user data or a demo workspace.
+  const isProduction = process.env.NODE_ENV === 'production'
   const users = database.getActiveState().users || []
-  if (users.length === 0) {
+  if (users.length === 0 && !isProduction) {
     const wsId = 'ws-onboarding-demo'
     const workspaceId = createWorkspaceId(wsId)
     try {
@@ -319,7 +426,7 @@ export async function initApiServer() {
         // workspace appears in API listings.
         database.beginTransaction()
         try {
-          const seedUser: typeof database extends never ? never : any = {
+          const seedUser: UserRecord = {
             id: 'usr-demo-seed',
             email: 'demo@apex.local',
             passwordHash: 'UNAVAILABLE',
@@ -355,6 +462,23 @@ export async function initApiServer() {
   logger.info('API server initialized', { port: process.env.PORT || 5173 })
 }
 
+/**
+ * Stop the background worker and release module-level singletons. Used by
+ * tests and by hosting runtimes that need a clean shutdown.
+ */
+export function shutdownApiServer(): void {
+  if (workerInterval) {
+    clearInterval(workerInterval)
+    workerInterval = null
+  }
+  productService = null
+  actionRepository = null
+  productRepository = null
+  database = null
+  authService = null
+  llmProvider = null
+}
+
 async function processWorkspaceActions() {
   if (!productService || !actionRepository || !productRepository) return
   try {
@@ -376,7 +500,7 @@ async function processWorkspaceActions() {
             action.relatedRecommendationId,
             wsIdObj
           )
-          const projectId = (rec as any)?.projectId
+          const projectId = (rec as (Recommendation & { projectId?: string }) | null)?.projectId
           const conn = projectId
             ? await productRepository.getRepositoryConnectionByProject(projectId, wsIdObj)
             : null
@@ -406,23 +530,31 @@ async function processWorkspaceActions() {
 
 // -- Routing --
 
-export async function handleApiRequest(req: any, res: any): Promise<boolean> {
-  await initApiServer()
-  if (!productService || !productRepository || !authService) {
-    sendError(res, new Error('Service not initialized'))
-    return true
-  }
-
+export async function handleApiRequest(
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<boolean> {
   const url = req.url || ''
   const method = req.method || 'GET'
   const pathname = url.split('?')[0]
 
   // Per-request correlation ID
-  const requestId = (req.headers['x-request-id'] as string) || SecureIdGenerator.token(8)
+  const reqIdHeader = req.headers['x-request-id']
+  const requestId =
+    (typeof reqIdHeader === 'string' ? reqIdHeader : undefined) || SecureIdGenerator.token(8)
   if (typeof res.setHeader === 'function') res.setHeader('X-Request-Id', requestId)
-  void requestId // currently used for log enrichment only
 
-  try {
+  // Dispatch inside the async-local request context so every structured log
+  // line emitted while handling this request carries the correlation ID.
+  // The service-null guard lives INSIDE the closure so TypeScript narrowing
+  // applies to every route below.
+  const dispatch = async (): Promise<boolean> => {
+    await initApiServer()
+    if (!productService || !productRepository || !authService) {
+      sendError(res, new Error('Service not initialized'))
+      return true
+    }
+
     // -- Auth endpoints (public) --
 
     if (pathname === '/api/auth/signup' && method === 'POST') {
@@ -436,18 +568,27 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         return true
       }
       const body = await getBody(req)
-      const result = await authService.signup({
-        email: String(body?.email || ''),
-        password: String(body?.password || ''),
-        workspaceName: body?.workspaceName ? String(body.workspaceName) : undefined,
-        workspaceSlug: body?.workspaceSlug ? String(body.workspaceSlug) : undefined,
-      })
-      authRateLimiter.recordSuccess(`signup:${ip}`)
-      sendJson(res, {
-        token: result.sessionId,
-        user: result.user,
-        workspace: result.workspaces[0] || null,
-      })
+      try {
+        const result = await authService.signup({
+          email: String(body?.email || ''),
+          password: String(body?.password || ''),
+          workspaceName: body?.workspaceName ? String(body.workspaceName) : undefined,
+          workspaceSlug: body?.workspaceSlug ? String(body.workspaceSlug) : undefined,
+        })
+        authRateLimiter.recordSuccess(`signup:${ip}`)
+        sendJson(res, {
+          token: result.sessionId,
+          user: result.user,
+          workspace: result.workspaces[0] || null,
+        })
+      } catch (err) {
+        // Failed signup attempts (invalid email, duplicate account, weak
+        // password, …) count toward the per-IP brute-force budget, exactly
+        // like failed logins. Previously only successes were recorded, so
+        // the limiter never engaged for signup abuse.
+        authRateLimiter.recordFailure(`signup:${ip}`)
+        throw err
+      }
       return true
     }
 
@@ -544,13 +685,21 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
       const auth = await authenticateAndAuthorize(req, res)
       if (!auth) return true
       const body = await getBody(req)
-      const id = String(body?.id || '')
-      const name = String(body?.name || '')
-      const slug = String(body?.slug || '')
-      if (!id || !name || !slug) {
-        sendError(res, new ValidationError('Missing id, name, or slug'))
+      const name = String(body?.name || '').trim()
+      if (!name) {
+        sendError(res, new ValidationError('Missing name'))
         return true
       }
+      // The workspace id is ALWAYS generated server-side. Client-supplied
+      // ids are ignored so tenants can never collide with (or overwrite)
+      // another workspace's id space.
+      const id = `ws-${SecureIdGenerator.token(8)}`
+      const slug =
+        String(body?.slug || name)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 60) || 'workspace'
       const ws = await productService.createWorkspace(id, name, slug)
       // Grant membership to creator
       database!.beginTransaction()
@@ -587,12 +736,14 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
       const workspaceId = String(body?.workspaceId || '')
       const auth = await authenticateAndAuthorize(req, res, workspaceId)
       if (!auth) return true
-      const id = String(body?.id || '')
-      const name = String(body?.name || '')
-      if (!id || !name) {
-        sendError(res, new ValidationError('Missing id or name'))
+      const name = String(body?.name || '').trim()
+      if (!name) {
+        sendError(res, new ValidationError('Missing name'))
         return true
       }
+      // The project id is ALWAYS generated server-side; client-supplied ids
+      // are ignored (prevents cross-tenant id collisions/overwrites).
+      const id = `proj-${SecureIdGenerator.token(8)}`
       const proj = await productService.createProject(auth.workspaceId, id, name)
       sendJson(res, proj)
       return true
@@ -675,8 +826,12 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
 
     // -- Actions --
 
-    const approveMatch = pathname.match(/^\/api\/actions\/([^/]+)\/approve$/)
-    if (approveMatch && method === 'POST') {
+    // Approval promotes a ProposedAction (which does not exist as an Action
+    // row yet), so the route carries no action id in the URL. The legacy
+    // `/api/actions/approve-id/approve` path was a placeholder segment that
+    // was parsed but ignored; it is replaced by this canonical route.
+    const approveMatch = pathname === '/api/actions/approve' && method === 'POST'
+    if (approveMatch) {
       const body = await getBody(req)
       const workspaceId = String(body?.workspaceId || '')
       const projectId = String(body?.projectId || '')
@@ -760,7 +915,11 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
       }
       sendJson(
         res,
-        await productService.verifyOutcome(outcomeId, auth.workspaceId, filesAfterChange)
+        await productService.verifyOutcome(
+          outcomeId,
+          auth.workspaceId,
+          filesAfterChange as VerificationEvidence
+        )
       )
       return true
     }
@@ -787,6 +946,65 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
           executionId
         )
       )
+      return true
+    }
+
+    const telemetryMatch = pathname.match(/^\/api\/projects\/([^/]+)\/decision-telemetry$/)
+    if (telemetryMatch && method === 'POST') {
+      const projectId = telemetryMatch[1]
+      const body = await getBody(req)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      const recommendationId = String(body?.recommendationId || '')
+      const decision = String(body?.decision || '')
+      if (!recommendationId || !['ACCEPT', 'REJECT', 'DEFER', 'OVERRIDE'].includes(decision)) {
+        sendError(res, new ValidationError('Missing recommendationId or invalid decision kind'))
+        return true
+      }
+      const toDate = (v: unknown): Date | null => {
+        if (typeof v !== 'string') return null
+        const d = new Date(v)
+        return Number.isNaN(d.getTime()) ? null : d
+      }
+      const decisionStartedAt = toDate(body?.decisionStartedAt)
+      const decisionCompletedAt = toDate(body?.decisionCompletedAt)
+      const recommendationPresentedAt = toDate(body?.recommendationPresentedAt)
+      if (!decisionStartedAt || !decisionCompletedAt || !recommendationPresentedAt) {
+        sendError(
+          res,
+          new ValidationError(
+            'decisionStartedAt, decisionCompletedAt, and recommendationPresentedAt must be valid ISO timestamps'
+          )
+        )
+        return true
+      }
+      if (decisionCompletedAt.getTime() < decisionStartedAt.getTime()) {
+        sendError(
+          res,
+          new ValidationError('decisionCompletedAt must not precede decisionStartedAt')
+        )
+        return true
+      }
+      const pmSelectedPriority =
+        typeof body?.pmSelectedPriority === 'number' && Number.isFinite(body.pmSelectedPriority)
+          ? (body.pmSelectedPriority as number)
+          : undefined
+      const apexRank = typeof body?.apexRank === 'number' ? (body.apexRank as number) : undefined
+      const pmRank = typeof body?.pmRank === 'number' ? (body.pmRank as number) : undefined
+      const recorded = await productService.recordPMDecision({
+        workspaceId: auth.workspaceId,
+        projectId,
+        recommendationId,
+        decision: decision as PMDecisionKind,
+        decisionStartedAt,
+        decisionCompletedAt,
+        recommendationPresentedAt,
+        pmSelectedPriority,
+        apexRank,
+        pmRank,
+      })
+      sendJson(res, recorded)
       return true
     }
 
@@ -859,17 +1077,19 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         sendError(res, new NotFoundError('Recommendation not found'))
         return true
       }
+      const rich = buildRichRecommendationFromPersisted(rec)
+      if (!rich) {
+        // The persisted row is missing its H3 decoration. Answer with a
+        // typed "unavailable" record — NEVER fabricate decoration.
+        const unavailable = unavailableReasoning(rec, llmProvider!.model)
+        await productRepository.saveAIProductReasoning(unavailable)
+        sendJson(res, unavailable)
+        return true
+      }
       const reasoningService = new ProductReasoningService(productRepository, llmProvider!)
       let reasoning = await productRepository.getAIProductReasoning(recId, wsId)
       if (!reasoning) {
-        // The persisted Recommendation may not carry the RichRecommendation
-        // decoration. The reasoning service tolerates either shape, but the
-        // // eslint-disable @typescript-eslint/no-explicit-any above
-        // acknowledges the dynamic shape. We construct a minimal RichRecommendation
-        // // from the persisted row so the type contract holds without `as any`.
-        reasoning = await reasoningService.generateReasoning(
-          buildRichRecommendationFromPersisted(rec)
-        )
+        reasoning = await reasoningService.generateReasoning(rich)
       }
       sendJson(res, reasoning)
       return true
@@ -887,11 +1107,15 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
         sendError(res, new NotFoundError('Recommendation not found'))
         return true
       }
+      const rich = buildRichRecommendationFromPersisted(rec)
+      if (!rich) {
+        const unavailable = unavailableReasoning(rec, llmProvider!.model)
+        await productRepository.saveAIProductReasoning(unavailable)
+        sendJson(res, unavailable)
+        return true
+      }
       const reasoningService = new ProductReasoningService(productRepository, llmProvider!)
-      const reasoning = await reasoningService.generateReasoning(
-        buildRichRecommendationFromPersisted(rec),
-        projectContext
-      )
+      const reasoning = await reasoningService.generateReasoning(rich, projectContext)
       sendJson(res, reasoning)
       return true
     }
@@ -899,6 +1123,10 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
     // No matching route
     sendError(res, new NotFoundError('Route not found'))
     return true
+  }
+
+  try {
+    return await Logger.withRequestId(requestId, dispatch)
   } catch (err) {
     logger.error('API request failed', { err: err instanceof Error ? err.message : String(err) })
     if (err instanceof AppError) {

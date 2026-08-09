@@ -119,6 +119,44 @@ describe('AuthService integration (Milestone I - Production Hardening)', () => {
     expect(a.sessionId).not.toBe(b.sessionId)
   })
 
+  it('resolves REAL workspace names/slugs for login and listings (never echoes the workspace id)', async () => {
+    // Workspace exists in the DB with real metadata (the integration-test
+    // provisioner returns an echo; a real deployment persists the workspace).
+    database.beginTransaction()
+    database.getActiveState().workspaces!.push({
+      id: 'ws-acme-real',
+      name: 'Acme Corp',
+      slug: 'acme',
+      type: 'saas',
+      status: 'active',
+      integrations: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as never)
+    await database.commit()
+
+    // Grant membership directly (simulating an existing user).
+    const userId = 'usr-ws-names'
+    database.beginTransaction()
+    database.insertUser({
+      id: userId,
+      email: 'realnames@test.com',
+      passwordHash: 'scrypt$N=1,r=1,p=1$c2FsdA==$aGFzaA==',
+      createdAt: new Date().toISOString(),
+    })
+    database.insertMembership({
+      id: 'mbr-ws-names',
+      userId,
+      workspaceId: 'ws-acme-real',
+      role: 'owner',
+      createdAt: new Date().toISOString(),
+    })
+    await database.commit()
+
+    const workspaces = authService.listWorkspacesForUser(userId)
+    expect(workspaces).toEqual([{ id: 'ws-acme-real', name: 'Acme Corp', slug: 'acme' }])
+  })
+
   it('enforces workspace membership boundary', async () => {
     const { user, workspaceId } = await authService.signup({
       email: 'a@b.com',
