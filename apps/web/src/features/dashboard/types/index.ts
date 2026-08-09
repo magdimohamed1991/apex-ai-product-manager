@@ -66,7 +66,7 @@ export interface ProductValidationMetrics {
   observationCount: number
   decisionAcceptanceRate: TrackedMetric
   outcomeSuccessRate: TrackedMetric
-  falsePositiveRate: TrackedMetric
+  unverifiableRate: TrackedMetric
   executionSuccessRate: TrackedMetric
   measuredDecisionLatencySeconds: TrackedMetric
   confidence: {
@@ -210,6 +210,25 @@ export interface PriorityCalibration {
   calibrationVersion?: string
 }
 
+export interface DecisionTelemetryRecord {
+  id: string
+  workspaceId: string
+  projectId: string
+  recommendationId: string
+  category?: string
+  recommendationPresentedAt: string
+  decisionStartedAt: string
+  decisionCompletedAt: string
+  decision: 'ACCEPT' | 'REJECT' | 'DEFER' | 'OVERRIDE'
+  pmSelectedPriority?: number
+  calibratedH6Score: number
+  originalH3Score: number
+  overrideOccurred: boolean
+  overrideDelta?: number
+  rankDisplacement?: number
+  recordedAt: string
+}
+
 export interface DecisionMetrics {
   totalRecommendations: number
   totalApproved: number
@@ -218,5 +237,5 @@ export interface DecisionMetrics {
   successCount: number
   successRate: number
   failedCount: number
-  falsePositiveRate: number
+  unverifiableRate: number
 }

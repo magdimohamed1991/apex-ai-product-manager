@@ -126,8 +126,8 @@ export function OverviewPanel({ data, onSelectRecommendation }: Props) {
               unit="%"
             />
             <Row
-              label="False Positive Rate"
-              value={data.decisionMetrics?.falsePositiveRate ?? null}
+              label="Unverifiable Rate"
+              value={data.decisionMetrics?.unverifiableRate ?? null}
               unit="%"
             />
             <Row label="Tracked Decisions" value={data.decisionMetrics?.totalOutcomes ?? null} />

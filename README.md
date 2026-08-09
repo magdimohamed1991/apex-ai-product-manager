@@ -63,10 +63,19 @@ The codebase currently implements (with real behavior and tests):
   supported single-process implementation. Replacing it with a real
   database engine requires only a new repository adapter, no domain
   changes.
-- **PM decision telemetry stream**: the type system is in place
-  (`PMDecisionTelemetry`) but the live recording path is not wired
-  into the UI. The dashboard correctly marks the derived metric as
-  `unavailable` until the stream records real decisions.
+
+## H7 decision telemetry (wired)
+
+The PM decision telemetry stream is LIVE: when a PM approves a
+recommendation, the dashboard records a real decision window
+(`recommendationPresentedAt` → `decisionStartedAt` → `decisionCompletedAt`)
+to `POST /api/projects/:id/decision-telemetry`. The server computes the
+H3 baseline and H6 calibrated score itself (the client can never
+fabricate scores), validates the timestamps, and persists the record with
+a deterministic id so duplicate submissions collapse. The H7
+"Measured PM Decision Latency" metric switches from `unavailable` to
+`observed` as soon as the first decision is recorded — it is never
+estimated from rendering time.
 
 ## Repository Structure
 

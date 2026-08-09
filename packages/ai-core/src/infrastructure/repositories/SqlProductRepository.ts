@@ -7,6 +7,7 @@ import type {
   Finding,
   Recommendation,
   AIProductReasoning,
+  PMDecisionTelemetry,
 } from '../../domain/entities'
 import type { ProductRepository } from '../../domain/repositories/ProductRepository'
 import { DurableFileDatabase } from '../database/DurableFileDatabase'
@@ -52,6 +53,17 @@ function mapPipelineRunFromDb(pr: unknown): PipelineRun {
     startedAt: new Date(x.startedAt as string),
     completedAt: x.completedAt ? new Date(x.completedAt as string) : null,
   } as unknown as PipelineRun
+}
+
+function mapPMDecisionTelemetryFromDb(t: unknown): PMDecisionTelemetry {
+  const x = t as Record<string, unknown>
+  return {
+    ...x,
+    recommendationPresentedAt: new Date(String(x.recommendationPresentedAt)),
+    decisionStartedAt: new Date(String(x.decisionStartedAt)),
+    decisionCompletedAt: new Date(String(x.decisionCompletedAt)),
+    recordedAt: new Date(String(x.recordedAt)),
+  } as unknown as PMDecisionTelemetry
 }
 
 function mapReasoningFromDb(r: unknown): AIProductReasoning {
@@ -311,6 +323,34 @@ export class SqlProductRepository implements ProductRepository {
     )
     if (!found) return null
     return mapReasoningFromDb(found)
+  }
+
+  async savePMDecisionTelemetry(telemetry: PMDecisionTelemetry): Promise<void> {
+    this.db.beginTransaction()
+    try {
+      const state = this.db.getActiveState()
+      if (!state.pmDecisionTelemetry) state.pmDecisionTelemetry = []
+      // Upsert by id (id is a deterministic hash of the decision tuple, so
+      // duplicate decision records are naturally deduplicated).
+      state.pmDecisionTelemetry = state.pmDecisionTelemetry.filter(
+        (t) => !(t.id === telemetry.id && t.workspaceId === telemetry.workspaceId)
+      )
+      state.pmDecisionTelemetry.push(JSON.parse(JSON.stringify(telemetry)))
+      await this.db.commit()
+    } catch (err) {
+      this.db.rollback()
+      throw err
+    }
+  }
+
+  async getPMDecisionTelemetryByProject(
+    projectId: string,
+    workspaceId: WorkspaceId
+  ): Promise<PMDecisionTelemetry[]> {
+    const state = this.db.getActiveState()
+    return (state.pmDecisionTelemetry || [])
+      .filter((t) => t.projectId === projectId && t.workspaceId === workspaceId)
+      .map(mapPMDecisionTelemetryFromDb)
   }
 
   async saveAIProductReasoning(reasoning: AIProductReasoning): Promise<void> {

@@ -15,6 +15,7 @@ import type {
   RecommendationOutcome,
   AdaptiveLearningProfile,
   LearningSignal,
+  PMDecisionTelemetry,
 } from '../../domain/entities'
 import {
   validateAction,
@@ -108,6 +109,7 @@ export class DurableFileDatabase {
       outcomes: [],
       learningProfiles: [],
       learningSignals: [],
+      pmDecisionTelemetry: [],
       users: [],
       sessions: [],
       memberships: [],
@@ -139,6 +141,9 @@ export class DurableFileDatabase {
       learningSignals: Array.isArray(raw.learningSignals)
         ? raw.learningSignals
         : base.learningSignals,
+      pmDecisionTelemetry: Array.isArray(raw.pmDecisionTelemetry)
+        ? raw.pmDecisionTelemetry
+        : base.pmDecisionTelemetry,
       users: Array.isArray(raw.users) ? raw.users : base.users,
       sessions: Array.isArray(raw.sessions) ? raw.sessions : base.sessions,
       memberships: Array.isArray(raw.memberships) ? raw.memberships : base.memberships,
@@ -449,6 +454,7 @@ export interface DatabaseState {
   outcomes: RecommendationOutcome[]
   learningProfiles: AdaptiveLearningProfile[]
   learningSignals: LearningSignal[]
+  pmDecisionTelemetry: PMDecisionTelemetry[]
   users: UserRecord[]
   sessions: SessionRecord[]
   memberships: WorkspaceMembership[]

@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Recommendation, Workspace, AIProductReasoning } from '../types'
 import { ReasoningPanel } from './ReasoningPanel'
 import { apiClient, ApiError } from '../api/client'
 
 interface Props {
   workspace: Workspace | null
+  projectId: string | null
   recommendations: Recommendation[]
   selected: Recommendation | null
   onSelect: (r: Recommendation) => void
@@ -13,6 +14,7 @@ interface Props {
 
 export function RecommendationsPanel({
   workspace,
+  projectId,
   recommendations,
   selected,
   onSelect,
@@ -64,6 +66,7 @@ export function RecommendationsPanel({
           <RecommendationDetail
             key={selected.id}
             workspace={workspace}
+            projectId={projectId}
             recommendation={selected}
             onAction={onAction}
           />
@@ -79,10 +82,12 @@ export function RecommendationsPanel({
 
 function RecommendationDetail({
   workspace,
+  projectId,
   recommendation,
   onAction,
 }: {
   workspace: Workspace | null
+  projectId: string | null
   recommendation: Recommendation
   onAction: (recId: string, paId: string) => Promise<void>
 }) {
@@ -94,8 +99,18 @@ function RecommendationDetail({
   const [approving, setApproving] = useState(false)
   const [reasoningError, setReasoningError] = useState<string | null>(null)
   const [answer, setAnswer] = useState('')
+  // The REAL decision window: recorded when the detail view opens (the PM
+  // cannot decide before the recommendation is presented), sent to the H7
+  // telemetry stream on approval. Both timestamps share the client clock,
+  // so the measured latency is skew-free. Captured in the mount effect
+  // (NOT during render — Date.now() is impure and would violate the
+  // render-purity rule).
+  const decisionWindowRef = useRef<{ presentedAt: number; startedAt: number } | null>(null)
 
   useEffect(() => {
+    if (decisionWindowRef.current === null) {
+      decisionWindowRef.current = { presentedAt: Date.now(), startedAt: Date.now() }
+    }
     if (!workspace) return
     let active = true
     apiClient
@@ -137,6 +152,27 @@ function RecommendationDetail({
     setApproving(true)
     try {
       await onAction(recommendation.id, paId)
+      // Record the real PM decision into the H7 telemetry stream. The
+      // server computes the H3/H6 scores; the client only supplies the
+      // decision kind and the real decision-window timestamps. Telemetry
+      // failure must never block the approval flow.
+      if (workspace && projectId) {
+        const window = decisionWindowRef.current ?? {
+          presentedAt: Date.now(),
+          startedAt: Date.now(),
+        }
+        try {
+          await apiClient.recordDecision(workspace.id, projectId, {
+            recommendationId: recommendation.id,
+            decision: 'ACCEPT',
+            recommendationPresentedAt: new Date(window.presentedAt).toISOString(),
+            decisionStartedAt: new Date(window.startedAt).toISOString(),
+            decisionCompletedAt: new Date().toISOString(),
+          })
+        } catch (err) {
+          console.warn('Failed to record decision telemetry', err)
+        }
+      }
     } finally {
       setApproving(false)
     }

@@ -62,7 +62,7 @@ export function ValidationPanel({ metrics, profile, signals, onCompileProfile }:
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <MetricCard metric={metrics.decisionAcceptanceRate} />
             <MetricCard metric={metrics.outcomeSuccessRate} />
-            <MetricCard metric={metrics.falsePositiveRate} />
+            <MetricCard metric={metrics.unverifiableRate} />
             <MetricCard metric={metrics.executionSuccessRate} />
             <MetricCard metric={metrics.measuredDecisionLatencySeconds} />
           </div>

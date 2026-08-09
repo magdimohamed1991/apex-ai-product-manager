@@ -206,6 +206,7 @@ describe('API server — composition root & route security', () => {
       ['GET', `/api/recommendations/rec-any/reasoning?workspaceId=${wsA}`],
       ['GET', `/api/recommendations/rec-any/calibration?workspaceId=${wsA}&projectId=proj-core`],
       ['POST', `/api/projects/proj-core/analysis`],
+      ['POST', `/api/projects/proj-core/decision-telemetry`],
     ] as const
 
     for (const [method, url] of attempts) {
@@ -321,5 +322,97 @@ describe('API server — composition root & route security', () => {
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(missing.status).toBe(404)
+  })
+
+  it('records a PM decision through the telemetry route and elevates decision latency to observed', async () => {
+    await api.initApiServer()
+    const signup = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'telemetry@acme.com', password: 'super-secure-password' },
+    })
+    const token = signup.json.token as string
+    const wsId = (signup.json.workspace as { id: string }).id
+
+    const conn = await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/repository',
+      headers: { Authorization: `Bearer ${token}` },
+      body: {
+        workspaceId: wsId,
+        provider: 'github',
+        owner: 'acme',
+        repository: 'apex-ai-product-manager',
+        defaultBranch: 'main',
+      },
+    })
+    expect(conn.status).toBe(200)
+
+    const run = await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/analysis',
+      headers: { Authorization: `Bearer ${token}` },
+      body: { workspaceId: wsId },
+    })
+    expect(run.status).toBe(200)
+
+    const recs = await request(api, {
+      method: 'GET',
+      url: `/api/projects/proj-core/recommendations?workspaceId=${wsId}`,
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const list = recs.json as unknown as Array<{ id: string }>
+    expect(list.length).toBeGreaterThan(0)
+
+    const record = await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/decision-telemetry',
+      headers: { Authorization: `Bearer ${token}` },
+      body: {
+        workspaceId: wsId,
+        recommendationId: list[0].id,
+        decision: 'ACCEPT',
+        decisionStartedAt: '2026-08-09T10:00:00.000Z',
+        decisionCompletedAt: '2026-08-09T10:02:00.000Z',
+        recommendationPresentedAt: '2026-08-09T09:58:00.000Z',
+      },
+    })
+    expect(record.status).toBe(200)
+    const recorded = record.json as { id: string; originalH3Score: number }
+    expect(recorded.id).toMatch(/^pmd-/)
+    expect(recorded.originalH3Score).toBeGreaterThan(0)
+
+    // Invalid decision kind → 400.
+    const bad = await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/decision-telemetry',
+      headers: { Authorization: `Bearer ${token}` },
+      body: {
+        workspaceId: wsId,
+        recommendationId: list[0].id,
+        decision: 'MAYBE',
+        decisionStartedAt: '2026-08-09T10:00:00.000Z',
+        decisionCompletedAt: '2026-08-09T10:02:00.000Z',
+        recommendationPresentedAt: '2026-08-09T09:58:00.000Z',
+      },
+    })
+    expect(bad.status).toBe(400)
+
+    // Decision latency is now OBSERVED with the real measured value.
+    const value = await request(api, {
+      method: 'GET',
+      url: `/api/projects/proj-core/product-value?workspaceId=${wsId}`,
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const metrics = value.json as {
+      measuredDecisionLatencySeconds: {
+        epistemicState: string
+        value: number
+        observationCount: number
+      }
+    }
+    expect(metrics.measuredDecisionLatencySeconds.epistemicState).toBe('observed')
+    expect(metrics.measuredDecisionLatencySeconds.value).toBe(120)
+    expect(metrics.measuredDecisionLatencySeconds.observationCount).toBe(1)
   })
 })

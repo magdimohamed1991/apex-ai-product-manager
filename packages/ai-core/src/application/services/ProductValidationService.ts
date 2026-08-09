@@ -44,8 +44,8 @@ export interface ProductValidationMetrics {
   decisionAcceptanceRate: TrackedMetric
   /** Outcome Success Rate = verified success outcomes / outcomes tracked */
   outcomeSuccessRate: TrackedMetric
-  /** False-Positive Rate = NOT_VERIFIABLE outcomes / total outcomes */
-  falsePositiveRate: TrackedMetric
+  /** Unverifiable Rate = NOT_VERIFIABLE outcomes / total outcomes */
+  unverifiableRate: TrackedMetric
   /** Execution success rate = completed actions / terminal actions */
   executionSuccessRate: TrackedMetric
   /** Measured PM decision latency (s) — undefined if insufficient data */
@@ -63,40 +63,13 @@ export interface ProductValidationMetrics {
 }
 
 /**
- * H7 Decision Telemetry (Milestone I - Production Hardening)
- *
- * Real telemetry model capturing actual PM decisions on recommendations.
- * Telemetry records the timing, choice, and PM-vs-APEX score delta.
+ * H7 Decision Telemetry types now live in the domain layer
+ * (`@apex/ai-core/src/domain/entities/PMDecisionTelemetry.ts`) so the
+ * persistence layer can store them without depending on application
+ * services. Re-exported here for backward compatibility with importers.
  */
-
-export type PMDecisionKind = 'ACCEPT' | 'REJECT' | 'DEFER' | 'OVERRIDE'
-
-export interface PMDecisionTelemetry {
-  id: string
-  workspaceId: string
-  projectId: string
-  recommendationId: string
-  category?: string
-
-  recommendationPresentedAt: Date
-  decisionStartedAt: Date
-  decisionCompletedAt: Date
-
-  decision: PMDecisionKind
-  /** PM's explicit priority override value (if any) */
-  pmSelectedPriority?: number
-  /** APEX calibrated score at the time of decision */
-  calibratedH6Score: number
-  /** Original H3 baseline */
-  originalH3Score: number
-  /** Did the PM's choice disagree with the APEX suggestion? */
-  overrideOccurred: boolean
-  /** |H6 - PM value| when the PM supplied a numeric priority */
-  overrideDelta?: number
-  /** |APEX rank - PM rank| when the PM re-ranked recommendations */
-  rankDisplacement?: number
-  recordedAt: Date
-}
+export type { PMDecisionTelemetry, PMDecisionKind } from '../../domain/entities'
+export { validatePMDecisionTelemetry } from '../../domain/entities'
 
 const DEFAULT_TELEMETRY_BUCKET: ProductValidationMetrics['confidence']['bucket'] =
   'awaiting_pm_telemetry'
@@ -195,13 +168,16 @@ export class ProductValidationService {
       epistemicState: totalTrackedOutcomes > 0 ? 'observed' : 'unavailable',
     }
 
-    // 3. False positive rate (derived from observations)
-    const falsePositiveCount = outcomes.filter((o) => o.status === 'NOT_VERIFIABLE').length
-    const falsePositiveRate: TrackedMetric = {
-      name: 'False Positive Rate',
-      value: totalTrackedOutcomes > 0 ? (falsePositiveCount / totalTrackedOutcomes) * 100 : null,
+    // 3. Unverifiable rate (derived from observations). NOT_VERIFIABLE
+    //    means the system could not confirm success — labeling it a "false
+    //    positive" would claim the recommendation was wrong, which is a
+    //    different epistemic statement.
+    const unverifiableCount = outcomes.filter((o) => o.status === 'NOT_VERIFIABLE').length
+    const unverifiableRate: TrackedMetric = {
+      name: 'Unverifiable Rate',
+      value: totalTrackedOutcomes > 0 ? (unverifiableCount / totalTrackedOutcomes) * 100 : null,
       description:
-        'Percent of outcomes that the verification system could not confirm as successful.',
+        'Percent of outcomes that the verification system could not confirm as successful (NOT_VERIFIABLE). Not a false-positive claim.',
       source: 'empirical_observation',
       calculation: 'not_verifiable_outcomes / total_outcomes * 100',
       observationCount: totalTrackedOutcomes,
@@ -232,22 +208,42 @@ export class ProductValidationService {
       epistemicState: terminalActions > 0 ? 'observed' : 'unavailable',
     }
 
-    // 5. Measured PM decision latency (observed, NOT estimated from rec.createdAt -> action.updatedAt)
-    // The H7 invariant requires the *actual* decision window. If the system
-    // has not yet recorded PMDecisionTelemetry, this metric is "unavailable".
-    // The existing rec.createdAt -> action.updatedAt is NOT a real measurement
-    // (these are different operations: creation vs. approval at the time of
-    // the audit trail). We mark the metric unavailable for now.
+    // 5. Measured PM decision latency (observed ONLY from the H7
+    //    PMDecisionTelemetry stream — NEVER from rec.createdAt ->
+    //    action.updatedAt, which conflates generation with approval).
+    //    Latency per record = decisionCompletedAt - decisionStartedAt on the
+    //    SAME client clock, so clock skew cancels out. With zero records the
+    //    metric stays `unavailable`; it is never estimated.
+    const telemetry = await this.productRepository.getPMDecisionTelemetryByProject(
+      projectId,
+      workspaceId
+    )
+    const latenciesMs = telemetry
+      .map((t) => t.decisionCompletedAt.getTime() - t.decisionStartedAt.getTime())
+      .filter((ms) => ms >= 0)
+    const latencyCount = latenciesMs.length
     const measuredDecisionLatencySeconds: TrackedMetric = {
       name: 'Measured PM Decision Latency',
-      value: null,
+      value:
+        latencyCount > 0
+          ? Math.round((latenciesMs.reduce((a, b) => a + b, 0) / latencyCount / 1000) * 10) / 10
+          : null,
       description:
-        'Real PM decision latency requires the H7 PMDecisionTelemetry stream (recommendationPresentedAt → decisionCompletedAt). No values are presented until that stream is populated.',
+        latencyCount > 0
+          ? `Mean PM decision window across ${latencyCount} recorded decision(s): decisionCompletedAt - decisionStartedAt (client-clock delta, skew-cancelling).`
+          : 'Real PM decision latency requires the H7 PMDecisionTelemetry stream (decisionStartedAt → decisionCompletedAt). No values are presented until that stream records decisions.',
       source: 'empirical_observation',
-      calculation: 'decisionCompletedAt - decisionStartedAt (when telemetry is recorded)',
-      observationCount: 0,
-      confidence: 'insufficient_data',
-      epistemicState: 'unavailable',
+      calculation: 'mean(decisionCompletedAt - decisionStartedAt) over recorded decisions',
+      observationCount: latencyCount,
+      confidence:
+        latencyCount === 0
+          ? 'insufficient_data'
+          : latencyCount < 5
+            ? 'insufficient_data'
+            : latencyCount < 20
+              ? 'low'
+              : 'medium',
+      epistemicState: latencyCount > 0 ? 'observed' : 'unavailable',
     }
 
     const totalObservations = totalRecommendations + totalTrackedOutcomes + terminalActions
@@ -263,7 +259,7 @@ export class ProductValidationService {
       observationCount: totalObservations,
       decisionAcceptanceRate,
       outcomeSuccessRate,
-      falsePositiveRate,
+      unverifiableRate,
       executionSuccessRate,
       measuredDecisionLatencySeconds,
       confidence: {

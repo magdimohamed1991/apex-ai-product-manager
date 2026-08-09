@@ -297,6 +297,7 @@ export function DashboardPage() {
             {activeTab === 'recommendations' && (
               <RecommendationsPanel
                 workspace={selectedWorkspace}
+                projectId={selectedProject?.id || null}
                 recommendations={data.recommendations}
                 selected={selectedRecommendation}
                 onSelect={setSelectedRecommendation}

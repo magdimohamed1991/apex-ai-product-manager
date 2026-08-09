@@ -143,25 +143,32 @@ export default function App() {
     setAnalysisError(null)
 
     try {
-      // Create project first
+      const workspaceId = workspaces[0]?.id || `ws-${email.split('@')[0].toLowerCase()}`
+
+      // Create project first. The project id is generated SERVER-SIDE and
+      // returned — the client must use the returned id for all subsequent
+      // calls (client-supplied ids are ignored by the API).
       const pRes = await fetch('/api/projects', {
         method: 'POST',
         body: JSON.stringify({
-          workspaceId: workspaces[0]?.id || `ws-${email.split('@')[0].toLowerCase()}`,
-          id: 'proj-core',
+          workspaceId,
           name: projectName,
         }),
       })
+      const pData = await pRes.json().catch(() => ({}))
       if (!pRes.ok) {
-        const errData = await pRes.json().catch(() => ({}))
-        throw new Error(errData?.error?.message || 'Failed to create project')
+        throw new Error(pData?.error?.message || 'Failed to create project')
+      }
+      const projectId = (pData as { id?: string }).id
+      if (!projectId) {
+        throw new Error('Server did not return a project id')
       }
 
       // Connect repository connections securely (Item I.3)
-      const rRes = await fetch(`/api/projects/proj-core/repository`, {
+      const rRes = await fetch(`/api/projects/${projectId}/repository`, {
         method: 'POST',
         body: JSON.stringify({
-          workspaceId: workspaces[0]?.id || `ws-${email.split('@')[0].toLowerCase()}`,
+          workspaceId,
           provider: 'github',
           owner: repoOwner,
           repository: repoName,
@@ -174,9 +181,9 @@ export default function App() {
       }
 
       // Run analysis (synchronous server call)
-      const runRes = await fetch(`/api/projects/proj-core/analysis`, {
+      const runRes = await fetch(`/api/projects/${projectId}/analysis`, {
         method: 'POST',
-        body: JSON.stringify({ workspaceId: workspaces[0]?.id }),
+        body: JSON.stringify({ workspaceId }),
       })
       const runData = await runRes.json()
 

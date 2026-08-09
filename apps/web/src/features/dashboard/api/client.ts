@@ -17,6 +17,7 @@ import type {
   RepositoryConnection,
   Recommendation,
   Finding,
+  DecisionTelemetryRecord,
   Action,
   ActivityEvent,
   AIProductReasoning,
@@ -146,6 +147,24 @@ export const apiClient = {
     ),
   compileProfile: (wsId: string, pId: string) =>
     apiClient.post<LearningProfile>(`/api/projects/${pId}/compile-profile`, { workspaceId: wsId }),
+  recordDecision: (
+    wsId: string,
+    pId: string,
+    body: {
+      recommendationId: string
+      decision: 'ACCEPT' | 'REJECT' | 'DEFER' | 'OVERRIDE'
+      decisionStartedAt: string
+      decisionCompletedAt: string
+      recommendationPresentedAt: string
+      pmSelectedPriority?: number
+      apexRank?: number
+      pmRank?: number
+    }
+  ) =>
+    apiClient.post<DecisionTelemetryRecord>(`/api/projects/${pId}/decision-telemetry`, {
+      workspaceId: wsId,
+      ...body,
+    }),
   getProductValue: (wsId: string, pId: string) =>
     apiClient.get<ProductValidationMetrics>(
       `/api/projects/${pId}/product-value?workspaceId=${wsId}`

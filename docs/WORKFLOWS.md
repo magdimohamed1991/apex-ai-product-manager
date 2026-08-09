@@ -51,6 +51,10 @@
 - `GET /api/projects/:id/profile` — H6 adaptive profile (if compiled).
 - `GET /api/recommendations/:id/calibration?projectId=...` — H6
   calibration for a specific recommendation.
+- `POST /api/projects/:id/decision-telemetry` — records a REAL PM
+  decision (kind + decision-window timestamps) into the H7 telemetry
+  stream. The server computes the H3/H6 scores; the decision-window
+  duration drives the observed "Measured PM Decision Latency" metric.
 
 ## Background loops
 

@@ -29,7 +29,7 @@ fabricated metric fallbacks), and **broken contracts** (non-deterministic
 metrics leaking across projects, duplicated pipeline execution).
 
 All four gates pass after remediation: `pnpm type-check`, `pnpm lint`,
-`pnpm test` (591 tests), `pnpm build`. `pnpm audit` reports no known
+`pnpm test` (608 tests), `pnpm build`. `pnpm audit` reports no known
 vulnerabilities. A follow-up pass (same date) closed the remaining
 coverage gaps listed at the end of the original register: observability
 correlation IDs, accessibility, ID-substitution tests on every resource,

@@ -1,5 +1,13 @@
-export { ActionApplicationService, adapterRegistry, AdapterRegistry } from './services/ActionApplicationService'
-export type { AdapterContext, AdapterExecutionResult, ActionTargetAdapter } from './services/ActionApplicationService'
+export {
+  ActionApplicationService,
+  adapterRegistry,
+  AdapterRegistry,
+} from './services/ActionApplicationService'
+export type {
+  AdapterContext,
+  AdapterExecutionResult,
+  ActionTargetAdapter,
+} from './services/ActionApplicationService'
 export { ActionExecutor } from './services/ActionExecutor'
 export { ActionExecutionWorker } from './services/ActionExecutionWorker'
 export { PipelineActionOrchestrator } from './services/PipelineActionOrchestrator'
@@ -20,8 +28,8 @@ export { AdaptiveProfileCompiler } from './services/AdaptiveProfileCompiler'
 export { H6PrioritizationCalibrator } from './services/H6PrioritizationCalibrator'
 export { ProductValidationService } from './services/ProductValidationService'
 export type { ProductValidationMetrics } from './services/ProductValidationService'
-
-
-
-
-
+export { PMDecisionTelemetryService } from './services/PMDecisionTelemetryService'
+export type {
+  RecordDecisionInput,
+  PMDecisionTelemetryStore,
+} from './services/PMDecisionTelemetryService'

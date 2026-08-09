@@ -41,12 +41,14 @@ import type {
   AIProductReasoning,
   UserRecord,
   VerificationEvidence,
+  PMDecisionKind,
 } from '@apex/ai-core'
 import {
   OpenAIResponsesProvider,
   RepositorySummaryProfile,
   SecurityError,
   MockLLMProvider,
+  PMDecisionTelemetryService,
 } from '@apex/ai-core'
 
 /**
@@ -337,6 +339,7 @@ export async function initApiServer() {
     actionRepository,
     outcomeRepository
   )
+  const telemetryService = new PMDecisionTelemetryService(productRepository)
 
   productService = new APEXProductService(
     productRepository,
@@ -349,7 +352,8 @@ export async function initApiServer() {
     profileCompiler,
     profileRepository,
     calibrator,
-    validationService
+    validationService,
+    telemetryService
   )
 
   authService = new AuthService(
@@ -681,13 +685,21 @@ export async function handleApiRequest(
       const auth = await authenticateAndAuthorize(req, res)
       if (!auth) return true
       const body = await getBody(req)
-      const id = String(body?.id || '')
-      const name = String(body?.name || '')
-      const slug = String(body?.slug || '')
-      if (!id || !name || !slug) {
-        sendError(res, new ValidationError('Missing id, name, or slug'))
+      const name = String(body?.name || '').trim()
+      if (!name) {
+        sendError(res, new ValidationError('Missing name'))
         return true
       }
+      // The workspace id is ALWAYS generated server-side. Client-supplied
+      // ids are ignored so tenants can never collide with (or overwrite)
+      // another workspace's id space.
+      const id = `ws-${SecureIdGenerator.token(8)}`
+      const slug =
+        String(body?.slug || name)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 60) || 'workspace'
       const ws = await productService.createWorkspace(id, name, slug)
       // Grant membership to creator
       database!.beginTransaction()
@@ -724,12 +736,14 @@ export async function handleApiRequest(
       const workspaceId = String(body?.workspaceId || '')
       const auth = await authenticateAndAuthorize(req, res, workspaceId)
       if (!auth) return true
-      const id = String(body?.id || '')
-      const name = String(body?.name || '')
-      if (!id || !name) {
-        sendError(res, new ValidationError('Missing id or name'))
+      const name = String(body?.name || '').trim()
+      if (!name) {
+        sendError(res, new ValidationError('Missing name'))
         return true
       }
+      // The project id is ALWAYS generated server-side; client-supplied ids
+      // are ignored (prevents cross-tenant id collisions/overwrites).
+      const id = `proj-${SecureIdGenerator.token(8)}`
       const proj = await productService.createProject(auth.workspaceId, id, name)
       sendJson(res, proj)
       return true
@@ -932,6 +946,65 @@ export async function handleApiRequest(
           executionId
         )
       )
+      return true
+    }
+
+    const telemetryMatch = pathname.match(/^\/api\/projects\/([^/]+)\/decision-telemetry$/)
+    if (telemetryMatch && method === 'POST') {
+      const projectId = telemetryMatch[1]
+      const body = await getBody(req)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      const recommendationId = String(body?.recommendationId || '')
+      const decision = String(body?.decision || '')
+      if (!recommendationId || !['ACCEPT', 'REJECT', 'DEFER', 'OVERRIDE'].includes(decision)) {
+        sendError(res, new ValidationError('Missing recommendationId or invalid decision kind'))
+        return true
+      }
+      const toDate = (v: unknown): Date | null => {
+        if (typeof v !== 'string') return null
+        const d = new Date(v)
+        return Number.isNaN(d.getTime()) ? null : d
+      }
+      const decisionStartedAt = toDate(body?.decisionStartedAt)
+      const decisionCompletedAt = toDate(body?.decisionCompletedAt)
+      const recommendationPresentedAt = toDate(body?.recommendationPresentedAt)
+      if (!decisionStartedAt || !decisionCompletedAt || !recommendationPresentedAt) {
+        sendError(
+          res,
+          new ValidationError(
+            'decisionStartedAt, decisionCompletedAt, and recommendationPresentedAt must be valid ISO timestamps'
+          )
+        )
+        return true
+      }
+      if (decisionCompletedAt.getTime() < decisionStartedAt.getTime()) {
+        sendError(
+          res,
+          new ValidationError('decisionCompletedAt must not precede decisionStartedAt')
+        )
+        return true
+      }
+      const pmSelectedPriority =
+        typeof body?.pmSelectedPriority === 'number' && Number.isFinite(body.pmSelectedPriority)
+          ? (body.pmSelectedPriority as number)
+          : undefined
+      const apexRank = typeof body?.apexRank === 'number' ? (body.apexRank as number) : undefined
+      const pmRank = typeof body?.pmRank === 'number' ? (body.pmRank as number) : undefined
+      const recorded = await productService.recordPMDecision({
+        workspaceId: auth.workspaceId,
+        projectId,
+        recommendationId,
+        decision: decision as PMDecisionKind,
+        decisionStartedAt,
+        decisionCompletedAt,
+        recommendationPresentedAt,
+        pmSelectedPriority,
+        apexRank,
+        pmRank,
+      })
+      sendJson(res, recorded)
       return true
     }
 

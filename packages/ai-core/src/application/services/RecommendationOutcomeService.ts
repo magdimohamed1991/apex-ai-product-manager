@@ -16,7 +16,13 @@ export interface DecisionQualityMetrics {
   successCount: number
   successRate: number
   failedCount: number
-  falsePositiveRate: number
+  /**
+   * Percent of outcomes that could NOT be verified (NOT_VERIFIABLE).
+   * Deliberately NOT named "false positive rate": an unverifiable outcome
+   * means the system could not confirm success — it does not mean the
+   * recommendation was wrong.
+   */
+  unverifiableRate: number
 }
 
 /**
@@ -143,8 +149,8 @@ export class RecommendationOutcomeService {
     const successRate = totalOutcomes > 0 ? (successCount / totalOutcomes) * 100 : 0
 
     const failedCount = outcomes.filter((o) => o.status === 'FAILED').length
-    const falsePositiveCount = outcomes.filter((o) => o.status === 'NOT_VERIFIABLE').length
-    const falsePositiveRate = totalOutcomes > 0 ? (falsePositiveCount / totalOutcomes) * 100 : 0
+    const unverifiableCount = outcomes.filter((o) => o.status === 'NOT_VERIFIABLE').length
+    const unverifiableRate = totalOutcomes > 0 ? (unverifiableCount / totalOutcomes) * 100 : 0
 
     return {
       totalRecommendations,
@@ -154,7 +160,7 @@ export class RecommendationOutcomeService {
       successCount,
       successRate: Math.round(successRate * 10) / 10,
       failedCount,
-      falsePositiveRate: Math.round(falsePositiveRate * 10) / 10,
+      unverifiableRate: Math.round(unverifiableRate * 10) / 10,
     }
   }
 }

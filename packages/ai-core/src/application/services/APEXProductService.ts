@@ -43,6 +43,9 @@ import { Logger } from '../../observability/Logger'
 import { SecurityError, NotFoundError } from '../../errors/AppError'
 import { transitionAction } from '../../domain/entities/Action'
 import type { VerificationEvidence } from '../../domain/entities/ProductAdaptive'
+import type { PMDecisionTelemetry, PMDecisionKind } from '../../domain/entities'
+import type { PMDecisionTelemetryService } from './PMDecisionTelemetryService'
+import { ValidationError } from '../../errors/AppError'
 
 const log = new Logger('product.service')
 
@@ -65,7 +68,8 @@ export class APEXProductService {
     private readonly profileCompiler?: AdaptiveProfileCompiler,
     private readonly profileRepository?: AdaptiveLearningProfileRepository,
     private readonly calibrator?: H6PrioritizationCalibrator,
-    private readonly validationService?: ProductValidationService
+    private readonly validationService?: ProductValidationService,
+    private readonly telemetryService?: PMDecisionTelemetryService
   ) {}
 
   /**
@@ -646,5 +650,84 @@ export class APEXProductService {
       throw new Error('Product validation service is not registered')
     }
     return this.validationService.evaluatePMValue(createWorkspaceId(workspaceId), projectId)
+  }
+
+  /**
+   * Records a REAL PM decision into the H7 telemetry stream.
+   *
+   * The H3 baseline and H6 calibrated score are computed SERVER-SIDE from
+   * the persisted recommendation and adaptive profile — the client only
+   * supplies the decision kind, the real decision-window timestamps, and
+   * any explicit PM override/rank. This prevents the client from
+   * fabricating scores.
+   */
+  async recordPMDecision(input: {
+    workspaceId: string
+    projectId: string
+    recommendationId: string
+    decision: PMDecisionKind
+    decisionStartedAt: Date
+    decisionCompletedAt: Date
+    recommendationPresentedAt: Date
+    pmSelectedPriority?: number
+    apexRank?: number
+    pmRank?: number
+  }): Promise<PMDecisionTelemetry> {
+    if (!this.telemetryService) {
+      throw new Error('H7 telemetry service is not registered')
+    }
+    const wsId = createWorkspaceId(input.workspaceId)
+
+    // Project-scoped lookup — the recommendation must belong to the project
+    // the caller claims (ID-substitution guard).
+    const recs = await this.productRepository.getRecommendationsByProject(input.projectId, wsId)
+    const rec = recs.find((r) => r.id === input.recommendationId)
+    if (!rec) {
+      throw new NotFoundError(
+        `Recommendation "${input.recommendationId}" not found in project "${input.projectId}" inside workspace "${input.workspaceId}"`
+      )
+    }
+
+    // Never record telemetry against a fabricated score: if the persisted
+    // row lacks its deterministic H3 decoration, refuse instead of guessing.
+    const rich = rec as Recommendation & RichRecommendation
+    if (typeof rich.priorityScore !== 'number') {
+      throw new ValidationError(
+        'Recommendation lacks its deterministic H3 score; re-run the analysis before recording decision telemetry'
+      )
+    }
+
+    const profile = this.profileRepository
+      ? await this.profileRepository.getProfile(wsId, input.projectId)
+      : null
+    const signals = this.profileRepository
+      ? await this.profileRepository.getSignals(wsId, input.projectId)
+      : []
+    const calibration = this.calibrator ? this.calibrator.calibrate(rich, profile, signals) : null
+
+    try {
+      return await this.telemetryService.recordDecision({
+        workspaceId: wsId,
+        projectId: input.projectId,
+        recommendationId: input.recommendationId,
+        category: rec.category,
+        originalH3Score: rich.priorityScore,
+        calibratedH6Score: calibration ? calibration.calibratedScore : rich.priorityScore,
+        decision: input.decision,
+        decisionStartedAt: input.decisionStartedAt,
+        decisionCompletedAt: input.decisionCompletedAt,
+        recommendationPresentedAt: input.recommendationPresentedAt,
+        pmSelectedPriority: input.pmSelectedPriority,
+        apexRank: input.apexRank,
+        pmRank: input.pmRank,
+      })
+    } catch (err) {
+      // Client-supplied timestamps failing domain validation is a client
+      // error, not an internal failure.
+      if (err instanceof ValidationError || err instanceof NotFoundError) throw err
+      throw new ValidationError(
+        `Invalid decision telemetry: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
   }
 }

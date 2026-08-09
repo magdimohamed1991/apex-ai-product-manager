@@ -1,5 +1,14 @@
 import type { WorkspaceId } from '../value-objects'
-import type { Workspace, Project, RepositoryConnection, PipelineRun, Finding, Recommendation, AIProductReasoning } from '../entities'
+import type {
+  Workspace,
+  Project,
+  RepositoryConnection,
+  PipelineRun,
+  Finding,
+  Recommendation,
+  AIProductReasoning,
+  PMDecisionTelemetry,
+} from '../entities'
 
 export interface ProductRepository {
   // Workspace operations
@@ -13,8 +22,14 @@ export interface ProductRepository {
   saveProject(project: Project): Promise<void>
 
   // Repository Connection operations
-  getRepositoryConnectionByIdAndWorkspace(id: string, workspaceId: WorkspaceId): Promise<RepositoryConnection | null>
-  getRepositoryConnectionByProject(projectId: string, workspaceId: WorkspaceId): Promise<RepositoryConnection | null>
+  getRepositoryConnectionByIdAndWorkspace(
+    id: string,
+    workspaceId: WorkspaceId
+  ): Promise<RepositoryConnection | null>
+  getRepositoryConnectionByProject(
+    projectId: string,
+    workspaceId: WorkspaceId
+  ): Promise<RepositoryConnection | null>
   saveRepositoryConnection(conn: RepositoryConnection): Promise<void>
 
   // Pipeline Run operations
@@ -28,13 +43,28 @@ export interface ProductRepository {
   deleteFindingsByProject(projectId: string, workspaceId: WorkspaceId): Promise<void>
 
   // Recommendation operations
-  getRecommendationsByProject(projectId: string, workspaceId: WorkspaceId): Promise<Recommendation[]>
-  getRecommendationByIdAndWorkspace(id: string, workspaceId: WorkspaceId): Promise<Recommendation | null>
+  getRecommendationsByProject(
+    projectId: string,
+    workspaceId: WorkspaceId
+  ): Promise<Recommendation[]>
+  getRecommendationByIdAndWorkspace(
+    id: string,
+    workspaceId: WorkspaceId
+  ): Promise<Recommendation | null>
   saveRecommendation(rec: Recommendation, projectId: string): Promise<void>
   deleteRecommendationsByProject(projectId: string, workspaceId: WorkspaceId): Promise<void>
 
   // AI Product Reasoning operations
-  getAIProductReasoning(recommendationId: string, workspaceId: WorkspaceId): Promise<AIProductReasoning | null>
+  getAIProductReasoning(
+    recommendationId: string,
+    workspaceId: WorkspaceId
+  ): Promise<AIProductReasoning | null>
   saveAIProductReasoning(reasoning: AIProductReasoning): Promise<void>
-}
 
+  // H7 PM decision telemetry operations (persisted, workspace-scoped)
+  savePMDecisionTelemetry(telemetry: PMDecisionTelemetry): Promise<void>
+  getPMDecisionTelemetryByProject(
+    projectId: string,
+    workspaceId: WorkspaceId
+  ): Promise<PMDecisionTelemetry[]>
+}
