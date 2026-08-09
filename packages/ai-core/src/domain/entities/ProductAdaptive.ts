@@ -1,12 +1,28 @@
 import type { WorkspaceId } from '../value-objects'
 
+/**
+ * Epistemic state of a LearningSignal (Milestone I - Production Hardening)
+ *
+ *   - 'observed'           : the underlying decision/outcome data is real
+ *                            and the observation count is above the minimum
+ *                            threshold.
+ *   - 'estimated'          : the data is real but the observation count
+ *                            is too small to draw a strong conclusion.
+ *                            Coefficients are still computed for transparency
+ *                            but must be treated as low-confidence.
+ *   - 'insufficient_evidence' : we cannot reliably say anything. The
+ *                            category MUST NOT influence the calibrator.
+ */
+export type SignalEvidenceState = 'observed' | 'estimated' | 'insufficient_evidence'
+
 export interface LearningSignal {
   id: string
   workspaceId: WorkspaceId
   projectId: string
 
   category: string
-  type: 'ADOPTION' | 'EXECUTION_SUCCESS' | 'OUTCOME_SUCCESS' | 'REJECTION' | 'IGNORED' | 'CALIBRATION'
+  type:
+    'ADOPTION' | 'EXECUTION_SUCCESS' | 'OUTCOME_SUCCESS' | 'REJECTION' | 'IGNORED' | 'CALIBRATION'
 
   observationCount: number
   value: number // Rate or multiplier value, e.g. 0.85
@@ -14,6 +30,14 @@ export interface LearningSignal {
 
   sourceRecommendationIds: string[]
   generatedAt: Date
+
+  evidenceState?: SignalEvidenceState
+  /**
+   * Version of the calibration algorithm that produced this signal.
+   * Together with `evidenceState` and `sourceRecommendationIds` this
+   * makes the signal fully reproducible from the source observations.
+   */
+  calibrationVersion?: string
 }
 
 export interface CategoryCoefficient {
@@ -41,6 +65,13 @@ export interface AdaptiveLearningProfile {
     overPrioritizedLowEffort: boolean
     favoredHighImpact: boolean
   }
+
+  /**
+   * Version of the calibration algorithm that produced this profile.
+   * Stored so historical scores remain reproducible even if future H6
+   * formulas change.
+   */
+  calibrationVersion?: string
 }
 
 export interface PriorityCalibration {
@@ -53,6 +84,14 @@ export interface PriorityCalibration {
   appliedSignals: LearningSignal[]
 
   explanation: string
+
+  /**
+   * If true, the calibrated score was preserved at the safety floor
+   * (critical >= 8.5, high >= 7.0) because a calibration multiplier would
+   * otherwise have deflated it below the floor.
+   */
+  safetyFloorEnforced?: boolean
+  calibrationVersion?: string
 }
 
 export interface VerificationEvidence {

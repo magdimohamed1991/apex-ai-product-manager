@@ -55,7 +55,7 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
       productRepository,
       actionRepository
     )
-    
+
     productService = new APEXProductService(
       productRepository,
       actionRepository,
@@ -72,7 +72,7 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
 
     adapterRegistry.clear()
     adapterRegistry.register(githubAdapter)
-    GitHubAdapter.mockExternalIssues.clear()
+    GitHubAdapter.resetMockState()
   })
 
   describe('1. The Happy Path User Journey (Item 2 & Item 17)', () => {
@@ -102,7 +102,7 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
       // 5. Inspect Findings and Recommendations (Item 9)
       const findings = await productService.getFindings('ws-skele-a', 'proj-1')
       const recommendations = await productService.getRecommendations('ws-skele-a', 'proj-1')
-      
+
       expect(findings.length).toBeGreaterThanOrEqual(0)
       expect(recommendations.length).toBeGreaterThan(0)
 
@@ -118,7 +118,7 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
       // 7. Background Worker Polls and Executes Action (Item 11, Item 12 & Item 13)
       const creds = await credentialProvider.getCredentials(WORKSPACE_A, 'github')
       const context = { workspaceId: WORKSPACE_A, credentials: { token: creds.token } }
-      
+
       const processed = await worker.processPendingActions(WORKSPACE_A, context)
       expect(processed.length).toBe(1)
       expect(processed[0].status).toBe('completed')
@@ -127,7 +127,7 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
       // 8. Observe Activity timeline (Item 14)
       const activity = await productService.getActivityLog('ws-skele-a', 'proj-1')
       expect(activity.length).toBeGreaterThan(0)
-      
+
       // Trace lineage runId -> recommendationId -> proposedActionId -> actionId -> externalId (Item 20)
       const pipelineRunEvent = activity.find((a) => a.type === 'pipeline')
       expect(pipelineRunEvent?.metadata?.runId).toBe(run.id)
@@ -161,7 +161,7 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
       // Run Analysis 2
       await productService.runAnalysis('ws-skele-a', 'proj-1')
       const recs2 = await productService.getRecommendations('ws-skele-a', 'proj-1')
-      
+
       // Same number of recommendations (no duplication)
       expect(recs2.length).toBe(recs1.length)
 
@@ -189,7 +189,12 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
       await productService.runAnalysis('ws-skele-a', 'proj-a')
       const recsA = await productService.getRecommendations('ws-skele-a', 'proj-a')
       const recA = recsA[0]
-      const actionA = await productService.approveAction('ws-skele-a', 'proj-a', recA.id, recA.proposedActions[0].id)
+      const actionA = await productService.approveAction(
+        'ws-skele-a',
+        'proj-a',
+        recA.id,
+        recA.proposedActions[0].id
+      )
 
       // Setup Workspace B
       await productService.createWorkspace('ws-skele-b', 'Acme B', 'acme-b')
@@ -215,7 +220,12 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
       ).rejects.toThrow()
 
       // 5. Workspace B cannot claim or execute Workspace A's Action
-      const claimB = await actionRepository.claimForExecution(actionA.id, WORKSPACE_B, 'exec-b', 5000)
+      const claimB = await actionRepository.claimForExecution(
+        actionA.id,
+        WORKSPACE_B,
+        'exec-b',
+        5000
+      )
       expect(claimB).toBe(false)
     })
   })
@@ -232,14 +242,22 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
       })
       await productService.runAnalysis('ws-skele-a', 'proj-1')
       const recs = await productService.getRecommendations('ws-skele-a', 'proj-1')
-      const action = await productService.approveAction('ws-skele-a', 'proj-1', recs[0].id, recs[0].proposedActions[0].id)
+      const action = await productService.approveAction(
+        'ws-skele-a',
+        'proj-1',
+        recs[0].id,
+        recs[0].proposedActions[0].id
+      )
 
       // Simulate Process Restart: instantiate completely fresh database connection pointing to the same folder
       const restartedDatabase = new DurableFileDatabase(TEST_DB_DIR)
       await restartedDatabase.initialize()
       const restartedActionRepository = new SqlActionRepository(restartedDatabase)
       const restartedExecutor = new ActionExecutor(restartedActionRepository)
-      const restartedWorker = new ActionExecutionWorker(restartedActionRepository, restartedExecutor)
+      const restartedWorker = new ActionExecutionWorker(
+        restartedActionRepository,
+        restartedExecutor
+      )
 
       // Worker discovers, claims, and processes without rerunning analysis
       const creds = await credentialProvider.getCredentials(WORKSPACE_A, 'github')
@@ -264,17 +282,22 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
       })
       await productService.runAnalysis('ws-skele-a', 'proj-1')
       const recs = await productService.getRecommendations('ws-skele-a', 'proj-1')
-      const action = await productService.approveAction('ws-skele-a', 'proj-1', recs[0].id, recs[0].proposedActions[0].id)
+      const action = await productService.approveAction(
+        'ws-skele-a',
+        'proj-1',
+        recs[0].id,
+        recs[0].proposedActions[0].id
+      )
 
       // Execute with transient error credentials
       const context = {
         workspaceId: WORKSPACE_A,
         credentials: { token: 'valid-token', triggerError: 'Rate Limit 429' },
       }
-      
+
       const processed = await worker.processPendingActions(WORKSPACE_A, context)
       expect(processed.length).toBe(1)
-      
+
       // Action remains in-progress for scheduling retry
       expect(processed[0].status).toBe('in-progress')
       expect(processed[0].nextAttemptAt).not.toBeNull()
@@ -295,17 +318,25 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
       })
       await productService.runAnalysis('ws-skele-a', 'proj-1')
       const recs = await productService.getRecommendations('ws-skele-a', 'proj-1')
-      const action = await productService.approveAction('ws-skele-a', 'proj-1', recs[0].id, recs[0].proposedActions[0].id)
+      const action = await productService.approveAction(
+        'ws-skele-a',
+        'proj-1',
+        recs[0].id,
+        recs[0].proposedActions[0].id
+      )
 
       // Execute with authentication failure credentials
       const context = {
         workspaceId: WORKSPACE_A,
-        credentials: { token: 'bad-token', triggerError: '401 Unauthorized: GitHub access token is invalid' },
+        credentials: {
+          token: 'bad-token',
+          triggerError: '401 Unauthorized: GitHub access token is invalid',
+        },
       }
-      
+
       const processed = await worker.processPendingActions(WORKSPACE_A, context)
       expect(processed.length).toBe(1)
-      
+
       // Action transitions immediately to failed terminal state (no retry)
       expect(processed[0].status).toBe('failed')
       expect(processed[0].nextAttemptAt).toBeNull()
@@ -328,15 +359,20 @@ describe('Milestone G — APEX Vertical Walking Skeleton Integration Tests', () 
       })
       await productService.runAnalysis('ws-skele-a', 'proj-1')
       const recs = await productService.getRecommendations('ws-skele-a', 'proj-1')
-      const action = await productService.approveAction('ws-skele-a', 'proj-1', recs[0].id, recs[0].proposedActions[0].id)
+      const action = await productService.approveAction(
+        'ws-skele-a',
+        'proj-1',
+        recs[0].id,
+        recs[0].proposedActions[0].id
+      )
 
       // Step 1: Simulate worker crash. Worker started the issue creation on GitHub, issue was created on GitHub, but worker crashed and terminated before saving back to database.
       const context = { workspaceId: WORKSPACE_A, credentials: { token: 'valid-token' } }
       const expectedIdempotencyKey = action.idempotencyKey
-      
+
       const result1 = await githubAdapter.executeAction(action, context, expectedIdempotencyKey)
       expect(result1.resolution).toBe('created')
-      
+
       // State in DB remains approved/queued
       const liveAction = await actionRepository.getByIdAndWorkspace(action.id, WORKSPACE_A)
       expect(liveAction?.status).toBe('approved')

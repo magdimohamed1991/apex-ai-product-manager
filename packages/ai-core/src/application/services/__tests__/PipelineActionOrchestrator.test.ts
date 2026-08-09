@@ -43,7 +43,7 @@ describe('PipelineActionOrchestrator — Milestone E: End-to-End Pipeline Integr
 
     adapterRegistry.clear()
     adapterRegistry.register(githubAdapter)
-    GitHubAdapter.mockExternalIssues.clear()
+    GitHubAdapter.resetMockState()
   })
 
   // Simulated Repository Files (Matches strategies: AddTestingStrategy, AddCIStrategy)

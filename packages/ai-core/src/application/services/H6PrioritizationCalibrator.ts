@@ -1,91 +1,132 @@
 import type { RichRecommendation } from '../../domain/entities'
-import type { AdaptiveLearningProfile, PriorityCalibration, LearningSignal } from '../../domain/entities/ProductAdaptive'
+import type {
+  AdaptiveLearningProfile,
+  PriorityCalibration,
+  LearningSignal,
+} from '../../domain/entities/ProductAdaptive'
+import { Logger } from '../../observability/Logger'
+
+const log = new Logger('h6.calibrator')
+
+/**
+ * Objective-risk safety floors. These are HARD invariants that must never
+ * be relaxed by H6, regardless of historical PM preferences.
+ *
+ * A PM who historically ignored testing recommendations must NOT cause
+ * APEX to deflate the priority of a genuinely critical production risk.
+ */
+export const SAFETY_FLOOR_CRITICAL = 8.5
+export const SAFETY_FLOOR_HIGH = 7.0
+
+const CALIBRATION_VERSION = 'h6-v1'
 
 /**
  * H6 Prioritization Calibrator (Milestone H6)
  *
- * Calibrates canonical H3 baseline scores based on PM preference and outcome reliability,
- * strictly keeping the baseline immutable and preserving critical objective safety risks.
+ * Calibrates canonical H3 baseline scores based on PM preference and
+ * outcome reliability, strictly keeping the H3 baseline immutable and
+ * preserving critical objective safety risks.
+ *
+ * Hardening contract (Milestone I - Production Hardening):
+ *   1. H3 baseline score is preserved verbatim in `baseScore`.
+ *   2. Calibration is applied multiplicatively but bounded by safety floors.
+ *   3. Categories with `insufficient_evidence` MUST NOT influence calibration.
+ *   4. The calibration algorithm version is recorded so historical
+ *      decisions remain reproducible even if future formulas change.
  */
 export class H6PrioritizationCalibrator {
-  /**
-   * Performs dynamic H6 calibration on an H3 baseline score (Item 2 & Item 8)
-   */
   calibrate(
     recommendation: RichRecommendation,
     profile: AdaptiveLearningProfile | null,
     signals: LearningSignal[]
   ): PriorityCalibration {
     const baseScore = recommendation.priorityScore || 5.0
+    const category = (recommendation as RichRecommendation & { category?: string }).category ?? null
 
-    if (!profile) {
+    if (!profile || !category) {
       return {
         baseScore,
         calibratedScore: baseScore,
         preferenceMultiplier: 1.0,
         outcomeReliabilityMultiplier: 1.0,
         appliedSignals: [],
-        explanation: 'No adaptive learning profile currently compiled for this project scope. Using baseline H3 score.',
-      }
-    }
-
-    const category = this.getCategory(recommendation.title)
-    if (!category) {
-      return {
-        baseScore,
-        calibratedScore: baseScore,
-        preferenceMultiplier: 1.0,
-        outcomeReliabilityMultiplier: 1.0,
-        appliedSignals: [],
-        explanation: 'This recommendation does not fall under an adaptive prioritization category. Using baseline H3 score.',
+        explanation: category
+          ? 'No adaptive learning profile is currently compiled for this project scope. Using baseline H3 score.'
+          : 'Recommendation has no typed category. Using baseline H3 score (H6 cannot calibrate without typed category metadata).',
+        safetyFloorEnforced: false,
+        calibrationVersion: CALIBRATION_VERSION,
       }
     }
 
     const coef = profile.categoryCoefficients.find((c) => c.category === category)
-    const preferenceMultiplier = coef ? coef.pmCalibrationWeight : 1.0
-    
-    // Outcome success multiplier: range from 0.8 to 1.2
-    const outcomeVerifiedRate = coef ? coef.outcomeVerifiedRate : 0.5
-    const outcomeReliabilityMultiplier = 1.0 + (outcomeVerifiedRate - 0.5) * 0.4
+    if (!coef) {
+      return {
+        baseScore,
+        calibratedScore: baseScore,
+        preferenceMultiplier: 1.0,
+        outcomeReliabilityMultiplier: 1.0,
+        appliedSignals: [],
+        explanation: `Category "${category}" has no compiled coefficient. Using baseline H3 score.`,
+        safetyFloorEnforced: false,
+        calibrationVersion: CALIBRATION_VERSION,
+      }
+    }
+
+    // Check if any signal in this category has insufficient evidence.
+    // If so, we MUST NOT inflate the multiplier. We dampen to 1.0.
+    const catSignals = signals.filter((s) => s.category === category)
+    const hasInsufficientEvidence = catSignals.some(
+      (s) => s.evidenceState === 'insufficient_evidence'
+    )
+    if (hasInsufficientEvidence) {
+      log.info('Calibration dampened due to insufficient_evidence signal', { category })
+      return {
+        baseScore,
+        calibratedScore: baseScore,
+        preferenceMultiplier: 1.0,
+        outcomeReliabilityMultiplier: 1.0,
+        appliedSignals: catSignals,
+        explanation: `Category "${category}" has insufficient empirical evidence (< ${5} observations). H6 will not influence the baseline H3 score.`,
+        safetyFloorEnforced: false,
+        calibrationVersion: CALIBRATION_VERSION,
+      }
+    }
+
+    const preferenceMultiplier = coef.pmCalibrationWeight
+    const outcomeVerifiedRate = coef.outcomeVerifiedRate
+    // Outcome success multiplier: bounded 0.9 to 1.1
+    const outcomeReliabilityMultiplier = 1.0 + (outcomeVerifiedRate - 0.5) * 0.2
 
     let calibratedScore = baseScore * preferenceMultiplier * outcomeReliabilityMultiplier
-    let riskPreserved = false
+    let safetyFloorEnforced = false
 
-    // 🔒 Enforce Invariant: Preserves objective risk - do not deflate critical or high risks to zero (Item 2)
-    if (recommendation.priority === 'critical' && calibratedScore < 8.5) {
-      calibratedScore = 8.5
-      riskPreserved = true
-    } else if (recommendation.priority === 'high' && calibratedScore < 7.0) {
-      calibratedScore = 7.0
-      riskPreserved = true
+    // Enforce Invariant: preserve objective risk
+    if (recommendation.priority === 'critical' && calibratedScore < SAFETY_FLOOR_CRITICAL) {
+      calibratedScore = SAFETY_FLOOR_CRITICAL
+      safetyFloorEnforced = true
+    } else if (recommendation.priority === 'high' && calibratedScore < SAFETY_FLOOR_HIGH) {
+      calibratedScore = SAFETY_FLOOR_HIGH
+      safetyFloorEnforced = true
     }
 
-    calibratedScore = Math.round(calibratedScore * 10) / 10
+    // Clamp to [0, 10]
+    calibratedScore = Math.max(0, Math.min(10, Math.round(calibratedScore * 10) / 10))
 
-    // Filter signals applied specifically to this category
-    const appliedSignals = signals.filter((s) => s.category === category)
-
-    let explanation = `APEX adjusted the priority score from baseline ${baseScore} to ${calibratedScore} using empirical signals (adoption weight: ${preferenceMultiplier.toFixed(2)}, outcome verification weight: ${outcomeReliabilityMultiplier.toFixed(2)}).`
-    if (riskPreserved) {
-      explanation += ` Safety floor was explicitly enforced to preserve critical objective risk.`
-    }
+    const explanation = `APEX adjusted the priority score from baseline ${baseScore} to ${calibratedScore} using empirical signals (adoption weight: ${preferenceMultiplier.toFixed(2)}, outcome verification weight: ${outcomeReliabilityMultiplier.toFixed(2)}, calibration version: ${CALIBRATION_VERSION}).${
+      safetyFloorEnforced
+        ? ` Safety floor was explicitly enforced to preserve ${recommendation.priority === 'critical' ? 'critical' : 'high'} objective risk.`
+        : ''
+    }`
 
     return {
       baseScore,
       calibratedScore,
       preferenceMultiplier,
       outcomeReliabilityMultiplier,
-      appliedSignals,
+      appliedSignals: catSignals,
       explanation,
+      safetyFloorEnforced,
+      calibrationVersion: CALIBRATION_VERSION,
     }
-  }
-
-  private getCategory(title: string): string | null {
-    const t = title.toLowerCase()
-    if (t.includes('test') || t.includes('testing')) return 'TESTING'
-    if (t.includes('ci') || t.includes('workflow') || t.includes('action')) return 'CI_CD'
-    if (t.includes('typescript') || t.includes('type check')) return 'TYPESCRIPT'
-    if (t.includes('docker') || t.includes('dockerfile')) return 'DOCKER'
-    return null
   }
 }

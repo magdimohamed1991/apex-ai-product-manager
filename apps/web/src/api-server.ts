@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /// <reference types="node" />
 
-import * as path from 'path'
+import * as path from 'node:path'
 import {
   DurableFileDatabase,
   SqlActionRepository,
   SqlProductRepository,
   SqlRecommendationOutcomeRepository,
+  SqlAdaptiveLearningProfileRepository,
   RecommendationOutcomeService,
   ActionApplicationService,
   PipelineActionOrchestrator,
@@ -14,27 +15,197 @@ import {
   EnvCredentialProvider,
   APEXProductService,
   ActionExecutor,
-  ActionExecutionWorker,
   adapterRegistry,
   GitHubAdapter,
   ProductIntelligenceService,
   createWorkspaceId,
-  MockLLMProvider,
   ProductReasoningService,
-  SqlAdaptiveLearningProfileRepository,
   AdaptiveProfileCompiler,
   H6PrioritizationCalibrator,
-  ProductValidationService
+  ProductValidationService,
+  Logger,
+  AuthService,
+  AuthRateLimiter,
+  SecureIdGenerator,
+  toSafeEnvelope,
+  AppError,
+  ValidationError,
+  NotFoundError,
 } from '@apex/ai-core'
+
+import type {
+  LLMProvider,
+  RichRecommendation,
+  Recommendation as ApiRecommendation,
+} from '@apex/ai-core'
+
+/**
+ * The persisted Recommendation shape does not carry the RichRecommendation
+ * decoration (pmCategory, assessment, etc.). For reasoning we build a
+ * minimal RichRecommendation so the LLM contract is honored without
+ * depending on the assessment pipeline having run.
+ */
+function buildRichRecommendationFromPersisted(rec: ApiRecommendation): RichRecommendation {
+  return {
+    ...rec,
+    pmCategory: 'CRITICAL_PRODUCT_RISK',
+    assessment: {
+      severity: 'medium',
+      businessImpact: 'medium',
+      userImpact: 'medium',
+      deliveryRisk: 'medium',
+      operationalRisk: 'medium',
+      effort: 'medium',
+      confidence: rec.confidence,
+    },
+    priorityScore: 5.0,
+    expectedOutcome: '',
+    rankingReason: '',
+  }
+}
+
+// -- Module-scoped state --
 
 let productService: APEXProductService | null = null
 let actionRepository: SqlActionRepository | null = null
 let productRepository: SqlProductRepository | null = null
-let worker: ActionExecutionWorker | null = null
-let credentialProvider: EnvCredentialProvider | null = null
 let database: DurableFileDatabase | null = null
+let authService: AuthService | null = null
+let llmProvider: LLMProvider | null = null
+let workerInterval: NodeJS.Timeout | null = null
 
-// Initialize database and services
+const logger = new Logger('api.server')
+const authRateLimiter = new AuthRateLimiter(5, 15 * 60 * 1000)
+
+// -- HTTP helpers --
+
+const MAX_REQUEST_BODY_BYTES = 1024 * 1024 // 1MB
+
+function sendJson(res: any, data: any, status = 200) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+    'Cache-Control': 'no-store',
+  })
+  res.end(JSON.stringify(data))
+}
+
+function sendError(res: any, err: unknown) {
+  const { envelope, status } = toSafeEnvelope(err)
+  sendJson(res, envelope, status)
+}
+
+function getBody(req: any): Promise<any> {
+  return new Promise((resolve, reject) => {
+    let total = 0
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => {
+      total += chunk.length
+      if (total > MAX_REQUEST_BODY_BYTES) {
+        req.destroy()
+        reject(new ValidationError('Request body exceeds 1MB limit'))
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => {
+      if (total === 0) {
+        resolve({})
+        return
+      }
+      try {
+        const text = Buffer.concat(chunks).toString('utf8')
+        if (!text.trim()) {
+          resolve({})
+          return
+        }
+        resolve(JSON.parse(text))
+      } catch {
+        reject(new ValidationError('Request body is not valid JSON'))
+      }
+    })
+    req.on('error', () => {
+      reject(new ValidationError('Request stream error'))
+    })
+  })
+}
+
+function getQueryParam(url: string, param: string): string | null {
+  try {
+    const parsed = new URL(url, 'http://localhost')
+    return parsed.searchParams.get(param)
+  } catch {
+    return null
+  }
+}
+
+function getBearerToken(req: any): string | null {
+  const authHeader = req.headers['authorization'] || ''
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    return authHeader.substring(7)
+  }
+  return null
+}
+
+function getSessionToken(req: any): string | null {
+  // Custom header support retained for backward compatibility with the
+  // existing frontend (apps/web). Bearer is the preferred transport.
+  return getBearerToken(req) || (req.headers['x-apex-session'] as string) || null
+}
+
+function clientIp(req: any): string {
+  return (req.headers['x-forwarded-for'] as string) || req.socket?.remoteAddress || 'unknown'
+}
+
+interface AuthorizedContext {
+  userId: string
+  sessionId: string
+  workspaceId: string
+}
+
+async function authenticateAndAuthorize(
+  req: any,
+  res: any,
+  requiredWorkspaceId?: string
+): Promise<AuthorizedContext | null> {
+  const token = getSessionToken(req)
+  if (!token) {
+    sendError(res, new AppError({ code: 'AUTHENTICATION_ERROR', message: 'Missing session token' }))
+    return null
+  }
+  const session = await authService!.resolveSession(token)
+  if (!session) {
+    sendError(
+      res,
+      new AppError({ code: 'AUTHENTICATION_ERROR', message: 'Session expired or invalid' })
+    )
+    return null
+  }
+  const workspaceId = requiredWorkspaceId || session.workspaceId
+  if (!workspaceId) {
+    sendError(
+      res,
+      new AppError({ code: 'AUTHORIZATION_ERROR', message: 'No workspace context found' })
+    )
+    return null
+  }
+  if (!authService!.isMember(session.userId, workspaceId)) {
+    sendError(
+      res,
+      new AppError({
+        code: 'AUTHORIZATION_ERROR',
+        message: 'Access denied: not a member of this workspace',
+      })
+    )
+    return null
+  }
+  return { userId: session.userId, sessionId: session.sessionId, workspaceId }
+}
+
+// -- Initialize --
+
 export async function initApiServer() {
   if (productService) return
 
@@ -49,21 +220,19 @@ export async function initApiServer() {
   const actionAppService = new ActionApplicationService(actionRepository)
   const pipeline = new RepositoryDiscoveryPipeline()
   const orchestrator = new PipelineActionOrchestrator(pipeline, actionAppService)
-  credentialProvider = new EnvCredentialProvider()
+  const credentialProvider = new EnvCredentialProvider()
 
   const outcomeService = new RecommendationOutcomeService(
     outcomeRepository,
     productRepository,
     actionRepository
   )
-
   const profileCompiler = new AdaptiveProfileCompiler(
     profileRepository,
     productRepository,
     actionRepository,
     outcomeRepository
   )
-
   const calibrator = new H6PrioritizationCalibrator()
   const validationService = new ProductValidationService(
     productRepository,
@@ -85,139 +254,162 @@ export async function initApiServer() {
     validationService
   )
 
-  const executor = new ActionExecutor(actionRepository)
-  worker = new ActionExecutionWorker(actionRepository, executor)
+  authService = new AuthService(
+    database,
+    async ({ workspaceId, name, slug }: { workspaceId: string; name: string; slug: string }) => {
+      try {
+        const ws = await productService!.createWorkspace(workspaceId, name, slug)
+        return { id: ws.id, name: ws.name, slug: ws.slug }
+      } catch {
+        return null
+      }
+    },
+    async (workspaceId: string, projectId: string, name: string) => {
+      await productService!.createProject(workspaceId, projectId, name)
+    }
+  )
 
-  // Register adapters
+  // Mock LLM provider used for H4 reasoning in this development server.
+  // In production, replace with OpenAIResponsesProvider.
+  const { MockLLMProvider } = await import('@apex/ai-core')
+  llmProvider = new MockLLMProvider(
+    JSON.stringify({
+      rationale: 'This recommendation addresses an observed configuration gap in the repository.',
+      impactExplanation:
+        'Closing this gap reduces regression risk and stabilizes release velocity.',
+      tradeoffs: ['Improves reliability gates', 'Slight setup time'],
+      alternatives: [
+        {
+          label: 'Option A — Standard configuration',
+          effort: 'low',
+          impact: 'high',
+          description: 'Apply the recommended configuration incrementally across the codebase.',
+        },
+      ],
+      knowns: [
+        'The current repository configuration has been observed via the analysis pipeline',
+        'No working automated verification exists for the current state',
+      ],
+      inferences: ['Without this change, future regressions are likely to reach production'],
+      unknowns: ['Telemetry on production incidents is currently not captured by the system'],
+      clarifyingQuestions: ['How frequently does the team deploy to production?'],
+      confidence: 0.75,
+      recommendedDecision: 'Adopt incrementally with the standard configuration approach.',
+    })
+  )
+
+  // Adapter registry
   adapterRegistry.clear()
   adapterRegistry.register(new GitHubAdapter())
-  GitHubAdapter.mockExternalIssues.clear()
+  GitHubAdapter.resetMockState()
 
-  // Pre-seed a default workspace and project if empty to make the experience instantly beautiful (Item 3 & Item 24)
-  const workspaces = await productService.getAllWorkspaces()
-  if (workspaces.length === 0) {
-    await productService.createWorkspace('ws-default', 'Acme Engineering', 'acme')
-    await productService.createProject('ws-default', 'proj-core', 'APEX System Core')
-    await productService.connectRepository('ws-default', 'proj-core', {
-      provider: 'github',
-      owner: 'magdimohamed1991',
-      repository: 'apex-ai-product-manager', // Point to our actual monorepo itself! Real file discovery! (Item 6)
-      defaultBranch: 'arena/019fe224-apex-ai-product-manager',
-    })
-    console.log('[API Server] Pre-seeded default workspace and connected local repository.')
-  }
-
-  // Start Background Worker Polling Loop (Item 11 & Item 15)
-  setInterval(async () => {
+  // Pre-seed an onboarding workspace only on a completely fresh database
+  // (no users exist). This is a development convenience, NOT a production
+  // behavior — production must never pre-seed user data.
+  const users = database.getActiveState().users || []
+  if (users.length === 0) {
+    const wsId = 'ws-onboarding-demo'
+    const workspaceId = createWorkspaceId(wsId)
     try {
-      if (!productService || !worker || !credentialProvider || !actionRepository || !productRepository) return
-      const wsList = await productService.getAllWorkspaces()
-      for (const ws of wsList) {
-        const creds = await credentialProvider.getCredentials(ws.id, 'github')
-        
-        // Load pending actions
-        const pending = await actionRepository.getPendingActionsAndWorkspace(ws.id)
-        for (const action of pending) {
-          const rec = await productRepository.getRecommendationByIdAndWorkspace(action.relatedRecommendationId, ws.id)
-          const projectId = (rec as any)?.projectId
-          const conn = await productRepository.getRepositoryConnectionByProject(projectId, ws.id)
-          
-          const context = {
-            workspaceId: ws.id,
-            credentials: {
-              token: creds.token,
-              owner: conn?.owner || 'mock-owner',
-              repository: conn?.repository || 'mock-repo',
-            }
+      const existing = await productService.getWorkspace(wsId)
+      if (!existing) {
+        await productService.createWorkspace(wsId, 'Acme Engineering', 'acme')
+        await productService.createProject(wsId, 'proj-core', 'APEX System Core')
+        // For the demo seed we register a placeholder membership so the
+        // workspace appears in API listings.
+        database.beginTransaction()
+        try {
+          const seedUser: typeof database extends never ? never : any = {
+            id: 'usr-demo-seed',
+            email: 'demo@apex.local',
+            passwordHash: 'UNAVAILABLE',
+            createdAt: new Date().toISOString(),
           }
-          await executor.execute(action.id, ws.id, context)
+          database.insertUser(seedUser)
+          database.insertMembership({
+            id: 'mbr-demo-seed',
+            userId: 'usr-demo-seed',
+            workspaceId: wsId,
+            role: 'owner',
+            createdAt: new Date().toISOString(),
+          })
+          await database.commit()
+        } catch {
+          database.rollback()
         }
+        logger.info('Seeded development workspace', { workspaceId })
       }
     } catch (err) {
-      console.error('[Worker Error] Background execution failed:', err)
+      logger.warn('Demo workspace seed failed (non-fatal)', {
+        err: err instanceof Error ? err.message : String(err),
+      })
     }
-  }, 3000)
+  }
 
-  console.log('[API Server] Initialized. Background Action Worker started (polling every 3s).')
+  // Background worker (Milestone I)
+  if (workerInterval) clearInterval(workerInterval)
+  workerInterval = setInterval(() => {
+    void processWorkspaceActions()
+  }, 5000)
+
+  logger.info('API server initialized', { port: process.env.PORT || 5173 })
 }
 
-// Helpers
-function getBody(req: any): Promise<any> {
-  return new Promise((resolve) => {
-    let body = ''
-    req.on('data', (chunk: any) => { body += chunk })
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(body))
-      } catch {
-        resolve({})
-      }
-    })
-  })
-}
-
-function sendJson(res: any, data: any, status = 200) {
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify(data))
-}
-
-function getQueryParam(url: string, param: string): string | null {
+async function processWorkspaceActions() {
+  if (!productService || !actionRepository || !productRepository) return
   try {
-    const parsed = new URL(url, 'http://localhost')
-    return parsed.searchParams.get(param)
-  } catch {
-    return null
+    const users = database!.getActiveState().users || []
+    const workspaces = new Set<string>()
+    for (const u of users) {
+      const memberships = database!.getMembershipsForUser(u.id) || []
+      for (const m of memberships) workspaces.add(m.workspaceId)
+    }
+    const credentialProvider = new EnvCredentialProvider()
+    const executor = new ActionExecutor(actionRepository)
+    for (const wsId of workspaces) {
+      const wsIdObj = createWorkspaceId(wsId)
+      const creds = await credentialProvider.getCredentials(wsIdObj, 'github')
+      const pending = await actionRepository.getPendingActionsAndWorkspace(wsIdObj)
+      for (const action of pending) {
+        try {
+          const rec = await productRepository.getRecommendationByIdAndWorkspace(
+            action.relatedRecommendationId,
+            wsIdObj
+          )
+          const projectId = (rec as any)?.projectId
+          const conn = projectId
+            ? await productRepository.getRepositoryConnectionByProject(projectId, wsIdObj)
+            : null
+          const context = {
+            workspaceId: wsIdObj,
+            credentials: {
+              token: creds.token,
+              owner: conn?.owner || '',
+              repository: conn?.repository || '',
+            },
+          }
+          await executor.execute(action.id, wsIdObj, context)
+        } catch (err) {
+          logger.warn('Worker action failed', {
+            actionId: action.id,
+            err: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
+    }
+  } catch (err) {
+    logger.error('Background worker iteration failed', {
+      err: err instanceof Error ? err.message : String(err),
+    })
   }
 }
 
-async function getAuthorizedUserIdAndWorkspace(req: any, res: any, targetWorkspaceId?: string): Promise<{ userId: string; workspaceId: string } | null> {
-  const authHeader = req.headers['authorization'] || ''
-  const customHeader = req.headers['x-apex-session'] || ''
-  let token = ''
+// -- Routing --
 
-  if (authHeader.startsWith('Bearer ')) {
-    token = authHeader.substring(7)
-  } else if (customHeader) {
-    token = customHeader
-  }
-
-  if (!token) {
-    sendJson(res, { error: 'Authentication required. Missing session token.' }, 401)
-    return null
-  }
-
-  const session = database?.getSession(token)
-  if (!session || new Date(session.expiresAt).getTime() < Date.now()) {
-    sendJson(res, { error: 'Session expired or invalid.' }, 401)
-    return null
-  }
-
-  const userId = session.userId
-  let wsId = targetWorkspaceId || session.workspaceId
-
-  if (wsId) {
-    const isMember = database?.isUserMemberOfWorkspace(userId, wsId)
-    if (!isMember) {
-      sendJson(res, { error: 'Access denied: You do not have membership in this workspace.' }, 403)
-      return null
-    }
-  } else {
-    const memberships = database?.getMembershipsForUser(userId) || []
-    if (memberships.length === 0) {
-      sendJson(res, { error: 'No workspace context found.' }, 403)
-      return null
-    }
-    wsId = memberships[0].workspaceId
-  }
-
-  return { userId, workspaceId: wsId }
-}
-
-// Main Request Handler middleware
 export async function handleApiRequest(req: any, res: any): Promise<boolean> {
   await initApiServer()
-  if (!productService || !productRepository) {
-    sendJson(res, { error: 'Service not initialized' }, 500)
+  if (!productService || !productRepository || !authService) {
+    sendError(res, new Error('Service not initialized'))
     return true
   }
 
@@ -225,262 +417,219 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
   const method = req.method || 'GET'
   const pathname = url.split('?')[0]
 
+  // Per-request correlation ID
+  const requestId = (req.headers['x-request-id'] as string) || SecureIdGenerator.token(8)
+  if (typeof res.setHeader === 'function') res.setHeader('X-Request-Id', requestId)
+  void requestId // currently used for log enrichment only
+
   try {
-    // --- AUTHENTICATION & SESSION ENDPOINTS (Milestone I) ---
+    // -- Auth endpoints (public) --
+
     if (pathname === '/api/auth/signup' && method === 'POST') {
+      const ip = clientIp(req)
+      const limited = authRateLimiter.check(`signup:${ip}`)
+      if (!limited.allowed) {
+        sendError(
+          res,
+          new AppError({ code: 'PROVIDER_RATE_LIMIT_ERROR', message: 'Too many signup attempts' })
+        )
+        return true
+      }
       const body = await getBody(req)
-      const { email, password } = body
-      if (!email || !password) {
-        sendJson(res, { error: 'Missing email or password' }, 400)
-        return true
-      }
-
-      const existingUser = database?.getUserByEmail(email)
-      if (existingUser) {
-        sendJson(res, { error: 'Email already registered' }, 400)
-        return true
-      }
-
-      database?.beginTransaction()
-      try {
-        const userId = `usr-${Math.floor(Math.random() * 1000000)}`
-        const passwordHash = `mock-hash:${password.split('').reverse().join('')}`
-        const user = { id: userId, email, passwordHash, createdAt: new Date().toISOString() }
-
-        // Workspace Onboarding
-        const userSlug = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]+/g, '-')
-        const workspaceId = `ws-${userSlug}`
-        const workspaceName = `${email.split('@')[0]}'s Workspace`
-
-        database?.insertUser(user)
-        await productService?.createWorkspace(workspaceId, workspaceName, userSlug)
-        await productService?.createProject(workspaceId, 'proj-core', 'APEX System Core')
-
-        const membership = {
-          id: `mbr-${Math.floor(Math.random() * 1000000)}`,
-          userId,
-          workspaceId,
-          role: 'owner' as const,
-          createdAt: new Date().toISOString()
-        }
-        database?.insertMembership(membership)
-
-        const sessionId = `sess-${Math.floor(Math.random() * 1000000000)}`
-        const session = {
-          id: sessionId,
-          userId,
-          workspaceId,
-          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString()
-        }
-        database?.insertSession(session)
-
-        await database?.commit()
-
-        sendJson(res, {
-          token: sessionId,
-          user: { id: userId, email },
-          workspace: { id: workspaceId, name: workspaceName, slug: userSlug }
-        })
-      } catch (err) {
-        database?.rollback()
-        throw err
-      }
+      const result = await authService.signup({
+        email: String(body?.email || ''),
+        password: String(body?.password || ''),
+        workspaceName: body?.workspaceName ? String(body.workspaceName) : undefined,
+        workspaceSlug: body?.workspaceSlug ? String(body.workspaceSlug) : undefined,
+      })
+      authRateLimiter.recordSuccess(`signup:${ip}`)
+      sendJson(res, {
+        token: result.sessionId,
+        user: result.user,
+        workspace: result.workspaces[0] || null,
+      })
       return true
     }
 
     if (pathname === '/api/auth/login' && method === 'POST') {
+      const ip = clientIp(req)
+      const limited = authRateLimiter.check(`login:${ip}`)
+      if (!limited.allowed) {
+        sendError(
+          res,
+          new AppError({ code: 'PROVIDER_RATE_LIMIT_ERROR', message: 'Too many login attempts' })
+        )
+        return true
+      }
       const body = await getBody(req)
-      const { email, password } = body
-      if (!email || !password) {
-        sendJson(res, { error: 'Missing email or password' }, 400)
-        return true
-      }
-
-      const user = database?.getUserByEmail(email)
-      if (!user) {
-        sendJson(res, { error: 'Invalid email or password' }, 401)
-        return true
-      }
-
-      const expectedHash = `mock-hash:${password.split('').reverse().join('')}`
-      if (user.passwordHash !== expectedHash) {
-        sendJson(res, { error: 'Invalid email or password' }, 401)
-        return true
-      }
-
-      database?.beginTransaction()
       try {
-        const memberships = database?.getMembershipsForUser(user.id) || []
-        const workspaceId = memberships[0]?.workspaceId || 'ws-default'
-
-        const sessionId = `sess-${Math.floor(Math.random() * 1000000000)}`
-        const session = {
-          id: sessionId,
-          userId: user.id,
-          workspaceId,
-          expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString()
-        }
-        database?.insertSession(session)
-        await database?.commit()
-
-        const ws = await productService?.getWorkspace(workspaceId)
-
+        const result = await authService.login(
+          String(body?.email || ''),
+          String(body?.password || '')
+        )
+        authRateLimiter.recordSuccess(`login:${ip}`)
         sendJson(res, {
-          token: sessionId,
-          user: { id: user.id, email: user.email },
-          workspace: ws ? { id: ws.id, name: ws.name, slug: ws.slug } : null
+          token: result.sessionId,
+          user: result.user,
+          workspace: result.workspaces[0] || null,
         })
       } catch (err) {
-        database?.rollback()
+        authRateLimiter.recordFailure(`login:${ip}`)
         throw err
       }
       return true
     }
 
     if (pathname === '/api/auth/logout' && method === 'POST') {
-      const authHeader = req.headers['authorization'] || ''
-      const customHeader = req.headers['x-apex-session'] || ''
-      let token = ''
-      if (authHeader.startsWith('Bearer ')) {
-        token = authHeader.substring(7)
-      } else if (customHeader) {
-        token = customHeader
-      }
-
-      if (token) {
-        database?.beginTransaction()
-        database?.deleteSession(token)
-        await database?.commit()
-      }
+      const token = getSessionToken(req)
+      if (token) authService.logout(token)
       sendJson(res, { success: true })
       return true
     }
 
     if (pathname === '/api/auth/session' && method === 'GET') {
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res)
-      if (!auth) return true
-
-      const sessionToken = req.headers['x-apex-session'] || (req.headers['authorization'] || '').substring(7)
-      const session = database?.getSession(sessionToken)
-      const userRecord = database?.getActiveState().users?.find((u) => u.id === session?.userId)
-
-      const memberships = database?.getMembershipsForUser(auth.userId) || []
-      const workspaces: any[] = []
-      for (const m of memberships) {
-        const ws = await productService?.getWorkspace(m.workspaceId)
-        if (ws) {
-          workspaces.push({ id: ws.id, name: ws.name, slug: ws.slug })
-        }
+      const token = getSessionToken(req)
+      if (!token) {
+        sendError(
+          res,
+          new AppError({ code: 'AUTHENTICATION_ERROR', message: 'Authentication required' })
+        )
+        return true
       }
-
+      const session = await authService.resolveSession(token)
+      if (!session) {
+        sendError(
+          res,
+          new AppError({ code: 'AUTHENTICATION_ERROR', message: 'Session expired or invalid' })
+        )
+        return true
+      }
+      const user = database?.getUserById(session.userId)
+      if (!user) {
+        sendError(res, new AppError({ code: 'AUTHENTICATION_ERROR', message: 'User not found' }))
+        return true
+      }
       sendJson(res, {
-        user: userRecord ? { id: userRecord.id, email: userRecord.email } : null,
-        workspaces
+        user: { id: user.id, email: user.email },
+        workspaces: authService.listWorkspacesForUser(user.id),
       })
       return true
     }
 
-    // --- PROTECTED API ENDPOINTS (Milestone I) ---
+    // -- Workspaces --
 
-    // 1. GET /api/workspaces
     if (pathname === '/api/workspaces' && method === 'GET') {
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res)
-      if (!auth) return true
-
-      const memberships = database?.getMembershipsForUser(auth.userId) || []
-      const workspaces: any[] = []
-      for (const m of memberships) {
-        const ws = await productService.getWorkspace(m.workspaceId)
-        if (ws) {
-          workspaces.push(ws)
-        }
-      }
-      sendJson(res, workspaces)
-      return true
-    }
-
-    // 2. POST /api/workspaces
-    if (pathname === '/api/workspaces' && method === 'POST') {
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res)
-      if (!auth) return true
-
-      const body = await getBody(req)
-      const { id, name, slug } = body
-      if (!id || !name || !slug) {
-        sendJson(res, { error: 'Missing id, name, or slug' }, 400)
+      const token = getSessionToken(req)
+      if (!token) {
+        sendError(
+          res,
+          new AppError({ code: 'AUTHENTICATION_ERROR', message: 'Authentication required' })
+        )
         return true
       }
-      const ws = await productService.createWorkspace(id, name, slug)
-
-      database?.beginTransaction()
-      const membership = {
-        id: `mbr-${Math.floor(Math.random() * 1000000)}`,
-        userId: auth.userId,
-        workspaceId: id,
-        role: 'owner' as const,
-        createdAt: new Date().toISOString()
+      const session = await authService.resolveSession(token)
+      if (!session) {
+        sendError(
+          res,
+          new AppError({ code: 'AUTHENTICATION_ERROR', message: 'Session expired or invalid' })
+        )
+        return true
       }
-      database?.insertMembership(membership)
-      await database?.commit()
-
+      const ws = authService.listWorkspacesForUser(session.userId)
       sendJson(res, ws)
       return true
     }
 
-    // 3. GET /api/projects
+    if (pathname === '/api/workspaces' && method === 'POST') {
+      const auth = await authenticateAndAuthorize(req, res)
+      if (!auth) return true
+      const body = await getBody(req)
+      const id = String(body?.id || '')
+      const name = String(body?.name || '')
+      const slug = String(body?.slug || '')
+      if (!id || !name || !slug) {
+        sendError(res, new ValidationError('Missing id, name, or slug'))
+        return true
+      }
+      const ws = await productService.createWorkspace(id, name, slug)
+      // Grant membership to creator
+      database!.beginTransaction()
+      try {
+        database!.insertMembership({
+          id: `mbr-${SecureIdGenerator.token(12)}`,
+          userId: auth.userId,
+          workspaceId: id,
+          role: 'owner',
+          createdAt: new Date().toISOString(),
+        })
+        await database!.commit()
+      } catch (err) {
+        database!.rollback()
+        throw err
+      }
+      sendJson(res, { id: ws.id, name: ws.name, slug: ws.slug })
+      return true
+    }
+
+    // -- Projects --
+
     if (pathname === '/api/projects' && method === 'GET') {
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
       const projects = await productService.getProjects(auth.workspaceId)
       sendJson(res, projects)
       return true
     }
 
-    // 4. POST /api/projects
     if (pathname === '/api/projects' && method === 'POST') {
       const body = await getBody(req)
-      const { workspaceId, id, name } = body
-      if (!workspaceId || !id || !name) {
-        sendJson(res, { error: 'Missing workspaceId, id, or name' }, 400)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      const id = String(body?.id || '')
+      const name = String(body?.name || '')
+      if (!id || !name) {
+        sendError(res, new ValidationError('Missing id or name'))
         return true
       }
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
-      if (!auth) return true
-
-      const project = await productService.createProject(auth.workspaceId, id, name)
-      sendJson(res, project)
+      const proj = await productService.createProject(auth.workspaceId, id, name)
+      sendJson(res, proj)
       return true
     }
 
-    // 5. GET /api/projects/:id/repository
+    // -- Repository connection --
+
     const repoMatch = pathname.match(/^\/api\/projects\/([^/]+)\/repository$/)
     if (repoMatch && method === 'GET') {
       const projectId = repoMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
       const conn = await productService.getRepositoryConnection(auth.workspaceId, projectId)
       sendJson(res, conn || { status: 'not_connected' })
       return true
     }
-
-    // 6. POST /api/projects/:id/repository
     if (repoMatch && method === 'POST') {
       const projectId = repoMatch[1]
       const body = await getBody(req)
-      const { workspaceId, provider, owner, repository, defaultBranch } = body
-      if (!workspaceId || !provider || !owner || !repository || !defaultBranch) {
-        sendJson(res, { error: 'Missing fields' }, 400)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      const provider = String(body?.provider || '')
+      const owner = String(body?.owner || '')
+      const repository = String(body?.repository || '')
+      const defaultBranch = String(body?.defaultBranch || '')
+      if (!provider || !owner || !repository || !defaultBranch) {
+        sendError(res, new ValidationError('Missing required fields'))
         return true
       }
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
-      if (!auth) return true
-
+      if (provider !== 'github') {
+        sendError(res, new ValidationError('Only github provider is currently supported'))
+        return true
+      }
       const conn = await productService.connectRepository(auth.workspaceId, projectId, {
-        provider,
+        provider: 'github',
         owner,
         repository,
         defaultBranch,
@@ -489,366 +638,274 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
       return true
     }
 
-    // 7. POST /api/projects/:id/analysis
+    // -- Analysis --
+
     const analysisMatch = pathname.match(/^\/api\/projects\/([^/]+)\/analysis$/)
     if (analysisMatch && method === 'POST') {
       const projectId = analysisMatch[1]
       const body = await getBody(req)
-      const { workspaceId } = body
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
       if (!auth) return true
-
       const run = await productService.runAnalysis(auth.workspaceId, projectId)
       sendJson(res, run)
       return true
     }
 
-    // 8. GET /api/projects/:id/findings
+    // -- Findings & Recommendations --
+
     const findingsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/findings$/)
     if (findingsMatch && method === 'GET') {
       const projectId = findingsMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
-      const findings = await productService.getFindings(auth.workspaceId, projectId)
-      sendJson(res, findings)
+      sendJson(res, await productService.getFindings(auth.workspaceId, projectId))
       return true
     }
-
-    // 9. GET /api/projects/:id/recommendations
     const recsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/recommendations$/)
     if (recsMatch && method === 'GET') {
       const projectId = recsMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
-      const recs = await productService.getRecommendations(auth.workspaceId, projectId)
-      sendJson(res, recs)
+      sendJson(res, await productService.getRecommendations(auth.workspaceId, projectId))
       return true
     }
 
-    // 10. POST /api/actions/:id/approve
+    // -- Actions --
+
     const approveMatch = pathname.match(/^\/api\/actions\/([^/]+)\/approve$/)
     if (approveMatch && method === 'POST') {
       const body = await getBody(req)
-      const { workspaceId, projectId, recommendationId, proposedActionId } = body
-      if (!workspaceId || !projectId || !recommendationId || !proposedActionId) {
-        sendJson(res, { error: 'Missing fields' }, 400)
+      const workspaceId = String(body?.workspaceId || '')
+      const projectId = String(body?.projectId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      const recommendationId = String(body?.recommendationId || '')
+      const proposedActionId = String(body?.proposedActionId || '')
+      if (!projectId || !recommendationId || !proposedActionId) {
+        sendError(res, new ValidationError('Missing required fields'))
         return true
       }
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
-      if (!auth) return true
-
-      const action = await productService.approveAction(auth.workspaceId, projectId, recommendationId, proposedActionId)
+      const action = await productService.approveAction(
+        auth.workspaceId,
+        projectId,
+        recommendationId,
+        proposedActionId
+      )
       sendJson(res, action)
       return true
     }
-
-    // 11. GET /api/actions/:id/executions
     const execsMatch = pathname.match(/^\/api\/actions\/([^/]+)\/executions$/)
     if (execsMatch && method === 'GET') {
       const actionId = execsMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
-      const execs = await productService.getExecutions(auth.workspaceId, actionId)
-      sendJson(res, execs)
+      sendJson(res, await productService.getExecutions(auth.workspaceId, actionId))
       return true
     }
-
-    // 12. GET /api/actions/:id
     const actionMatch = pathname.match(/^\/api\/actions\/([^/]+)$/)
     if (actionMatch && method === 'GET') {
       const actionId = actionMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
       const action = await productService.getAction(auth.workspaceId, actionId)
-      sendJson(res, action || { error: 'Action not found' }, action ? 200 : 404)
+      sendJson(res, action || null, action ? 200 : 404)
       return true
     }
 
-    // 13. GET /api/projects/:id/activity
+    // -- Activity / Decisions / Outcomes --
+
     const activityMatch = pathname.match(/^\/api\/projects\/([^/]+)\/activity$/)
     if (activityMatch && method === 'GET') {
       const projectId = activityMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
-      const activityLog = await productService.getActivityLog(auth.workspaceId, projectId)
-      sendJson(res, activityLog)
+      sendJson(res, await productService.getActivityLog(auth.workspaceId, projectId))
       return true
     }
-
-    // 14. GET /api/recommendations/:id/reasoning
-    const reasoningMatch = pathname.match(/^\/api\/recommendations\/([^/]+)\/reasoning$/)
-    if (reasoningMatch && method === 'GET') {
-      const recId = reasoningMatch[1]
-      const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
-      if (!auth) return true
-
-      const rec = await productRepository.getRecommendationByIdAndWorkspace(recId, createWorkspaceId(auth.workspaceId))
-      if (!rec) {
-        sendJson(res, { error: 'Recommendation not found' }, 404)
-        return true
-      }
-
-      const mockProvider = new MockLLMProvider(JSON.stringify({
-        rationale: "Enabling this reduces codebase technical debt and secures release velocity.",
-        impactExplanation: "Uncaught failures leak directly to our client interfaces causing user churn.",
-        tradeoffs: [
-          "Improves reliability gates",
-          "Slightly increases setup and build compilation overhead"
-        ],
-        alternatives: [
-          {
-            label: "Option A — Enable globally",
-            effort: "high",
-            impact: "critical",
-            description: "Enforce strict configuration rules globally across all modules."
-          },
-          {
-            label: "Option B — Enable incrementally",
-            effort: "low",
-            impact: "high",
-            description: "Configure rules incrementally for new subfolders only."
-          }
-        ],
-        knowns: [
-          "tsconfig.json parameters are disabled",
-          "CI workflow lacks validation"
-        ],
-        inferences: [
-          "Post-release support burden is likely elevated"
-        ],
-        unknowns: [
-          "Telemetry and client-side error crash rate metrics are currently unmeasured"
-        ],
-        clarifyingQuestions: [
-          "How frequently do you release code to production?",
-          "Do you have a dedicated manual QA verification team step?"
-        ],
-        confidence: 0.95,
-        recommendedDecision: "Adopt Option B (Incremental setup) to maximize immediate ROI."
-      }))
-
-      const reasoningService = new ProductReasoningService(productRepository, mockProvider)
-      let reasoning = await productRepository.getAIProductReasoning(recId, createWorkspaceId(auth.workspaceId))
-
-      if (!reasoning) {
-        reasoning = await reasoningService.generateReasoning(rec as any)
-      }
-      sendJson(res, reasoning)
-      return true
-    }
-
-    // 15. POST /api/recommendations/:id/reasoning (Refinement loop!)
-    if (reasoningMatch && method === 'POST') {
-      const recId = reasoningMatch[1]
-      const body = await getBody(req)
-      const { workspaceId, projectContext } = body
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
-      if (!auth) return true
-
-      const rec = (await productRepository.getRecommendationByIdAndWorkspace(recId, createWorkspaceId(auth.workspaceId))) as any
-      if (!rec) {
-        sendJson(res, { error: 'Recommendation not found' }, 404)
-        return true
-      }
-
-      // Dynamic recalculation: update priority score based on feedback! (Item 6)
-      if (projectContext && (projectContext.toLowerCase().includes('daily') || projectContext.toLowerCase().includes('hourly'))) {
-        rec.priorityScore = Math.round(rec.priorityScore * 1.5 * 10) / 10
-        await productRepository.saveRecommendation(rec, (rec as any).projectId)
-      }
-
-      const mockProvider = new MockLLMProvider(JSON.stringify({
-        rationale: "Enabling this reduces codebase technical debt and secures release velocity.",
-        impactExplanation: `Refined by user context: ${projectContext}. Addressing this secures active production deployment safety.`,
-        tradeoffs: [
-          "Improves reliability gates",
-          "Slightly increases build time"
-        ],
-        alternatives: [
-          {
-            label: "Option A — Enable globally",
-            effort: "high",
-            impact: "critical",
-            description: "Enforce strict configuration rules globally."
-          }
-        ],
-        knowns: [
-          "TS parameters are disabled"
-        ],
-        inferences: [
-          "Post-release support burden is likely elevated"
-        ],
-        unknowns: [
-          "Telemetry is currently unmeasured"
-        ],
-        clarifyingQuestions: [],
-        confidence: 0.98,
-        recommendedDecision: "Adopt immediately as requested by context."
-      }))
-
-      const reasoningService = new ProductReasoningService(productRepository, mockProvider)
-      const reasoning = await reasoningService.generateReasoning(rec as any, projectContext)
-      sendJson(res, reasoning)
-      return true
-    }
-
-    // 16. GET /api/projects/:id/decision-metrics
     const metricsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/decision-metrics$/)
     if (metricsMatch && method === 'GET') {
       const projectId = metricsMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
-      const metrics = await productService.getDecisionQualityMetrics(auth.workspaceId, projectId)
-      sendJson(res, metrics)
+      sendJson(res, await productService.getDecisionQualityMetrics(auth.workspaceId, projectId))
       return true
     }
-
-    // 17. GET /api/projects/:id/outcomes
     const outcomesMatch = pathname.match(/^\/api\/projects\/([^/]+)\/outcomes$/)
     if (outcomesMatch && method === 'GET') {
       const projectId = outcomesMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
-      const outcomes = await productService.getOutcomesByProject(auth.workspaceId, projectId)
-      sendJson(res, outcomes)
+      sendJson(res, await productService.getOutcomesByProject(auth.workspaceId, projectId))
       return true
     }
 
-    // 18. POST /api/outcomes/verify
     if (pathname === '/api/outcomes/verify' && method === 'POST') {
       const body = await getBody(req)
-      const { workspaceId, outcomeId, filesAfterChange } = body
-      if (!workspaceId || !outcomeId || !filesAfterChange) {
-        sendJson(res, { error: 'Missing workspaceId, outcomeId, or filesAfterChange' }, 400)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      const outcomeId = String(body?.outcomeId || '')
+      const filesAfterChange = body?.filesAfterChange
+      if (!outcomeId || !filesAfterChange || typeof filesAfterChange !== 'object') {
+        sendError(res, new ValidationError('Missing outcomeId or filesAfterChange'))
         return true
       }
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
-      if (!auth) return true
-
-      const verified = await productService.verifyOutcome(outcomeId, auth.workspaceId, filesAfterChange)
-      sendJson(res, verified)
+      sendJson(
+        res,
+        await productService.verifyOutcome(outcomeId, auth.workspaceId, filesAfterChange)
+      )
       return true
     }
-
-    // 19. POST /api/outcomes/create
     if (pathname === '/api/outcomes/create' && method === 'POST') {
       const body = await getBody(req)
-      const { workspaceId, projectId, recommendationId, actionId, executionId } = body
-      if (!workspaceId || !projectId || !recommendationId) {
-        sendJson(res, { error: 'Missing fields' }, 400)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      const projectId = String(body?.projectId || '')
+      const recommendationId = String(body?.recommendationId || '')
+      const actionId = body?.actionId ? String(body.actionId) : undefined
+      const executionId = body?.executionId ? String(body.executionId) : undefined
+      if (!projectId || !recommendationId) {
+        sendError(res, new ValidationError('Missing projectId or recommendationId'))
         return true
       }
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
-      if (!auth) return true
-
-      const outcome = await productService.createOutcome(recommendationId, auth.workspaceId, projectId, actionId, executionId)
-      sendJson(res, outcome)
+      sendJson(
+        res,
+        await productService.createOutcome(
+          recommendationId,
+          auth.workspaceId,
+          projectId,
+          actionId,
+          executionId
+        )
+      )
       return true
     }
 
-    // 20. POST /api/projects/:id/compile-profile
+    // -- H6 / H7 --
+
     const compileProfileMatch = pathname.match(/^\/api\/projects\/([^/]+)\/compile-profile$/)
     if (compileProfileMatch && method === 'POST') {
       const projectId = compileProfileMatch[1]
       const body = await getBody(req)
-      const { workspaceId } = body
-      if (!workspaceId) {
-        sendJson(res, { error: 'Missing workspaceId' }, 400)
-        return true
-      }
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
       if (!auth) return true
-
-      const profile = await productService.compileAdaptiveProfile(auth.workspaceId, projectId)
-      sendJson(res, profile)
+      sendJson(res, await productService.compileAdaptiveProfile(auth.workspaceId, projectId))
       return true
     }
-
-    // 21. GET /api/projects/:id/profile
     const profileMatch = pathname.match(/^\/api\/projects\/([^/]+)\/profile$/)
     if (profileMatch && method === 'GET') {
       const projectId = profileMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
       const profile = await productService.getAdaptiveProfile(auth.workspaceId, projectId)
-      sendJson(res, profile || { error: 'Profile not found' }, profile ? 200 : 404)
+      sendJson(res, profile || null, profile ? 200 : 404)
       return true
     }
-
-    // 22. GET /api/projects/:id/learning-signals
     const signalsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/learning-signals$/)
     if (signalsMatch && method === 'GET') {
       const projectId = signalsMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
-      const signals = await productService.getLearningSignals(auth.workspaceId, projectId)
-      sendJson(res, signals)
+      sendJson(res, await productService.getLearningSignals(auth.workspaceId, projectId))
       return true
     }
-
-    // 23. GET /api/recommendations/:id/calibration
     const calibrationMatch = pathname.match(/^\/api\/recommendations\/([^/]+)\/calibration$/)
     if (calibrationMatch && method === 'GET') {
       const recId = calibrationMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
       const projectId = getQueryParam(url, 'projectId')
       if (!workspaceId || !projectId) {
-        sendJson(res, { error: 'Missing workspaceId or projectId' }, 400)
+        sendError(res, new ValidationError('Missing workspaceId or projectId'))
         return true
       }
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
       if (!auth) return true
-
-      const calibration = await productService.getPriorityCalibration(auth.workspaceId, projectId, recId)
-      sendJson(res, calibration)
+      sendJson(res, await productService.getPriorityCalibration(auth.workspaceId, projectId, recId))
       return true
     }
-
-    // 24. GET /api/projects/:id/product-value
     const valMatch = pathname.match(/^\/api\/projects\/([^/]+)\/product-value$/)
     if (valMatch && method === 'GET') {
       const projectId = valMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
-      const auth = await getAuthorizedUserIdAndWorkspace(req, res, workspaceId || undefined)
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-
-      const metrics = await productService.getProductValidationMetrics(auth.workspaceId, projectId)
-      sendJson(res, metrics)
+      sendJson(res, await productService.getProductValidationMetrics(auth.workspaceId, projectId))
       return true
     }
 
+    // -- H4 Reasoning --
+
+    const reasoningMatch = pathname.match(/^\/api\/recommendations\/([^/]+)\/reasoning$/)
+    if (reasoningMatch && method === 'GET') {
+      const recId = reasoningMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      const rec = await productRepository.getRecommendationByIdAndWorkspace(recId, wsId)
+      if (!rec) {
+        sendError(res, new NotFoundError('Recommendation not found'))
+        return true
+      }
+      const reasoningService = new ProductReasoningService(productRepository, llmProvider!)
+      let reasoning = await productRepository.getAIProductReasoning(recId, wsId)
+      if (!reasoning) {
+        // The persisted Recommendation may not carry the RichRecommendation
+        // decoration. The reasoning service tolerates either shape, but the
+        // // eslint-disable @typescript-eslint/no-explicit-any above
+        // acknowledges the dynamic shape. We construct a minimal RichRecommendation
+        // // from the persisted row so the type contract holds without `as any`.
+        reasoning = await reasoningService.generateReasoning(
+          buildRichRecommendationFromPersisted(rec)
+        )
+      }
+      sendJson(res, reasoning)
+      return true
+    }
+    if (reasoningMatch && method === 'POST') {
+      const recId = reasoningMatch[1]
+      const body = await getBody(req)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      const projectContext = body?.projectContext ? String(body.projectContext) : undefined
+      const wsId = createWorkspaceId(auth.workspaceId)
+      const rec = await productRepository.getRecommendationByIdAndWorkspace(recId, wsId)
+      if (!rec) {
+        sendError(res, new NotFoundError('Recommendation not found'))
+        return true
+      }
+      const reasoningService = new ProductReasoningService(productRepository, llmProvider!)
+      const reasoning = await reasoningService.generateReasoning(
+        buildRichRecommendationFromPersisted(rec),
+        projectContext
+      )
+      sendJson(res, reasoning)
+      return true
+    }
+
+    // No matching route
+    sendError(res, new NotFoundError('Route not found'))
+    return true
   } catch (err) {
-    console.error('[API Error]', err)
-    sendJson(res, { error: err instanceof Error ? err.message : String(err) }, 500)
+    logger.error('API request failed', { err: err instanceof Error ? err.message : String(err) })
+    if (err instanceof AppError) {
+      sendError(res, err)
+    } else {
+      sendError(res, new Error('Internal server error'))
+    }
     return true
   }
-
-  return false // let other middlewares process
 }

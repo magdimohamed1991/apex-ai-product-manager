@@ -4,6 +4,13 @@ export type EffortLevel = 'low' | 'medium' | 'high'
 
 export type RecommendationOrigin = 'insight' | 'finding'
 
+/**
+ * Typed recommendation category used by H6 adaptive learning.
+ * Strategies MUST populate this field so category-level learning
+ * is based on declared metadata, not brittle title-substring matching.
+ */
+export type RecommendationCategory = 'TESTING' | 'CI_CD' | 'TYPESCRIPT' | 'DOCKER'
+
 export interface ProposedAction {
   id: string
   title: string
@@ -25,6 +32,13 @@ export interface Recommendation {
   findingIds: string[]
   proposedActions: ProposedAction[]
   createdAt: Date
+  /**
+   * Typed category. Optional for backward compatibility with older
+   * recommendation records but REQUIRED for any recommendation that
+   * participates in H6 adaptive learning. Strategies are responsible
+   * for populating this field on creation.
+   */
+  category?: RecommendationCategory
 }
 
 /**
@@ -72,5 +86,6 @@ export function createRecommendation(
     findingIds: data.findingIds || [],
     proposedActions: data.proposedActions || [],
     createdAt: data.createdAt ?? new Date(),
+    category: data.category,
   }
 }

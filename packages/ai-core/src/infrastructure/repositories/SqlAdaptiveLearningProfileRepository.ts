@@ -26,9 +26,14 @@ function mapSignalFromDb(s: any): LearningSignal {
 export class SqlAdaptiveLearningProfileRepository implements AdaptiveLearningProfileRepository {
   constructor(private readonly db: DurableFileDatabase) {}
 
-  async getProfile(workspaceId: WorkspaceId, projectId: string): Promise<AdaptiveLearningProfile | null> {
+  async getProfile(
+    workspaceId: WorkspaceId,
+    projectId: string
+  ): Promise<AdaptiveLearningProfile | null> {
     const state = this.db.getActiveState()
-    const found = state.learningProfiles?.find((p) => p.workspaceId === workspaceId && p.projectId === projectId)
+    const found = state.learningProfiles?.find(
+      (p) => p.workspaceId === workspaceId && p.projectId === projectId
+    )
     if (!found) return null
     return mapProfileFromDb(found)
   }
@@ -63,14 +68,11 @@ export class SqlAdaptiveLearningProfileRepository implements AdaptiveLearningPro
     try {
       const state = this.db.getActiveState()
       if (!state.learningSignals) state.learningSignals = []
-      
-      const { workspaceId, projectId } = signals[0]
-      // filter out old signals for this scope to avoid duplication and maintain auditable updates
-      state.learningSignals = state.learningSignals.filter(
-        (s) => s.workspaceId !== workspaceId || s.projectId !== projectId
-      )
-      
+
+      // Upsert by signal ID. Repeated compilation with unchanged
+      // source observations MUST NOT create duplicate signals.
       for (const sig of signals) {
+        state.learningSignals = state.learningSignals.filter((s) => s.id !== sig.id)
         state.learningSignals.push(JSON.parse(JSON.stringify(sig)))
       }
       await this.db.commit()

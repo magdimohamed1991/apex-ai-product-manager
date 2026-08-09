@@ -25,6 +25,7 @@ export class AddTypeScriptStrategy implements RecommendationStrategy {
       confidence: 0.9,
       insightIds: [insight.id],
       findingIds: [],
+      category: 'TYPESCRIPT',
       proposedActions: [
         {
           id: `${insight.id}:add-tsconfig`,

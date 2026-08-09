@@ -25,6 +25,7 @@ export class AddCIStrategy implements RecommendationStrategy {
       confidence: 0.95,
       insightIds: [insight.id],
       findingIds: [],
+      category: 'CI_CD',
       proposedActions: [
         {
           id: `${insight.id}:add-github-actions`,

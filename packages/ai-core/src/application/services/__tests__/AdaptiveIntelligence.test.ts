@@ -29,7 +29,7 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
   let productRepository: SqlProductRepository
   let outcomeRepository: SqlRecommendationOutcomeRepository
   let profileRepository: SqlAdaptiveLearningProfileRepository
-  
+
   let actionAppService: ActionApplicationService
   let pipeline: RepositoryDiscoveryPipeline
   let orchestrator: PipelineActionOrchestrator
@@ -49,18 +49,18 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
 
     database = new DurableFileDatabase(TEST_DB_DIR)
     await database.initialize()
-    
+
     actionRepository = new SqlActionRepository(database)
     productRepository = new SqlProductRepository(database)
     outcomeRepository = new SqlRecommendationOutcomeRepository(database)
     profileRepository = new SqlAdaptiveLearningProfileRepository(database)
-    
+
     actionAppService = new ActionApplicationService(actionRepository)
     pipeline = new RepositoryDiscoveryPipeline()
     orchestrator = new PipelineActionOrchestrator(pipeline, actionAppService)
     credentialProvider = new EnvCredentialProvider()
     intelligenceService = new ProductIntelligenceService()
-    
+
     outcomeService = new RecommendationOutcomeService(
       outcomeRepository,
       productRepository,
@@ -98,7 +98,7 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
     githubAdapter = new GitHubAdapter()
     adapterRegistry.clear()
     adapterRegistry.register(githubAdapter)
-    GitHubAdapter.mockExternalIssues.clear()
+    GitHubAdapter.resetMockState()
   })
 
   describe('1. Adaptive Profile Compiler (Item 1 & Item 7)', () => {
@@ -115,14 +115,19 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
       // Generate initial recommendations
       await productService.runAnalysis('ws-adaptive-a', 'proj-1')
       const recs = await productService.getRecommendations('ws-adaptive-a', 'proj-1')
-      
+
       // Approve TESTING recommendations
       const testingRec = recs.find((r) => r.title.toLowerCase().includes('test'))!
-      await productService.approveAction('ws-adaptive-a', 'proj-1', testingRec.id, testingRec.proposedActions[0].id)
+      await productService.approveAction(
+        'ws-adaptive-a',
+        'proj-1',
+        testingRec.id,
+        testingRec.proposedActions[0].id
+      )
 
       // Compile Profile
       const profile = await productService.compileAdaptiveProfile('ws-adaptive-a', 'proj-1')
-      
+
       expect(profile.workspaceId).toBe(WORKSPACE_A)
       expect(profile.projectId).toBe('proj-1')
       expect(profile.totalDecisionsObserved).toBe(1)
@@ -145,14 +150,19 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
 
       await productService.runAnalysis('ws-adaptive-a', 'proj-1')
       const recs = await productService.getRecommendations('ws-adaptive-a', 'proj-1')
-      
+
       // Approve 1 Testing recommendation (total testing observation = 1, very small sample)
       const testingRec = recs.find((r) => r.title.toLowerCase().includes('test'))!
-      await productService.approveAction('ws-adaptive-a', 'proj-1', testingRec.id, testingRec.proposedActions[0].id)
+      await productService.approveAction(
+        'ws-adaptive-a',
+        'proj-1',
+        testingRec.id,
+        testingRec.proposedActions[0].id
+      )
 
       const profile = await productService.compileAdaptiveProfile('ws-adaptive-a', 'proj-1')
       const testingCoef = profile.categoryCoefficients.find((c) => c.category === 'TESTING')!
-      
+
       // Because n=1, confidence is 1 / 11 = 0.09 (very low!), meaning the multiplier remains extremely neutral and safe
       expect(testingCoef.pmCalibrationWeight).toBeLessThan(1.05) // Safe multiplier limit preventing overfitting!
     })
@@ -173,7 +183,10 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
       const recs = await productService.getRecommendations('ws-adaptive-a', 'proj-1')
 
       // Decline/ignore TS configurations to deflate its adoption weight
-      const tsRec = recs.find((r) => r.title.toLowerCase().includes('typescript') || r.title.toLowerCase().includes('type'))!
+      const tsRec = recs.find(
+        (r) =>
+          r.title.toLowerCase().includes('typescript') || r.title.toLowerCase().includes('type')
+      )!
       tsRec.priority = 'critical' // Set objective risk explicitly to critical
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(tsRec as any).priorityScore = 9.5
@@ -194,21 +207,27 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
             executionSuccessRate: 1.0,
             outcomeVerifiedRate: 0.0,
             pmCalibrationWeight: 0.5, // Deeply deflated weight multiplier
-          }
+          },
         ],
         biasAdjustments: { overPrioritizedLowEffort: false, favoredHighImpact: false },
       }
       await profileRepository.saveProfile(adverseProfile)
 
       // Calibrate
-      const calibration = await productService.getPriorityCalibration('ws-adaptive-a', 'proj-1', tsRec.id)
-      
+      const calibration = await productService.getPriorityCalibration(
+        'ws-adaptive-a',
+        'proj-1',
+        tsRec.id
+      )
+
       expect(calibration.baseScore).toBe(9.5) // Canonical base score remains intact!
       expect(calibration.preferenceMultiplier).toBe(0.5)
-      
+
       // Preservation of Objective Risk guard: critical must not drop below 8.5 safety floor
       expect(calibration.calibratedScore).toBe(8.5)
-      expect(calibration.explanation).toContain('Safety floor was explicitly enforced to preserve critical objective risk')
+      expect(calibration.explanation).toContain(
+        'Safety floor was explicitly enforced to preserve critical objective risk'
+      )
     })
   })
 
@@ -255,13 +274,20 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
       await productService.runAnalysis('ws-adaptive-a', 'proj-1')
       const recs = await productService.getRecommendations('ws-adaptive-a', 'proj-1')
       const testingRec = recs.find((r) => r.title.toLowerCase().includes('test'))!
-      await productService.approveAction('ws-adaptive-a', 'proj-1', testingRec.id, testingRec.proposedActions[0].id)
+      await productService.approveAction(
+        'ws-adaptive-a',
+        'proj-1',
+        testingRec.id,
+        testingRec.proposedActions[0].id
+      )
 
       // Run profile compiler twice
       const run1 = await productService.compileAdaptiveProfile('ws-adaptive-a', 'proj-1')
       const run2 = await productService.compileAdaptiveProfile('ws-adaptive-a', 'proj-1')
 
-      expect(run1.categoryCoefficients[0].pmCalibrationWeight).toEqual(run2.categoryCoefficients[0].pmCalibrationWeight)
+      expect(run1.categoryCoefficients[0].pmCalibrationWeight).toEqual(
+        run2.categoryCoefficients[0].pmCalibrationWeight
+      )
       expect(run1.PMPreferences).toEqual(run2.PMPreferences)
     })
   })
@@ -282,15 +308,28 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
 
       // Approve 1 recommendation
       const testingRec = recs.find((r) => r.title.toLowerCase().includes('test'))!
-      await productService.approveAction('ws-adaptive-a', 'proj-1', testingRec.id, testingRec.proposedActions[0].id)
+      await productService.approveAction(
+        'ws-adaptive-a',
+        'proj-1',
+        testingRec.id,
+        testingRec.proposedActions[0].id
+      )
 
       // Evaluate
       const metrics = await productService.getProductValidationMetrics('ws-adaptive-a', 'proj-1')
 
-      expect(metrics.decisionQuality).toBeGreaterThan(0) // Acceptance rate verified
-      expect(metrics.relevance).toBeGreaterThan(0) // Category relevance verified
-      expect(metrics.businessUtility).toBeGreaterThan(0) // Business utility verified
-      expect(metrics.recommendationUtility).toBeGreaterThan(0) // Multiplier verified
+      // H7 — every metric now carries an explicit epistemic state. We assert
+      // that the observation is properly recorded and not synthesized.
+      expect(metrics.decisionAcceptanceRate.value).not.toBeNull()
+      expect(metrics.decisionAcceptanceRate.value!).toBeGreaterThan(0)
+      expect(metrics.decisionAcceptanceRate.epistemicState).toBe('observed')
+      expect(metrics.decisionAcceptanceRate.observationCount).toBeGreaterThan(0)
+      // No synthetic "business utility" — that metric is no longer exposed.
+      expect((metrics as unknown as { businessUtility?: unknown }).businessUtility).toBeUndefined()
+      // Latency is unavailable until the new PMDecisionTelemetry stream is in use.
+      expect(metrics.measuredDecisionLatencySeconds.epistemicState).toBe('unavailable')
+      // Confidence bucket is correct
+      expect(metrics.confidence.bucket).toBeDefined()
     })
   })
 })

@@ -23,7 +23,7 @@ describe('ActionExecutionWorker — Milestone C: Worker Polling & Background Dis
 
     adapterRegistry.clear()
     adapterRegistry.register(githubAdapter)
-    GitHubAdapter.mockExternalIssues.clear()
+    GitHubAdapter.resetMockState()
   })
 
   const baseInput = {
@@ -73,7 +73,7 @@ describe('ActionExecutionWorker — Milestone C: Worker Polling & Background Dis
     await repository.save(actionB)
 
     const context = { workspaceId: WORKSPACE_A, credentials: { token: 'valid-token' } }
-    
+
     // Discover ready actions
     const discoverable = await repository.getPendingActionsAndWorkspace(WORKSPACE_A)
     expect(discoverable.length).toBe(1)

@@ -1,15 +1,14 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from 'react'
 import { DashboardPage } from './features/dashboard/page'
+import type { Workspace } from './features/dashboard/types'
 
 // Intercept global fetch to transparently inject the session token into all requests (Item I.1 & Item 17)
 const originalFetch = window.fetch
 window.fetch = async (input, init) => {
   const token = localStorage.getItem('apex_session_token')
   const headers = new Headers(init?.headers || {})
-  
+
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`)
   }
@@ -29,8 +28,8 @@ window.fetch = async (input, init) => {
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem('apex_session_token'))
   const [user, setUser] = useState<{ id: string; email: string } | null>(null)
-  const [workspaces, setWorkspaces] = useState<any[]>([])
-  
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+
   // Auth view: 'login' | 'signup'
   const [authMode, setAuthView] = useState<'login' | 'signup'>('login')
   const [email, setEmail] = useState('')
@@ -44,9 +43,11 @@ export default function App() {
   const [repoOwner, setRepoOwner] = useState('magdimohamed1991')
   const [repoName, setRepoName] = useState('apex-ai-product-manager')
   const [repoBranch, setRepoBranch] = useState('arena/019fe224-apex-ai-product-manager')
-  
+
   // Analysis live progression (Item I.5)
-  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'queued' | 'scanning' | 'analyzing' | 'reasoning' | 'ready' | 'failed'>('idle')
+  const [analysisStatus, setAnalysisStatus] = useState<
+    'idle' | 'queued' | 'scanning' | 'analyzing' | 'reasoning' | 'ready' | 'failed'
+  >('idle')
   const [analysisError, setAnalysisError] = useState<string | null>(null)
 
   // Listen to session expiry events
@@ -63,7 +64,7 @@ export default function App() {
   const checkSession = async (currToken: string) => {
     try {
       const res = await originalFetch('/api/auth/session', {
-        headers: { 'Authorization': `Bearer ${currToken}` }
+        headers: { Authorization: `Bearer ${currToken}` },
       })
       if (res.ok) {
         const data = await res.json()
@@ -96,14 +97,14 @@ export default function App() {
       const res = await originalFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password }),
       })
       const data = await res.json()
       if (res.ok) {
         localStorage.setItem('apex_session_token', data.token)
         setToken(data.token)
         setUser(data.user)
-        
+
         if (authMode === 'signup') {
           // New user signup triggers onboarding workflow
           setOnboardingStep(1)
@@ -125,7 +126,7 @@ export default function App() {
   const startAnalysisProgress = async () => {
     setAnalysisStatus('queued')
     setAnalysisError(null)
-    
+
     // Simulate progression timings exactly matching server confirms completion
     setTimeout(() => setAnalysisStatus('scanning'), 1000)
     setTimeout(() => setAnalysisStatus('analyzing'), 2500)
@@ -138,8 +139,8 @@ export default function App() {
         body: JSON.stringify({
           workspaceId: workspaces[0]?.id || `ws-${email.split('@')[0].toLowerCase()}`,
           id: 'proj-core',
-          name: projectName
-        })
+          name: projectName,
+        }),
       })
       await pRes.json()
 
@@ -152,14 +153,14 @@ export default function App() {
           owner: repoOwner,
           repository: repoName,
           defaultBranch: repoBranch,
-        })
+        }),
       })
       await rRes.json()
 
       // Run analysis
       const runRes = await fetch(`/api/projects/proj-core/analysis`, {
         method: 'POST',
-        body: JSON.stringify({ workspaceId: workspaces[0]?.id })
+        body: JSON.stringify({ workspaceId: workspaces[0]?.id }),
       })
       const runData = await runRes.json()
 
@@ -171,7 +172,7 @@ export default function App() {
         setAnalysisStatus('failed')
         setAnalysisError(runData.error || 'Repository analysis pipeline aborted.')
       }
-    } catch (err) {
+    } catch {
       setAnalysisStatus('failed')
       setAnalysisError('Network failure occurred during codebase cloner operations.')
     }
@@ -184,22 +185,31 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6 font-sans">
         <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-2xl p-8 flex flex-col gap-6 shadow-2xl">
-          
           {/* Welcome Step */}
           {onboardingStep === 1 && (
             <div className="flex flex-col gap-5">
               <div className="flex items-center gap-2">
-                <span className="text-2xl font-black bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">APEX ONBOARDING</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">STEP 1/3</span>
+                <span className="text-2xl font-black bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+                  APEX ONBOARDING
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                  STEP 1/3
+                </span>
               </div>
-              <h2 className="text-xl font-bold text-white">Welcome {user?.email} to your APEX Product Manager Workspace</h2>
+              <h2 className="text-xl font-bold text-white">
+                Welcome {user?.email} to your APEX Product Manager Workspace
+              </h2>
               <p className="text-sm text-slate-400 leading-relaxed">
-                APEX scans your codebase configurations to produce objective, trace-backed recommendations on testing, linting parameters, Docker, and CI rules.
+                APEX scans your codebase configurations to produce objective, trace-backed
+                recommendations on testing, linting parameters, Docker, and CI rules.
               </p>
               <div className="bg-indigo-950/20 rounded-xl p-4 border border-indigo-500/10 text-xs flex flex-col gap-2 text-slate-400">
                 <strong className="text-white block">🔎 What APEX will inspect:</strong>
                 <div>• Static configurations: tsconfig, workflows, Dockerfile</div>
-                <div>• Zero active production codebase modification without explicit user execution click!</div>
+                <div>
+                  • Zero active production codebase modification without explicit user execution
+                  click!
+                </div>
               </div>
               <button
                 onClick={() => setOnboardingStep(2)}
@@ -215,14 +225,18 @@ export default function App() {
             <div className="flex flex-col gap-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-white">Create your first Project</h2>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">STEP 2/3</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                  STEP 2/3
+                </span>
               </div>
               <p className="text-sm text-slate-400">
                 A project acts as a single operational plane linked to a specific code repository.
               </p>
-              
+
               <div className="flex flex-col gap-2">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Project Name</label>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                  Project Name
+                </label>
                 <input
                   type="text"
                   required
@@ -254,15 +268,20 @@ export default function App() {
             <div className="flex flex-col gap-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-white">Connect GitHub Repository</h2>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">STEP 3/3</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                  STEP 3/3
+                </span>
               </div>
               <p className="text-sm text-slate-400 leading-relaxed">
-                Connect your repository connection parameters. To allow local test discovery of our monorepo files, we pre-seed with the active monorepo branch.
+                Connect your repository connection parameters. To allow local test discovery of our
+                monorepo files, we pre-seed with the active monorepo branch.
               </p>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Owner / Organization</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    Owner / Organization
+                  </label>
                   <input
                     type="text"
                     required
@@ -272,7 +291,9 @@ export default function App() {
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Repository Name</label>
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    Repository Name
+                  </label>
                   <input
                     type="text"
                     required
@@ -284,7 +305,9 @@ export default function App() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Target Branch</label>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                  Target Branch
+                </label>
                 <input
                   type="text"
                   required
@@ -295,9 +318,12 @@ export default function App() {
               </div>
 
               <div className="flex flex-col gap-2 bg-slate-950 p-4 rounded-xl border border-slate-800">
-                <span className="text-xs font-bold text-indigo-400 block mb-1">🔒 Access Credentials Policy</span>
+                <span className="text-xs font-bold text-indigo-400 block mb-1">
+                  🔒 Access Credentials Policy
+                </span>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Your GitHub Access token is safely isolated at runtime. It is never exposed to the frontend, never stored inside domain models, and never logged.
+                  Your GitHub Access token is safely isolated at runtime. It is never exposed to the
+                  frontend, never stored inside domain models, and never logged.
                 </p>
               </div>
 
@@ -325,7 +351,7 @@ export default function App() {
           {onboardingStep === 4 && (
             <div className="flex flex-col gap-6 text-center py-6">
               <h2 className="text-xl font-bold text-white">Discovery Scan Progress</h2>
-              
+
               <div className="flex flex-col items-center gap-4 py-4">
                 {analysisStatus !== 'ready' && analysisStatus !== 'failed' ? (
                   <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-850 border-t-indigo-500" />
@@ -340,11 +366,16 @@ export default function App() {
                     Pipeline: {analysisStatus}
                   </span>
                   <p className="text-xs text-slate-400 max-w-sm">
-                    {analysisStatus === 'queued' && 'Scheduling workspace analysis in the cloner queue...'}
-                    {analysisStatus === 'scanning' && 'Cloning target codebase using shallow depth-1 parameters...'}
-                    {analysisStatus === 'analyzing' && 'Inspecting configurations and comparing AST signatures...'}
-                    {analysisStatus === 'reasoning' && 'Triggering LLM Product Reasoner for risk alignments...'}
-                    {analysisStatus === 'ready' && 'Your Production Product Workspace is compiled and ready!'}
+                    {analysisStatus === 'queued' &&
+                      'Scheduling workspace analysis in the cloner queue...'}
+                    {analysisStatus === 'scanning' &&
+                      'Cloning target codebase using shallow depth-1 parameters...'}
+                    {analysisStatus === 'analyzing' &&
+                      'Inspecting configurations and comparing AST signatures...'}
+                    {analysisStatus === 'reasoning' &&
+                      'Triggering LLM Product Reasoner for risk alignments...'}
+                    {analysisStatus === 'ready' &&
+                      'Your Production Product Workspace is compiled and ready!'}
                     {analysisStatus === 'failed' && `Pipeline error: ${analysisError}`}
                   </p>
                 </div>
@@ -372,7 +403,6 @@ export default function App() {
               )}
             </div>
           )}
-
         </div>
       </div>
     )
@@ -386,15 +416,20 @@ export default function App() {
   // Unauthenticated / Auth Screen (Login vs Signup)
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row font-sans">
-      
       {/* Brand & Marketing Column */}
       <div className="flex-1 bg-gradient-to-br from-indigo-950 via-slate-950 to-slate-900 p-12 flex flex-col justify-between border-b md:border-b-0 md:border-r border-slate-900">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-3xl font-black bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent tracking-tight">APEX</span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">PRODUCTION WORKSPACE</span>
+            <span className="text-3xl font-black bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent tracking-tight">
+              APEX
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              PRODUCTION WORKSPACE
+            </span>
           </div>
-          <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">The AI Product Manager Daily OS</p>
+          <p className="text-xs text-slate-500 uppercase tracking-widest font-bold">
+            The AI Product Manager Daily OS
+          </p>
         </div>
 
         <div className="flex flex-col gap-6 py-12">
@@ -402,21 +437,31 @@ export default function App() {
             Turn codebase configuration gaps into clear product leverage.
           </h1>
           <p className="text-sm text-slate-400 leading-relaxed max-w-lg">
-            Empower your PM teams to scan repositories, review grounding alternatives, schedule automated GitHub execution, and verify resolutions in real-time.
+            Empower your PM teams to scan repositories, review grounding alternatives, schedule
+            automated GitHub execution, and verify resolutions in real-time.
           </p>
 
           <div className="flex flex-col gap-3 mt-4 text-xs font-semibold text-slate-400">
             <div className="flex items-center gap-3">
               <span className="text-indigo-400 text-lg">🔒</span>
-              <span><strong>Double-Key Tenant Isolation</strong>: Perfect multi-tenant storage & calibration security.</span>
+              <span>
+                <strong>Double-Key Tenant Isolation</strong>: Perfect multi-tenant storage &
+                calibration security.
+              </span>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-indigo-400 text-lg">💾</span>
-              <span><strong>Durable ACID Relational Engine</strong>: Temporary atomic file swaps prevent corruption.</span>
+              <span>
+                <strong>Durable ACID Relational Engine</strong>: Temporary atomic file swaps prevent
+                corruption.
+              </span>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-indigo-400 text-lg">🔎</span>
-              <span><strong>Code-Level Fact Grounding</strong>: Only trace-backed evidence, zero synthetic fabrications.</span>
+              <span>
+                <strong>Code-Level Fact Grounding</strong>: Only trace-backed evidence, zero
+                synthetic fabrications.
+              </span>
             </div>
           </div>
         </div>
@@ -436,8 +481,7 @@ export default function App() {
             <p className="text-xs text-slate-400">
               {authMode === 'login'
                 ? 'Sign in to access your secure PM workspaces'
-                : 'Register a secure developer account with APEX'
-              }
+                : 'Register a secure developer account with APEX'}
             </p>
           </div>
 
@@ -449,7 +493,9 @@ export default function App() {
 
           <form onSubmit={handleAuth} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Email Address</label>
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                Email Address
+              </label>
               <input
                 type="email"
                 required
@@ -461,7 +507,9 @@ export default function App() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Secure Password</label>
+              <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                Secure Password
+              </label>
               <input
                 type="password"
                 required
@@ -482,8 +530,10 @@ export default function App() {
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
                   Authenticating...
                 </>
+              ) : authMode === 'login' ? (
+                'Sign In ➔'
               ) : (
-                authMode === 'login' ? 'Sign In ➔' : 'Register Workspace ➔'
+                'Register Workspace ➔'
               )}
             </button>
           </form>
@@ -519,7 +569,6 @@ export default function App() {
           </div>
         </div>
       </div>
-
     </div>
   )
 }
