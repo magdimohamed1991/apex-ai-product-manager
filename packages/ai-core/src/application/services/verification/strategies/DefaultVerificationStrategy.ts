@@ -1,4 +1,4 @@
-import type { VerificationStrategy, VerificationContext, VerificationResult } from '../VerificationTypes'
+import type { VerificationStrategy, VerificationResult } from '../VerificationTypes'
 
 export class DefaultVerificationStrategy implements VerificationStrategy {
   canHandle(): boolean {

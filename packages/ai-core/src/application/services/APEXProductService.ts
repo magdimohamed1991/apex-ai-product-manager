@@ -20,6 +20,8 @@ import { AdaptiveProfileCompiler } from './AdaptiveProfileCompiler'
 import { H6PrioritizationCalibrator } from './H6PrioritizationCalibrator'
 import type { AdaptiveLearningProfileRepository } from '../../domain/repositories/AdaptiveLearningProfileRepository'
 import type { AdaptiveLearningProfile, LearningSignal, PriorityCalibration } from '../../domain/entities/ProductAdaptive'
+import { ProductValidationService } from './ProductValidationService'
+import type { ProductValidationMetrics } from './ProductValidationService'
 
 export interface ConnectionInput {
   provider: 'github'
@@ -39,7 +41,8 @@ export class APEXProductService {
     private readonly outcomeService: RecommendationOutcomeService,
     private readonly profileCompiler?: AdaptiveProfileCompiler,
     private readonly profileRepository?: AdaptiveLearningProfileRepository,
-    private readonly calibrator?: H6PrioritizationCalibrator
+    private readonly calibrator?: H6PrioritizationCalibrator,
+    private readonly validationService?: ProductValidationService
   ) {}
 
   async createWorkspace(id: string, name: string, slug: string): Promise<Workspace> {
@@ -483,5 +486,12 @@ export class APEXProductService {
     const profile = await this.profileRepository.getProfile(wsId, projectId)
     const signals = await this.profileRepository.getSignals(wsId, projectId)
     return this.calibrator.calibrate(rec as any, profile, signals)
+  }
+
+  async getProductValidationMetrics(workspaceId: string, projectId: string): Promise<ProductValidationMetrics> {
+    if (!this.validationService) {
+      throw new Error('Product validation service is not registered')
+    }
+    return this.validationService.evaluatePMValue(createWorkspaceId(workspaceId), projectId)
   }
 }

@@ -23,7 +23,8 @@ import {
   ProductReasoningService,
   SqlAdaptiveLearningProfileRepository,
   AdaptiveProfileCompiler,
-  H6PrioritizationCalibrator
+  H6PrioritizationCalibrator,
+  ProductValidationService
 } from '@apex/ai-core'
 
 let productService: APEXProductService | null = null
@@ -63,6 +64,11 @@ export async function initApiServer() {
   )
 
   const calibrator = new H6PrioritizationCalibrator()
+  const validationService = new ProductValidationService(
+    productRepository,
+    actionRepository,
+    outcomeRepository
+  )
 
   productService = new APEXProductService(
     productRepository,
@@ -74,7 +80,8 @@ export async function initApiServer() {
     outcomeService,
     profileCompiler,
     profileRepository,
-    calibrator
+    calibrator,
+    validationService
   )
 
   const executor = new ActionExecutor(actionRepository)
@@ -583,6 +590,20 @@ export async function handleApiRequest(req: any, res: any): Promise<boolean> {
       }
       const calibration = await productService.getPriorityCalibration(workspaceId, projectId, recId)
       sendJson(res, calibration)
+      return true
+    }
+
+    // 24. GET /api/projects/:id/product-value
+    const valMatch = pathname.match(/^\/api\/projects\/([^/]+)\/product-value$/)
+    if (valMatch && method === 'GET') {
+      const projectId = valMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      if (!workspaceId) {
+        sendJson(res, { error: 'Missing workspaceId' }, 400)
+        return true
+      }
+      const metrics = await productService.getProductValidationMetrics(workspaceId, projectId)
+      sendJson(res, metrics)
       return true
     }
 

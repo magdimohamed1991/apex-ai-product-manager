@@ -18,6 +18,8 @@ export { RecommendationOutcomeService } from './services/RecommendationOutcomeSe
 export type { DecisionQualityMetrics } from './services/RecommendationOutcomeService'
 export { AdaptiveProfileCompiler } from './services/AdaptiveProfileCompiler'
 export { H6PrioritizationCalibrator } from './services/H6PrioritizationCalibrator'
+export { ProductValidationService } from './services/ProductValidationService'
+export type { ProductValidationMetrics } from './services/ProductValidationService'
 
 
 

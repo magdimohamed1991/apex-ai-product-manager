@@ -15,6 +15,7 @@ import { ProductIntelligenceService } from '../ProductIntelligenceService'
 import { RecommendationOutcomeService } from '../RecommendationOutcomeService'
 import { AdaptiveProfileCompiler } from '../AdaptiveProfileCompiler'
 import { H6PrioritizationCalibrator } from '../H6PrioritizationCalibrator'
+import { ProductValidationService } from '../ProductValidationService'
 import { createWorkspaceId } from '../../../domain/value-objects'
 import { GitHubAdapter } from '../adapters/GitHubAdapter'
 
@@ -37,6 +38,7 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
   let outcomeService: RecommendationOutcomeService
   let profileCompiler: AdaptiveProfileCompiler
   let calibrator: H6PrioritizationCalibrator
+  let validationService: ProductValidationService
   let productService: APEXProductService
   let githubAdapter: GitHubAdapter
 
@@ -73,6 +75,11 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
     )
 
     calibrator = new H6PrioritizationCalibrator()
+    validationService = new ProductValidationService(
+      productRepository,
+      actionRepository,
+      outcomeRepository
+    )
 
     productService = new APEXProductService(
       productRepository,
@@ -84,7 +91,8 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
       outcomeService,
       profileCompiler,
       profileRepository,
-      calibrator
+      calibrator,
+      validationService
     )
 
     githubAdapter = new GitHubAdapter()
@@ -167,7 +175,9 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
       // Decline/ignore TS configurations to deflate its adoption weight
       const tsRec = recs.find((r) => r.title.toLowerCase().includes('typescript') || r.title.toLowerCase().includes('type'))!
       tsRec.priority = 'critical' // Set objective risk explicitly to critical
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(tsRec as any).priorityScore = 9.5
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await productRepository.saveRecommendation(tsRec as any, 'proj-1')
 
       // Mock an adverse profile where TypeScript category adoption is 0% with strong confidence
@@ -253,6 +263,34 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
 
       expect(run1.categoryCoefficients[0].pmCalibrationWeight).toEqual(run2.categoryCoefficients[0].pmCalibrationWeight)
       expect(run1.PMPreferences).toEqual(run2.PMPreferences)
+    })
+  })
+
+  describe('5. Milestone H7 — Product Validation Metrics (H7)', () => {
+    it('evaluates comprehensive product leverage metrics for APEX PM decisions correctly', async () => {
+      await productService.createWorkspace('ws-adaptive-a', 'Acme', 'acme')
+      await productService.createProject('ws-adaptive-a', 'proj-1', 'Project Core')
+      await productService.connectRepository('ws-adaptive-a', 'proj-1', {
+        provider: 'github',
+        owner: 'acme',
+        repository: 'some-custom-repo',
+        defaultBranch: 'main',
+      })
+
+      await productService.runAnalysis('ws-adaptive-a', 'proj-1')
+      const recs = await productService.getRecommendations('ws-adaptive-a', 'proj-1')
+
+      // Approve 1 recommendation
+      const testingRec = recs.find((r) => r.title.toLowerCase().includes('test'))!
+      await productService.approveAction('ws-adaptive-a', 'proj-1', testingRec.id, testingRec.proposedActions[0].id)
+
+      // Evaluate
+      const metrics = await productService.getProductValidationMetrics('ws-adaptive-a', 'proj-1')
+
+      expect(metrics.decisionQuality).toBeGreaterThan(0) // Acceptance rate verified
+      expect(metrics.relevance).toBeGreaterThan(0) // Category relevance verified
+      expect(metrics.businessUtility).toBeGreaterThan(0) // Business utility verified
+      expect(metrics.recommendationUtility).toBeGreaterThan(0) // Multiplier verified
     })
   })
 })
