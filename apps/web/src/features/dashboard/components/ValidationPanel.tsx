@@ -202,16 +202,16 @@ function APEXWorkflow({ metrics }: { metrics: ProductValidationMetrics }) {
           With APEX
         </h4>
         <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded font-bold">
-          {hasLatency ? `${(apexSeconds / 60).toFixed(1)} min` : '2.0 min'}
+          {hasLatency ? `${(apexSeconds / 60).toFixed(1)} min` : '2.0 min ESTIMATED'}
         </span>
       </div>
       <ul className="text-xs text-slate-400 flex flex-col gap-2">
         <li className="flex justify-between">
-          <span>🚀 APEX Discovery scan</span>
+          <span>🚀 APEX Discovery scan (assumed)</span>
           <span className="text-slate-300 font-semibold">1.5 mins (90s)</span>
         </li>
         <li className="flex justify-between">
-          <span>🧠 AI Prioritization &amp; Reasoning</span>
+          <span>🧠 AI Prioritization &amp; Reasoning (assumed)</span>
           <span className="text-slate-300 font-semibold">0.5 mins (30s)</span>
         </li>
         <li className="flex justify-between">

@@ -101,6 +101,7 @@ export interface VerificationEvidence {
   hasGitHubActions?: boolean
   hasCI?: boolean
   hasTypeScriptConfig?: boolean
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any
+  // Open-ended by design: callers (including the API boundary) may supply
+  // additional filesystem signals; strategies only consult the typed keys.
+  [key: string]: unknown
 }

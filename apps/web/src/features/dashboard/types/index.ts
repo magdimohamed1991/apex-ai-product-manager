@@ -110,6 +110,19 @@ export interface Action {
   externalId: string | null
 }
 
+export interface Finding {
+  id: string
+  workspaceId: string
+  type: 'bug' | 'opportunity' | 'risk' | 'growth'
+  title: string
+  description: string
+  priority: 'low' | 'medium' | 'high' | 'critical'
+  severity: 'info' | 'low' | 'medium' | 'high' | 'critical'
+  evidenceIds: string[]
+  correlationId: string
+  createdAt: string
+}
+
 export interface ActivityEvent {
   timestamp: string
   type: 'pipeline' | 'finding' | 'recommendation' | 'action' | 'execution'

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { WorkspaceId } from '../../domain/value-objects'
 import { createRecommendationOutcome } from '../../domain/entities/RecommendationOutcome'
 import type { RecommendationOutcome } from '../../domain/entities/RecommendationOutcome'
@@ -7,6 +6,7 @@ import type { ProductRepository } from '../../domain/repositories/ProductReposit
 import type { ActionRepository } from '../../domain/repositories/ActionRepository'
 import { verificationRegistry } from './verification/VerificationStrategyRegistry'
 import type { VerificationContext } from './verification/VerificationTypes'
+import type { VerificationEvidence } from '../../domain/entities/ProductAdaptive'
 
 export interface DecisionQualityMetrics {
   totalRecommendations: number
@@ -64,14 +64,17 @@ export class RecommendationOutcomeService {
   async verifyOutcome(
     outcomeId: string,
     workspaceId: WorkspaceId,
-    filesAfterChange: any
+    filesAfterChange: VerificationEvidence
   ): Promise<RecommendationOutcome> {
     const outcome = await this.outcomeRepository.getByIdAndWorkspace(outcomeId, workspaceId)
     if (!outcome) {
       throw new Error(`Outcome "${outcomeId}" not found in workspace "${workspaceId}"`)
     }
 
-    const rec = await this.productRepository.getRecommendationByIdAndWorkspace(outcome.recommendationId, workspaceId)
+    const rec = await this.productRepository.getRecommendationByIdAndWorkspace(
+      outcome.recommendationId,
+      workspaceId
+    )
     if (!rec) {
       // If the recommendation was deleted/absent, outcome remains unverifiable (Item 4)
       outcome.status = 'NOT_VERIFIABLE'
@@ -124,9 +127,16 @@ export class RecommendationOutcomeService {
     const actions = await this.actionRepository.getByWorkspace({ workspaceId })
 
     const totalRecommendations = recs.length
-    // Acceptance Rate: approved/promoted actions vs total recommendations generated
-    const totalApproved = actions.filter((a) => a.status !== 'proposed').length
-    const acceptanceRate = totalRecommendations > 0 ? (totalApproved / totalRecommendations) * 100 : 0
+
+    // Acceptance Rate: approved/promoted actions vs total recommendations
+    // generated. Actions MUST be scoped to the project via their linked
+    // recommendation — counting all workspace actions would leak decisions
+    // from other projects into this project's metrics.
+    const projectRecIds = new Set(recs.map((r) => r.id))
+    const projectActions = actions.filter((a) => projectRecIds.has(a.relatedRecommendationId))
+    const totalApproved = projectActions.filter((a) => a.status !== 'proposed').length
+    const acceptanceRate =
+      totalRecommendations > 0 ? (totalApproved / totalRecommendations) * 100 : 0
 
     const totalOutcomes = outcomes.length
     const successCount = outcomes.filter((o) => o.status === 'VERIFIED_SUCCESS').length

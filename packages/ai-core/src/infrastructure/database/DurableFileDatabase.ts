@@ -314,6 +314,12 @@ export class DurableFileDatabase {
   insertSession(session: SessionRecord): void {
     const state = this.getActiveState()
     if (!state.sessions) state.sessions = []
+    // PRIMARY KEY(id) — duplicate session tokens must never accumulate.
+    // Tokens are 256-bit random values so collisions are cryptographically
+    // improbable; the constraint makes a replay/duplication bug loud.
+    if (state.sessions.some((s) => s.id === session.id)) {
+      throw new Error(`Unique constraint violation: duplicate session id "${session.id}"`)
+    }
     state.sessions.push(session)
   }
 

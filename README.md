@@ -49,6 +49,12 @@ The codebase currently implements (with real behavior and tests):
   Production code paths that try to invoke them in a production
   environment will throw a `SecurityError`. Real integrations are
   not yet implemented.
+- **Development LLM provider**: when `OPENAI_API_KEY` is absent, the
+  development server uses an explicitly-labeled deterministic mock
+  (`provider: mock`, `model: mock-v1`) whose output still passes the H4
+  schema-validation and grounding pipeline. In `NODE_ENV=production` the
+  server refuses to start without a real OpenAI key — a mock LLM is never
+  used in production.
 
 ## What is intentionally not implemented
 

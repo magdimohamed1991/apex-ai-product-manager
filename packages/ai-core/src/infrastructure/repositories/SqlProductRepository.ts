@@ -1,6 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { WorkspaceId } from '../../domain/value-objects'
-import type { Workspace, Project, RepositoryConnection, PipelineRun, Finding, Recommendation, AIProductReasoning } from '../../domain/entities'
+import type {
+  Workspace,
+  Project,
+  RepositoryConnection,
+  PipelineRun,
+  Finding,
+  Recommendation,
+  AIProductReasoning,
+} from '../../domain/entities'
 import type { ProductRepository } from '../../domain/repositories/ProductRepository'
 import { DurableFileDatabase } from '../database/DurableFileDatabase'
 
@@ -93,9 +100,7 @@ export class SqlProductRepository implements ProductRepository {
 
   async getProjectsByWorkspace(workspaceId: WorkspaceId): Promise<Project[]> {
     const state = this.db.getActiveState()
-    return (state.projects || [])
-      .filter((p) => p.workspaceId === workspaceId)
-      .map(mapProjectFromDb)
+    return (state.projects || []).filter((p) => p.workspaceId === workspaceId).map(mapProjectFromDb)
   }
 
   async saveProject(project: Project): Promise<void> {
@@ -103,7 +108,12 @@ export class SqlProductRepository implements ProductRepository {
     try {
       const state = this.db.getActiveState()
       if (!state.projects) state.projects = []
-      state.projects = state.projects.filter((p) => p.id !== project.id)
+      // Upsert must be scoped by (id, workspaceId). Filtering by `id` alone
+      // would let a workspace B project with the same id (e.g. the shared
+      // onboarding id "proj-core") DELETE workspace A's project row.
+      state.projects = state.projects.filter(
+        (p) => !(p.id === project.id && p.workspaceId === project.workspaceId)
+      )
       state.projects.push(JSON.parse(JSON.stringify(project)))
       await this.db.commit()
     } catch (err) {
@@ -112,16 +122,26 @@ export class SqlProductRepository implements ProductRepository {
     }
   }
 
-  async getRepositoryConnectionByIdAndWorkspace(id: string, workspaceId: WorkspaceId): Promise<RepositoryConnection | null> {
+  async getRepositoryConnectionByIdAndWorkspace(
+    id: string,
+    workspaceId: WorkspaceId
+  ): Promise<RepositoryConnection | null> {
     const state = this.db.getActiveState()
-    const rc = state.repositoryConnections?.find((x) => x.id === id && x.workspaceId === workspaceId)
+    const rc = state.repositoryConnections?.find(
+      (x) => x.id === id && x.workspaceId === workspaceId
+    )
     if (!rc) return null
     return mapRepoConnFromDb(rc)
   }
 
-  async getRepositoryConnectionByProject(projectId: string, workspaceId: WorkspaceId): Promise<RepositoryConnection | null> {
+  async getRepositoryConnectionByProject(
+    projectId: string,
+    workspaceId: WorkspaceId
+  ): Promise<RepositoryConnection | null> {
     const state = this.db.getActiveState()
-    const rc = state.repositoryConnections?.find((x) => x.projectId === projectId && x.workspaceId === workspaceId)
+    const rc = state.repositoryConnections?.find(
+      (x) => x.projectId === projectId && x.workspaceId === workspaceId
+    )
     if (!rc) return null
     return mapRepoConnFromDb(rc)
   }
@@ -131,7 +151,9 @@ export class SqlProductRepository implements ProductRepository {
     try {
       const state = this.db.getActiveState()
       if (!state.repositoryConnections) state.repositoryConnections = []
-      state.repositoryConnections = state.repositoryConnections.filter((rc) => rc.id !== conn.id)
+      state.repositoryConnections = state.repositoryConnections.filter(
+        (rc) => !(rc.id === conn.id && rc.workspaceId === conn.workspaceId)
+      )
       state.repositoryConnections.push(JSON.parse(JSON.stringify(conn)))
       await this.db.commit()
     } catch (err) {
@@ -140,14 +162,20 @@ export class SqlProductRepository implements ProductRepository {
     }
   }
 
-  async getPipelineRunByIdAndWorkspace(id: string, workspaceId: WorkspaceId): Promise<PipelineRun | null> {
+  async getPipelineRunByIdAndWorkspace(
+    id: string,
+    workspaceId: WorkspaceId
+  ): Promise<PipelineRun | null> {
     const state = this.db.getActiveState()
     const pr = state.pipelineRuns?.find((x) => x.id === id && x.workspaceId === workspaceId)
     if (!pr) return null
     return mapPipelineRunFromDb(pr)
   }
 
-  async getPipelineRunsByProject(projectId: string, workspaceId: WorkspaceId): Promise<PipelineRun[]> {
+  async getPipelineRunsByProject(
+    projectId: string,
+    workspaceId: WorkspaceId
+  ): Promise<PipelineRun[]> {
     const state = this.db.getActiveState()
     return (state.pipelineRuns || [])
       .filter((pr) => pr.projectId === projectId && pr.workspaceId === workspaceId)
@@ -159,7 +187,9 @@ export class SqlProductRepository implements ProductRepository {
     try {
       const state = this.db.getActiveState()
       if (!state.pipelineRuns) state.pipelineRuns = []
-      state.pipelineRuns = state.pipelineRuns.filter((pr) => pr.id !== run.id)
+      state.pipelineRuns = state.pipelineRuns.filter(
+        (pr) => !(pr.id === run.id && pr.workspaceId === run.workspaceId)
+      )
       state.pipelineRuns.push(JSON.parse(JSON.stringify(run)))
       await this.db.commit()
     } catch (err) {
@@ -179,8 +209,11 @@ export class SqlProductRepository implements ProductRepository {
     try {
       const state = this.db.getActiveState()
       if (!state.findings) state.findings = []
-      state.findings = state.findings.filter((f) => f.id !== finding.id)
-      
+      // (id, workspaceId) scoped upsert — never clobber another tenant's row.
+      state.findings = state.findings.filter(
+        (f) => !(f.id === finding.id && f.workspaceId === finding.workspaceId)
+      )
+
       const stored: StoredFinding = {
         ...finding,
         projectId,
@@ -199,7 +232,9 @@ export class SqlProductRepository implements ProductRepository {
       const state = this.db.getActiveState()
       if (state.findings) {
         const list = state.findings as StoredFinding[]
-        state.findings = list.filter((f) => !(f.projectId === projectId && f.workspaceId === workspaceId))
+        state.findings = list.filter(
+          (f) => !(f.projectId === projectId && f.workspaceId === workspaceId)
+        )
       }
       await this.db.commit()
     } catch (err) {
@@ -208,13 +243,19 @@ export class SqlProductRepository implements ProductRepository {
     }
   }
 
-  async getRecommendationsByProject(projectId: string, workspaceId: WorkspaceId): Promise<Recommendation[]> {
+  async getRecommendationsByProject(
+    projectId: string,
+    workspaceId: WorkspaceId
+  ): Promise<Recommendation[]> {
     const state = this.db.getActiveState()
     const list = (state.recommendations || []) as StoredRecommendation[]
     return list.filter((r) => r.projectId === projectId && r.workspaceId === workspaceId)
   }
 
-  async getRecommendationByIdAndWorkspace(id: string, workspaceId: WorkspaceId): Promise<Recommendation | null> {
+  async getRecommendationByIdAndWorkspace(
+    id: string,
+    workspaceId: WorkspaceId
+  ): Promise<Recommendation | null> {
     const state = this.db.getActiveState()
     const r = state.recommendations?.find((x) => x.id === id && x.workspaceId === workspaceId)
     if (!r) return null
@@ -226,8 +267,11 @@ export class SqlProductRepository implements ProductRepository {
     try {
       const state = this.db.getActiveState()
       if (!state.recommendations) state.recommendations = []
-      state.recommendations = state.recommendations.filter((r) => r.id !== rec.id)
-      
+      // (id, workspaceId) scoped upsert — never clobber another tenant's row.
+      state.recommendations = state.recommendations.filter(
+        (r) => !(r.id === rec.id && r.workspaceId === rec.workspaceId)
+      )
+
       const stored: StoredRecommendation = {
         ...rec,
         projectId,
@@ -246,7 +290,9 @@ export class SqlProductRepository implements ProductRepository {
       const state = this.db.getActiveState()
       if (state.recommendations) {
         const list = state.recommendations as StoredRecommendation[]
-        state.recommendations = list.filter((r) => !(r.projectId === projectId && r.workspaceId === workspaceId))
+        state.recommendations = list.filter(
+          (r) => !(r.projectId === projectId && r.workspaceId === workspaceId)
+        )
       }
       await this.db.commit()
     } catch (err) {
@@ -255,9 +301,14 @@ export class SqlProductRepository implements ProductRepository {
     }
   }
 
-  async getAIProductReasoning(recommendationId: string, workspaceId: WorkspaceId): Promise<AIProductReasoning | null> {
+  async getAIProductReasoning(
+    recommendationId: string,
+    workspaceId: WorkspaceId
+  ): Promise<AIProductReasoning | null> {
     const state = this.db.getActiveState()
-    const found = state.aiReasonings?.find((x: any) => x.recommendationId === recommendationId && x.workspaceId === workspaceId)
+    const found = state.aiReasonings?.find(
+      (x) => x.recommendationId === recommendationId && x.workspaceId === workspaceId
+    )
     if (!found) return null
     return mapReasoningFromDb(found)
   }
@@ -268,7 +319,11 @@ export class SqlProductRepository implements ProductRepository {
       const state = this.db.getActiveState()
       if (!state.aiReasonings) state.aiReasonings = []
       state.aiReasonings = state.aiReasonings.filter(
-        (x: any) => !(x.recommendationId === reasoning.recommendationId && x.workspaceId === reasoning.workspaceId)
+        (x) =>
+          !(
+            x.recommendationId === reasoning.recommendationId &&
+            x.workspaceId === reasoning.workspaceId
+          )
       )
       state.aiReasonings.push(JSON.parse(JSON.stringify(reasoning)))
       await this.db.commit()

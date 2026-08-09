@@ -16,6 +16,7 @@ import type {
   Project,
   RepositoryConnection,
   Recommendation,
+  Finding,
   Action,
   ActivityEvent,
   AIProductReasoning,
@@ -95,6 +96,8 @@ export const apiClient = {
     ),
   listRecommendations: (wsId: string, pId: string) =>
     apiClient.get<Recommendation[]>(`/api/projects/${pId}/recommendations?workspaceId=${wsId}`),
+  listFindings: (wsId: string, pId: string) =>
+    apiClient.get<Finding[]>(`/api/projects/${pId}/findings?workspaceId=${wsId}`),
   listActivity: (wsId: string, pId: string) =>
     apiClient.get<ActivityEvent[]>(`/api/projects/${pId}/activity?workspaceId=${wsId}`),
   listOutcomes: (wsId: string, pId: string) =>
@@ -115,7 +118,7 @@ export const apiClient = {
     pId: string,
     body: { recommendationId: string; proposedActionId: string }
   ) =>
-    apiClient.post<Action>(`/api/actions/approve-id/approve`, {
+    apiClient.post<Action>(`/api/actions/approve`, {
       workspaceId: wsId,
       projectId: pId,
       ...body,

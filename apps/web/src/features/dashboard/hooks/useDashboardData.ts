@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { apiClient, ApiError } from '../api/client'
 import type {
@@ -6,6 +5,7 @@ import type {
   Project,
   RepositoryConnection,
   Recommendation,
+  Finding,
   ActivityEvent,
   Outcome,
   DecisionMetrics,
@@ -24,6 +24,7 @@ interface DashboardData {
 
   // Pipeline state
   recommendations: Recommendation[]
+  findings: Finding[]
   approvedActions: Record<string, { id: string; status: string }>
   activityLog: ActivityEvent[]
 
@@ -64,6 +65,7 @@ export function useDashboardData(
 ): DashboardData {
   const [connection, setConnection] = useState<RepositoryConnection | null>(null)
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
+  const [findings, setFindings] = useState<Finding[]>([])
   const [approvedActions, setApprovedActions] = useState<
     Record<string, { id: string; status: string }>
   >({})
@@ -78,12 +80,19 @@ export function useDashboardData(
   const [isReasoningLoading, setIsReasoningLoading] = useState(false)
 
   const aliveRef = useRef(true)
+  // Monotonic request sequence: responses from a stale (previous project /
+  // workspace) request are discarded so a slow response can never overwrite
+  // the state of the currently selected project.
+  const requestSeqRef = useRef(0)
 
-  function handleError(scope: string, err: unknown) {
-    if (!aliveRef.current) return
-    const message = err instanceof ApiError ? err.message : `${scope} failed`
-    setGlobalError(message)
-  }
+  const handleError = useCallback(
+    (scope: string, err: unknown) => {
+      if (!aliveRef.current) return
+      const message = err instanceof ApiError ? err.message : `${scope} failed`
+      setGlobalError(message)
+    },
+    [setGlobalError]
+  )
 
   // Initial load
   useEffect(() => {
@@ -93,10 +102,48 @@ export function useDashboardData(
     }
   }, [])
 
+  const refreshAll = useCallback(async () => {
+    if (!workspace || !project) return
+    const seq = ++requestSeqRef.current
+    try {
+      const [repo, recs, found, log, outs, dm, profile, signals, validation] = await Promise.all([
+        apiClient.getRepository(workspace.id, project.id),
+        apiClient.listRecommendations(workspace.id, project.id),
+        apiClient.listFindings(workspace.id, project.id),
+        apiClient.listActivity(workspace.id, project.id),
+        apiClient.listOutcomes(workspace.id, project.id),
+        apiClient.getDecisionMetrics(workspace.id, project.id),
+        apiClient.getProfile(workspace.id, project.id),
+        apiClient.getLearningSignals(workspace.id, project.id),
+        apiClient.getProductValue(workspace.id, project.id),
+      ])
+      if (!aliveRef.current || seq !== requestSeqRef.current) return
+      setConnection(repo && 'id' in repo ? repo : null)
+      setRecommendations(recs)
+      setFindings(found)
+      setActivityLog(log)
+      setOutcomes(outs)
+      setDecisionMetrics(dm)
+      setLearningProfile(profile)
+      setLearningSignals(signals)
+      setValidationMetrics(validation)
+    } catch (err) {
+      if (seq === requestSeqRef.current) {
+        handleError('load', err)
+      }
+    }
+  }, [workspace, project, handleError])
+
   useEffect(() => {
     if (!workspace || !project) {
+      // Resetting derived dashboard state when the selection becomes empty
+      // is an external-system sync (a blank selection must never show the
+      // previous project's data). The suppression is scoped to this
+      // reset-only block.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setConnection(null)
       setRecommendations([])
+      setFindings([])
       setActivityLog([])
       setOutcomes([])
       setLearningProfile(null)
@@ -107,36 +154,7 @@ export function useDashboardData(
       return
     }
     void refreshAll()
-    // refreshAll reads latest state
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace?.id, project?.id])
-
-  async function refreshAll() {
-    if (!workspace || !project) return
-    try {
-      const [repo, recs, log, outs, dm, profile, signals, validation] = await Promise.all([
-        apiClient.getRepository(workspace.id, project.id),
-        apiClient.listRecommendations(workspace.id, project.id),
-        apiClient.listActivity(workspace.id, project.id),
-        apiClient.listOutcomes(workspace.id, project.id),
-        apiClient.getDecisionMetrics(workspace.id, project.id),
-        apiClient.getProfile(workspace.id, project.id),
-        apiClient.getLearningSignals(workspace.id, project.id),
-        apiClient.getProductValue(workspace.id, project.id),
-      ])
-      if (!aliveRef.current) return
-      setConnection(repo && 'id' in repo ? repo : null)
-      setRecommendations(recs)
-      setActivityLog(log)
-      setOutcomes(outs)
-      setDecisionMetrics(dm)
-      setLearningProfile(profile)
-      setLearningSignals(signals)
-      setValidationMetrics(validation)
-    } catch (err) {
-      handleError('load', err)
-    }
-  }
+  }, [workspace, project, refreshAll])
 
   // Lightweight polling for live updates
   useEffect(() => {
@@ -145,9 +163,7 @@ export function useDashboardData(
       void refreshAll()
     }, POLL_INTERVAL_MS)
     return () => clearInterval(id)
-    // refreshAll is intentionally captured by closure
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace?.id, project?.id])
+  }, [workspace, project, refreshAll])
 
   const runAnalysis = useCallback(async () => {
     if (!workspace || !project) return
@@ -157,7 +173,7 @@ export function useDashboardData(
     } catch (err) {
       handleError('analysis', err)
     }
-  }, [workspace, project])
+  }, [workspace, project, refreshAll, handleError])
 
   const approveAction = useCallback(
     async (recId: string, paId: string) => {
@@ -181,7 +197,7 @@ export function useDashboardData(
         handleError('approve', err)
       }
     },
-    [workspace, project]
+    [workspace, project, refreshAll, handleError]
   )
 
   const verifyOutcome = useCallback(
@@ -194,7 +210,7 @@ export function useDashboardData(
         handleError('verify', err)
       }
     },
-    [workspace]
+    [workspace, refreshAll, handleError]
   )
 
   const fetchReasoning = useCallback(
@@ -210,7 +226,7 @@ export function useDashboardData(
         setIsReasoningLoading(false)
       }
     },
-    [workspace]
+    [workspace, handleError]
   )
 
   const submitReasoningContext = useCallback(
@@ -226,7 +242,7 @@ export function useDashboardData(
         setIsReasoningLoading(false)
       }
     },
-    [workspace]
+    [workspace, handleError]
   )
 
   const compileProfile = useCallback(async () => {
@@ -237,7 +253,7 @@ export function useDashboardData(
     } catch (err) {
       handleError('compile-profile', err)
     }
-  }, [workspace, project])
+  }, [workspace, project, refreshAll, handleError])
 
   const fetchCalibration = useCallback(
     async (recId: string) => {
@@ -249,11 +265,11 @@ export function useDashboardData(
         handleError('calibration', err)
       }
     },
-    [workspace, project]
+    [workspace, project, handleError]
   )
 
-  const findingsCount = recommendations.filter(
-    (r) => r.priority === 'critical' || r.priority === 'high'
+  const findingsCount = findings.filter(
+    (f) => f.priority === 'critical' || f.priority === 'high'
   ).length
   const executionsInProgress = activityLog.filter(
     (e) => e.type === 'execution' && /in-progress|queued/i.test(e.title)
@@ -263,6 +279,7 @@ export function useDashboardData(
     connection,
     setConnection,
     recommendations,
+    findings,
     approvedActions,
     activityLog,
     outcomes,

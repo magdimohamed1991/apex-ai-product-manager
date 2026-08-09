@@ -2,6 +2,7 @@ import type { Action } from '../../domain/entities'
 import type { WorkspaceId } from '../../domain/value-objects'
 import { ActionApplicationService } from './ActionApplicationService'
 import { RepositoryDiscoveryPipeline } from '../../intelligence/pipeline/RepositoryDiscoveryPipeline'
+import type { PipelineResult } from '../../intelligence/pipeline/RepositoryDiscoveryPipeline'
 import type { RepositoryFiles, Evidence } from '@apex/analysis'
 
 export interface PipelineRunResult {
@@ -9,6 +10,14 @@ export interface PipelineRunResult {
   workspaceId: WorkspaceId
   promotedActions: Action[]
   failedPromotions: Array<{ proposedActionId: string; reason: string }>
+  /**
+   * The full pipeline output (summary, evidence, insights, findings,
+   * recommendations, explanations). Exposed so callers can persist the
+   * SAME run's results instead of re-executing the pipeline a second time
+   * (which previously produced two independent `run-*` IDs and risked
+   * divergence between promoted actions and persisted recommendations).
+   */
+  pipelineResult: PipelineResult
 }
 
 /**
@@ -34,7 +43,7 @@ export class PipelineActionOrchestrator {
     externalEvidence?: Evidence[]
   ): Promise<PipelineRunResult> {
     const pipelineRunId = `run-${crypto.randomUUID()}`
-    
+
     // 1. Execute the frozen analysis pipeline
     const pipelineResult = this.pipeline.run({
       workspaceId,
@@ -67,6 +76,7 @@ export class PipelineActionOrchestrator {
       workspaceId,
       promotedActions,
       failedPromotions,
+      pipelineResult,
     }
   }
 }

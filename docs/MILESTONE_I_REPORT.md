@@ -1,10 +1,18 @@
 # Milestone I — Production Integrity Audit Report
 
+> **Historical record.** This report documents the state of the repository
+> at the Milestone I pass (branch `arena/019fe59c-apex-ai-product-manager`,
+> commit `8cb20c4`). It is preserved verbatim as an audit trail; it is NOT a
+> live description of the current codebase. The current test counts and
+> behavior are described in `README.md`, `docs/ARCHITECTURE.md`,
+> `docs/WORKFLOWS.md`, and the repository's CI runs.
+>
 > **Branch:** `arena/019fe59c-apex-ai-product-manager`
 > **Commit:** `8cb20c4` (feat: production-hardening pass)
 > **Baseline:** `cbffd85` (previous merge state)
 >
 > All four required commands pass:
+>
 > - `pnpm install --frozen-lockfile` — succeeds
 > - `pnpm type-check` — 0 errors
 > - `pnpm lint` — 0 errors (a handful of `react-hooks/exhaustive-deps` warnings on the dashboard `useCallback` closures; pre-existing pattern)
@@ -128,7 +136,7 @@ Each entry follows the requested format. Severity scale: **Critical** /
   successful execution regardless of its actual outcome.
 - **Root cause:** The execution outcome was never computed.
 - **Fix:** `executionSuccessRate` is now `completed / (completed +
-  failed)` over real action outcomes. Actions still in
+failed)` over real action outcomes. Actions still in
   `in-progress`, `queued`, `proposed` are not counted.
 - **Regression tests:** `AdaptiveProfileCompiler.hardening.test.ts`
   verifies the new calculation path.
@@ -165,8 +173,8 @@ Each entry follows the requested format. Severity scale: **Critical** /
   in the database.
 - **Root cause:** Random ID assignment.
 - **Fix:** Signals now use `stableSignalId(workspaceId, projectId,
-  category, type, sourceHash)` where `sourceHash = sha256(sorted
-  observation ids)`. Recompilation with unchanged data is now
+category, type, sourceHash)` where `sourceHash = sha256(sorted
+observation ids)`. Recompilation with unchanged data is now
   idempotent. The repository upserts by ID.
 - **Regression tests:** `AdaptiveProfileCompiler.hardening.test.ts`
   asserts that the same observation set yields the same signal ID
@@ -222,7 +230,7 @@ Each entry follows the requested format. Severity scale: **Critical** /
   `SAFETY_FLOOR_HIGH = 7.0`. The calibrator returns
   `safetyFloorEnforced: boolean` so downstream callers can audit.
 - **Regression tests:** Existing `H6 — Adaptive Product Intelligence
-  Tests` cover the safety-floor enforcement.
+Tests` cover the safety-floor enforcement.
 
 ### A14. H7 synthetic business utility / learning quality / recommendation utility (Critical)
 
@@ -291,7 +299,7 @@ Each entry follows the requested format. Severity scale: **Critical** /
   the rejected ones are logged. If every `known` claim fails
   grounding, the entire reasoning record is rejected and
   `unavailable: true` is set with `failureReason:
-  'grounding_violation'`. The legacy fabricated strings
+'grounding_violation'`. The legacy fabricated strings
   (`'tsconfig contains disabled parameters'` and
   `'CI workflow lacks validation'`) are blacklisted.
 - **Regression tests:** `ProductReasoningService.test.ts` asserts
@@ -307,7 +315,7 @@ Each entry follows the requested format. Severity scale: **Critical** /
 - **Root cause:** String-prefix check was a proxy for
   authentication.
 - **Fix:** `isLikelyProductionToken(token)` is documented as a
-  *filter* (not proof) — it only routes the call to the live
+  _filter_ (not proof) — it only routes the call to the live
   Octokit path. The actual authentication is the live API call. If
   the live call fails, the error is normalized with the API key
   redacted.
@@ -324,7 +332,7 @@ Each entry follows the requested format. Severity scale: **Critical** /
 - **Fix:** When `NODE_ENV === 'production'` and the token is not a
   recognized production prefix, the adapter throws
   `SecurityError: Mock fallback executions are strictly forbidden
-  in production configurations`.
+in production configurations`.
 - **Regression tests:** `GitHubAdapter.test.ts` covers the
   production-mode block.
 
@@ -354,7 +362,7 @@ Each entry follows the requested format. Severity scale: **Critical** /
 - **Root cause:** Visual copy overclaimed the source of the data.
 - **Fix:** Every metric card now shows an `EpistemicBadge` with one
   of `UNAVAILABLE / ESTIMATED / OBSERVED / DERIVED / VALIDATED /
-  INSUFFICIENT_EVIDENCE`. The labels are derived from the
+INSUFFICIENT_EVIDENCE`. The labels are derived from the
   `epistemicState` field on each `TrackedMetric`.
 - **Regression tests:** Manual / dashboard rendering.
 
@@ -397,7 +405,7 @@ Each entry follows the requested format. Severity scale: **Critical** /
 - **Root cause:** No APEX marker, no pre-check uniqueness key.
 - **Fix:** The adapter now embeds a stable, workspace-scoped,
   action-aware APEX marker (`apex-marker:<workspaceId>:
-  <recommendationId>:<proposedActionId>:<nonce>`) in the issue
+<recommendationId>:<proposedActionId>:<nonce>`) in the issue
   body. Search hits the marker before creating. The marker is
   deterministic per execution (with a nonce) so concurrent workers
   cannot collide.
@@ -464,7 +472,7 @@ Each entry follows the requested format. Severity scale: **Critical** /
 
 - **File:** `packages/ai-core/src/application/services/AdaptiveProfileCompiler.ts`
 - **Problem:** `biasAdjustments` was always `{ overPrioritizedLowEffort:
-  false, favoredHighImpact: false }` — set but never computed.
+false, favoredHighImpact: false }` — set but never computed.
 - **Fix:** Removed the unused computation. Bias adjustments are not
   used by the calibrator.
 - **Regression tests:** No regression — the fields are still
@@ -655,7 +663,7 @@ The frozen `ActionExecutor` interface and its
    `confidence` field on each signal, with an explicit
    `evidenceState`.
 3. **H7 — `recommendationUtility` removed.** Was `1.0 + (precision/100) * 0.8 +
-   (executionValue/100) * 0.2`. Now: not exposed.
+(executionValue/100) * 0.2`. Now: not exposed.
 4. **H7 — `efficiency` (decision latency) replaced.** Was
    `action.updatedAt - rec.createdAt`. Now: `unavailable` until
    the real `PMDecisionTelemetry` stream is wired.
@@ -673,7 +681,7 @@ The frozen `ActionExecutor` interface and its
    now come from the typed `Recommendation.category` field.
 9. **H6 — non-deterministic signal IDs removed.** Signals are
    identified by `sha256(workspaceId, projectId, category, type,
-   sourceHash)`. Repeated compilation is idempotent.
+sourceHash)`. Repeated compilation is idempotent.
 10. **H6 — non-deterministic min-observation rule removed.**
     `MIN_OBSERVATIONS_FOR_FAVORED = 5`,
     `MIN_OBSERVATIONS_FOR_IGNORED = 5`,
@@ -689,14 +697,14 @@ The frozen `ActionExecutor` interface and its
 
 ## E. Integration status
 
-| Integration | Status | Notes |
-| --- | --- | --- |
-| **GitHub** | **REAL** | Octokit-based, query-before-create via APEX marker, refuses silent mock downgrade in production, redacts tokens from errors. |
-| **OpenAI** | **REAL** | `OpenAIResponsesProvider` honors the H4 contract (instructions, structured output, retries, timeouts, typed errors, no key leak). |
-| **Jira** | **MOCK / TEST-ONLY** | In-memory map; throws `SecurityError` in production. Real integration is not yet implemented. |
-| **Linear** | **MOCK / TEST-ONLY** | Same posture as Jira. |
-| **Slack** | **MOCK / TEST-ONLY** | Same posture as Jira. |
-| **Amplitude** | **NOT IMPLEMENTED** | No code, no adapter. |
+| Integration   | Status               | Notes                                                                                                                             |
+| ------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **GitHub**    | **REAL**             | Octokit-based, query-before-create via APEX marker, refuses silent mock downgrade in production, redacts tokens from errors.      |
+| **OpenAI**    | **REAL**             | `OpenAIResponsesProvider` honors the H4 contract (instructions, structured output, retries, timeouts, typed errors, no key leak). |
+| **Jira**      | **MOCK / TEST-ONLY** | In-memory map; throws `SecurityError` in production. Real integration is not yet implemented.                                     |
+| **Linear**    | **MOCK / TEST-ONLY** | Same posture as Jira.                                                                                                             |
+| **Slack**     | **MOCK / TEST-ONLY** | Same posture as Jira.                                                                                                             |
+| **Amplitude** | **NOT IMPLEMENTED**  | No code, no adapter.                                                                                                              |
 
 ---
 

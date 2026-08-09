@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 /**
  * Cryptographically-secure identifier generator.
@@ -45,23 +45,18 @@ export class SecureIdGenerator {
   }
 
   /**
-   * Deterministic learning-signal identity. Repeated profile compilation
-   * over the same observation set produces the same signal ID.
+   * Deterministic learning-signal identity. Repeated compilation over the
+   * same observation set — including across process restarts — produces
+   * the same signal ID. The ID is a truncated SHA-256 over the canonical
+   * joined input parts; no randomness is mixed in.
+   *
+   * The previous implementation embedded `randomBytes(8)` in the output,
+   * which contradicted the documented determinism contract and would have
+   * created duplicate logical signals on every profile recompilation.
    */
   static signalIdentity(...parts: string[]): string {
-    // SHA-256 over a canonical, joined string of the input parts
-    // truncated to 32 hex characters (128 bits) for readability
-    // (we cannot import crypto here synchronously; produce a stable hash via runtime)
     const joined = parts.join('|')
-    let hash = 0
-    for (let i = 0; i < joined.length; i++) {
-      const chr = joined.charCodeAt(i)
-      hash = ((hash << 5) - hash + chr) | 0
-    }
-    // mix the bytes from randomBytes so identical inputs across processes are NOT
-    // identical to attackers but still identical within a process; we also
-    // include a content fingerprint that the system can reproduce from observations.
-    const stableMix = randomBytes(8).toString('hex')
-    return `sig-${stableMix}-${(hash >>> 0).toString(16).padStart(8, '0')}`
+    const h = createHash('sha256').update(joined).digest('hex')
+    return `sig-${h.slice(0, 16)}-${h.slice(16, 24)}`
   }
 }

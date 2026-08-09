@@ -20,6 +20,7 @@ The `DurableFileDatabase` provides the following properties:
   - `(action_id, sequence)` on ActionTransitions
   - `email` on Users (case-insensitive)
   - `(user_id, workspace_id)` on Memberships
+  - `id` on Sessions (duplicate session tokens are rejected)
 - **Foreign-key constraints**:
   - `executions.action_id -> actions.id`
   - `transitions.action_id -> actions.id`

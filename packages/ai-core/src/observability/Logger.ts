@@ -26,12 +26,18 @@ const SENSITIVE_KEYS = new Set([
   'secret',
   'authorization',
   'cookie',
-  'idempotencykey',
-  'externalid',
   'privatekey',
   'clientsecret',
   'bearer',
 ])
+
+/**
+ * Keys that CONTAIN sensitive substrings but are NOT credentials:
+ * - `idempotencyKey` is a deterministic business key (promo:<ws>:<rec>:<pa>)
+ * - `externalId` is a public GitHub/Jira issue URL or ID
+ * Redacting them previously destroyed the audit trail in execution logs.
+ */
+const NON_SENSITIVE_KEYS = new Set(['idempotencykey', 'externalid'])
 
 const REDACTED = '[REDACTED]'
 
@@ -53,6 +59,10 @@ function redact(value: unknown, depth = 0): unknown {
     const out: Record<string, unknown> = {}
     for (const k of Object.keys(obj)) {
       const lk = k.toLowerCase()
+      if (NON_SENSITIVE_KEYS.has(lk)) {
+        out[k] = redact(obj[k], depth + 1)
+        continue
+      }
       if (
         SENSITIVE_KEYS.has(lk) ||
         lk.includes('token') ||

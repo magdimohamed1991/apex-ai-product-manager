@@ -18,7 +18,6 @@
  *     `localStorage.removeItem('apex_session_token')` path remains for
  *     the global fetch interceptor in App.tsx.
  */
-/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useState } from 'react'
 import { apiClient, ApiError } from './api/client'
 import { WorkspaceSelector, ProjectSelector } from './components/WorkspaceProjectSelectors'
@@ -49,7 +48,6 @@ export function DashboardPage() {
   // Initial workspaces load
   useEffect(() => {
     let active = true
-    setLoadingWorkspaces(true)
     apiClient
       .listWorkspaces()
       .then((list) => {
@@ -70,6 +68,9 @@ export function DashboardPage() {
   // Load projects when workspace changes
   useEffect(() => {
     if (!selectedWorkspace) {
+      // Selection reset: a deselected workspace must never leave the
+      // previous workspace's projects on screen. Scoped suppression.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProjects([])
       setSelectedProject(null)
       return
@@ -98,7 +99,9 @@ export function DashboardPage() {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
-      const id = `ws-${slug}-${Math.floor(Math.random() * 1e6).toString(36)}`
+      // Cryptographically random id suffix — never Math.random() for
+      // identifiers that participate in tenant isolation.
+      const id = `ws-${slug}-${crypto.randomUUID().slice(0, 8)}`
       const ws = await apiClient.post<Workspace>('/api/workspaces', { id, name, slug })
       setWorkspaces((prev) => [...prev, ws])
       setSelectedWorkspace(ws)
@@ -114,7 +117,7 @@ export function DashboardPage() {
       const id = `proj-${name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')}-${Math.floor(Math.random() * 1e6).toString(36)}`
+        .replace(/^-+|-+$/g, '')}-${crypto.randomUUID().slice(0, 8)}`
       const proj = await apiClient.post<Project>('/api/projects', {
         workspaceId: selectedWorkspace.id,
         id,
@@ -213,9 +216,19 @@ export function DashboardPage() {
 
         <div className="mt-auto border-t border-slate-800 pt-4 flex flex-col gap-3 text-[11px] text-slate-500 font-medium">
           <button
-            onClick={() => {
-              localStorage.removeItem('apex_session_token')
-              window.dispatchEvent(new Event('apex_unauthorized'))
+            onClick={async () => {
+              // Real logout: invalidate the session SERVER-SIDE first, then
+              // clear the local token. The legacy flow only cleared
+              // localStorage, leaving a valid session alive until expiry.
+              try {
+                await apiClient.post('/api/auth/logout', {})
+              } catch {
+                // Even if the network call fails, clear local state; the
+                // server session will expire on its TTL.
+              } finally {
+                localStorage.removeItem('apex_session_token')
+                window.dispatchEvent(new Event('apex_unauthorized'))
+              }
             }}
             className="w-full text-center rounded-lg border border-slate-800 hover:bg-slate-800 py-2 text-xs font-bold text-slate-300 transition-colors"
           >
@@ -280,7 +293,7 @@ export function DashboardPage() {
                 }}
               />
             )}
-            {activeTab === 'findings' && <FindingsPanel recommendations={data.recommendations} />}
+            {activeTab === 'findings' && <FindingsPanel findings={data.findings} />}
             {activeTab === 'recommendations' && (
               <RecommendationsPanel
                 workspace={selectedWorkspace}

@@ -114,20 +114,20 @@ export function OverviewPanel({ data, onSelectRecommendation }: Props) {
           <div className="rounded-2xl border border-slate-800 bg-slate-900/10 p-5 flex flex-col gap-3 text-xs">
             <Row
               label="Acceptance Rate"
-              value={data.decisionMetrics?.acceptanceRate ?? 0}
+              value={data.decisionMetrics?.acceptanceRate ?? null}
               unit="%"
             />
             <Row
               label="Outcome Success Rate"
-              value={data.decisionMetrics?.successRate ?? 0}
+              value={data.decisionMetrics?.successRate ?? null}
               unit="%"
             />
             <Row
               label="False Positive Rate"
-              value={data.decisionMetrics?.falsePositiveRate ?? 0}
+              value={data.decisionMetrics?.falsePositiveRate ?? null}
               unit="%"
             />
-            <Row label="Tracked Decisions" value={data.decisionMetrics?.totalOutcomes ?? 0} />
+            <Row label="Tracked Decisions" value={data.decisionMetrics?.totalOutcomes ?? null} />
             <div className="flex items-center justify-between text-slate-500 font-mono text-[10px] pt-1 border-t border-slate-800/40">
               <span>active executions: {inProgressExecs}</span>
             </div>
@@ -181,13 +181,14 @@ export function OverviewPanel({ data, onSelectRecommendation }: Props) {
   )
 }
 
-function Row({ label, value, unit }: { label: string; value: number; unit?: string }) {
+function Row({ label, value, unit }: { label: string; value: number | null; unit?: string }) {
   return (
     <div className="flex justify-between items-center text-xs">
       <span className="text-slate-400 font-medium">{label}:</span>
+      {/* null (metrics not tracked yet) renders as an em dash — never a
+          fabricated 0% that could be read as a measured value. */}
       <span className="font-extrabold text-indigo-400 text-sm">
-        {value}
-        {unit ?? ''}
+        {value === null || value === undefined ? '—' : `${value}${unit ?? ''}`}
       </span>
     </div>
   )

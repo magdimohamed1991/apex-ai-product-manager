@@ -16,16 +16,26 @@
 2. `POST /api/projects/:id/repository` connects a GitHub repository
    (owner, repository, defaultBranch).
 3. `POST /api/projects/:id/analysis` runs the discovery pipeline:
-   - Real GitHub clone via `git clone --depth 1` when a real token is
-     configured.
-   - Falls back to local-monorepo scan if the repository points at
-     the APEX monorepo itself.
-   - Pure-mock scan otherwise.
+   - Real GitHub clone via `git clone --depth 1` when a token with a real
+     GitHub PAT prefix (`ghp_`, `github_pat_`, `gho_`, `ghu_`, `ghs_`,
+     `ghr_`) is configured.
+   - Falls back to a local scan of the running checkout if the repository
+     points at the APEX monorepo itself (a real scan of real files).
+   - In development, a clearly-labeled mock scan otherwise.
+   - In production, a failed/skipped clone for a non-monorepo repository
+     is a HARD ERROR: the run is marked `failed` and no mock analysis is
+     performed. `runAnalysis` never fabricates findings for a repository
+     it could not actually read.
 4. `GET /api/projects/:id/recommendations` returns the recommendations.
 5. `GET /api/recommendations/:id/reasoning` returns the H4 AI reasoning.
-6. `POST /api/actions/:id/approve` approves an action. The API server
-   creates an `Action` row, an `ActionTransition` audit record, and
-   (optionally) an `Outcome` row.
+6. `POST /api/actions/approve` approves a proposed action (body:
+   `workspaceId`, `projectId`, `recommendationId`, `proposedActionId`).
+   The API server promotes the proposed action into an `Action` row,
+   records an `ActionTransition` audit record, and (optionally) an
+   `Outcome` row. The approval is idempotent: approving the same proposed
+   action twice returns the existing action without duplicating the
+   transition record. (The legacy `/api/actions/:id/approve` path used a
+   placeholder id segment that was ignored; it has been removed.)
 7. The background worker (every 5s) polls pending actions and invokes
    the `ActionExecutor` with a workspace-scoped adapter context.
 8. `POST /api/outcomes/verify` (called manually with `filesAfterChange`
