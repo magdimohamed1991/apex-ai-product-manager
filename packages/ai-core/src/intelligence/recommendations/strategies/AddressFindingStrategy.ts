@@ -1,3 +1,4 @@
+import { createRecommendation } from '../../../domain'
 import type { Recommendation, RecommendationOrigin } from '../../../domain'
 import type { RecommendationStrategy } from '../RecommendationStrategy'
 import type { RecommendationInput } from '../RecommendationInput'
@@ -17,8 +18,7 @@ export class AddressFindingStrategy implements RecommendationStrategy {
 
   recommend(input: RecommendationInput): Recommendation {
     const finding = input.finding!
-    return {
-      id: crypto.randomUUID(),
+    return createRecommendation({
       workspaceId: input.workspaceId,
       origin: 'finding',
       deduplicationKey: `${this.id}:finding:${finding.id}`,
@@ -37,7 +37,6 @@ export class AddressFindingStrategy implements RecommendationStrategy {
           description: `Review and address the ${finding.severity} severity ${finding.type} finding.`,
         },
       ],
-      createdAt: new Date(),
-    }
+    })
   }
 }

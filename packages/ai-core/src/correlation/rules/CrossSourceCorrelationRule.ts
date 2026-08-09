@@ -1,7 +1,7 @@
 import type { Evidence } from '@apex/analysis'
 import type { CorrelationRule } from '../contracts/CorrelationRule'
 import type { CorrelationCandidate } from '../contracts/CorrelationCandidate'
-import { scoreCorrelation, hasTemporalOverlap as hasTemporalOverlapFn } from '../scoring'
+import { scoreCorrelation } from '../scoring'
 
 const MIN_SOURCES = 3
 const TEMPORAL_WINDOW_DAYS = 30

@@ -218,7 +218,7 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       parsed = this.validator.parseJSON(content)
     } catch (parseError) {
       if (attempts >= maxAttempts) {
-        throw new Error(`LLM output was not valid JSON after ${attempts} attempt(s)`)
+        throw new Error(`LLM output was not valid JSON after ${attempts} attempt(s)`, { cause: parseError })
       }
       attempts++
       const retryPrompt = this.buildRetryPrompt(originalPrompt, [
@@ -231,8 +231,8 @@ export class RepositoryIntelligenceAgent extends BaseAgent<
       retryCompletionTokens += retry.usage.completionTokens
       try {
         parsed = this.validator.parseJSON(retry.content)
-      } catch {
-        throw new Error(`LLM output was not valid JSON after ${attempts} attempt(s)`)
+      } catch (innerError) {
+        throw new Error(`LLM output was not valid JSON after ${attempts} attempt(s)`, { cause: innerError })
       }
     }
 

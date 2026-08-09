@@ -4,6 +4,7 @@ import { AddTestingStrategy } from '../strategies/AddTestingStrategy'
 import { AddCIStrategy } from '../strategies/AddCIStrategy'
 import { AddTypeScriptStrategy } from '../strategies/AddTypeScriptStrategy'
 import { createWorkspaceId } from '../../../domain/value-objects'
+import { createRecommendation } from '../../../domain/entities/Recommendation'
 import type { Insight, Finding, Recommendation } from '../../../domain'
 import type { RecommendationStrategy } from '../RecommendationStrategy'
 import type { RecommendationInput } from '../RecommendationInput'
@@ -289,6 +290,108 @@ describe('RecommendationEngine', () => {
       const insight = makeInsight('i1', ['no-tests'])
       const recommendations = engine.generate([insight], [], WORKSPACE_ID)
       expect(recommendations[0].findingIds).toEqual([])
+    })
+  })
+
+  describe('createRecommendation factory validation (Item 3 & Item 9)', () => {
+    const baseInput = {
+      workspaceId: WORKSPACE_ID,
+      deduplicationKey: 'test-key',
+      title: 'Test Title',
+      rationale: 'Test Rationale',
+      impact: 'Test Impact',
+      effort: 'low' as const,
+      priority: 'high' as const,
+      confidence: 0.9,
+      insightIds: [],
+      findingIds: [],
+      proposedActions: [],
+    }
+
+    it('successfully creates an insight-origin recommendation', () => {
+      const rec = createRecommendation({
+        ...baseInput,
+        origin: 'insight',
+        insightIds: ['insight-123'],
+      })
+      expect(rec.origin).toBe('insight')
+      expect(rec.insightIds).toEqual(['insight-123'])
+      expect(rec.findingIds).toEqual([])
+    })
+
+    it('successfully creates a finding-origin recommendation', () => {
+      const rec = createRecommendation({
+        ...baseInput,
+        origin: 'finding',
+        findingIds: ['finding-123'],
+      })
+      expect(rec.origin).toBe('finding')
+      expect(rec.findingIds).toEqual(['finding-123'])
+      expect(rec.insightIds).toEqual([])
+    })
+
+    it('throws if insight origin is missing insightIds', () => {
+      expect(() =>
+        createRecommendation({
+          ...baseInput,
+          origin: 'insight',
+          insightIds: [],
+        })
+      ).toThrow(/Insight origin requires insightIds/)
+    })
+
+    it('throws if insight origin contains findingIds', () => {
+      expect(() =>
+        createRecommendation({
+          ...baseInput,
+          origin: 'insight',
+          insightIds: ['insight-1'],
+          findingIds: ['finding-1'],
+        })
+      ).toThrow(/Insight origin rejects findingIds/)
+    })
+
+    it('throws if finding origin is missing findingIds', () => {
+      expect(() =>
+        createRecommendation({
+          ...baseInput,
+          origin: 'finding',
+          findingIds: [],
+        })
+      ).toThrow(/Finding origin requires findingIds/)
+    })
+
+    it('throws if finding origin contains insightIds', () => {
+      expect(() =>
+        createRecommendation({
+          ...baseInput,
+          origin: 'finding',
+          findingIds: ['finding-1'],
+          insightIds: ['insight-1'],
+        })
+      ).toThrow(/Finding origin rejects insightIds/)
+    })
+
+    it('throws if confidence is out of bounds (< 0)', () => {
+      expect(() =>
+        createRecommendation({
+          ...baseInput,
+          origin: 'insight',
+          insightIds: ['insight-1'],
+          confidence: -0.1,
+        })
+      ).toThrow(/Confidence must be a number between 0 and 1/)
+    })
+
+    it('throws if confidence is out of bounds (> 1)', () => {
+      expect(() =>
+        createRecommendation({
+          ...baseInput,
+          origin: 'insight',
+          insightIds: ['insight-1'],
+          confidence: 1.1,
+        })
+      ).toThrow(/Confidence must be a number between 0 and 1/)
     })
   })
 })

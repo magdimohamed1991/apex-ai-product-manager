@@ -17,9 +17,11 @@
   "dependencies": {
     "@apex/analysis": "workspace:*",
     "@apex/contracts": "workspace:*",
-    "@apex/prompts": "workspace:*"
+    "@apex/prompts": "workspace:*",
+    "@octokit/rest": "^22.0.1"
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "vitest": "^4.1.10"
   }
 }

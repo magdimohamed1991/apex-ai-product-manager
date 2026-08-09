@@ -1,4 +1,5 @@
 import type { Evidence } from '@apex/analysis'
+import { createCorrelationFinding } from '../../domain/entities/Finding'
 import type { Finding } from '../../domain/entities/Finding'
 import type { Explanation } from '../../domain/entities/Explanation'
 import type { WorkspaceId } from '../../domain/value-objects'
@@ -41,8 +42,7 @@ export class CorrelationFindingBuilder {
     const title = this.buildTitle(candidate)
     const description = this.buildDescription(candidate, relatedEvidence)
 
-    const finding: Finding = {
-      id: crypto.randomUUID(),
+    const finding = createCorrelationFinding({
       workspaceId,
       type: this.inferFindingType(candidate),
       title,
@@ -51,8 +51,7 @@ export class CorrelationFindingBuilder {
       severity: this.inferSeverity(candidate.score),
       evidenceIds: relatedEvidence.map((e) => e.id),
       correlationId: candidate.id,
-      createdAt: new Date(),
-    }
+    })
 
     const explanation: Explanation = {
       id: crypto.randomUUID(),

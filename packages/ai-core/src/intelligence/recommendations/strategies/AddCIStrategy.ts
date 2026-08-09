@@ -1,3 +1,4 @@
+import { createRecommendation } from '../../../domain'
 import type { Recommendation, RecommendationOrigin } from '../../../domain'
 import type { RecommendationStrategy } from '../RecommendationStrategy'
 import type { RecommendationInput } from '../RecommendationInput'
@@ -12,8 +13,7 @@ export class AddCIStrategy implements RecommendationStrategy {
 
   recommend(input: RecommendationInput): Recommendation {
     const insight = input.insight!
-    return {
-      id: crypto.randomUUID(),
+    return createRecommendation({
       workspaceId: input.workspaceId,
       origin: 'insight',
       deduplicationKey: `${this.id}:insight:${insight.id}`,
@@ -32,7 +32,6 @@ export class AddCIStrategy implements RecommendationStrategy {
           description: 'Add .github/workflows/ci.yml with lint, typecheck, test, and build steps.',
         },
       ],
-      createdAt: new Date(),
-    }
+    })
   }
 }

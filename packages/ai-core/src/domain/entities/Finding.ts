@@ -27,3 +27,29 @@ export interface Finding {
   correlationId: string // always set — Findings are a correlation-layer concept
   createdAt: Date
 }
+
+/**
+ * Domain factory to safely construct a correlation-derived Finding and enforce invariants.
+ */
+export function createCorrelationFinding(
+  data: Omit<Finding, 'id' | 'createdAt'> & { id?: string; createdAt?: Date }
+): Finding {
+  if (!data.correlationId) {
+    throw new Error('Correlation finding must have a correlationId')
+  }
+  if (!data.evidenceIds || data.evidenceIds.length === 0) {
+    throw new Error('Correlation finding must have at least one evidenceId')
+  }
+  return {
+    id: data.id ?? crypto.randomUUID(),
+    workspaceId: data.workspaceId,
+    type: data.type,
+    title: data.title,
+    description: data.description,
+    priority: data.priority,
+    severity: data.severity,
+    evidenceIds: data.evidenceIds,
+    correlationId: data.correlationId,
+    createdAt: data.createdAt ?? new Date(),
+  }
+}

@@ -1,3 +1,4 @@
+import { createRecommendation } from '../../../domain'
 import type { Recommendation, RecommendationOrigin } from '../../../domain'
 import type { RecommendationStrategy } from '../RecommendationStrategy'
 import type { RecommendationInput } from '../RecommendationInput'
@@ -12,8 +13,7 @@ export class AddTypeScriptStrategy implements RecommendationStrategy {
 
   recommend(input: RecommendationInput): Recommendation {
     const insight = input.insight!
-    return {
-      id: crypto.randomUUID(),
+    return createRecommendation({
       workspaceId: input.workspaceId,
       origin: 'insight',
       deduplicationKey: `${this.id}:insight:${insight.id}`,
@@ -37,7 +37,6 @@ export class AddTypeScriptStrategy implements RecommendationStrategy {
           description: 'Convert source files from JavaScript to TypeScript and fix type errors.',
         },
       ],
-      createdAt: new Date(),
-    }
+    })
   }
 }

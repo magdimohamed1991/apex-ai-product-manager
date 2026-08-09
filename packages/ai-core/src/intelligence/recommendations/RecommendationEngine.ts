@@ -26,6 +26,10 @@ export class RecommendationEngine {
     const addIfNew = (rec: Recommendation) => {
       if (seen.has(rec.deduplicationKey)) return
       seen.add(rec.deduplicationKey)
+      
+      // Enforce deterministic stable Recommendation ID across pipeline runs (Item 7)
+      rec.id = `rec-${rec.deduplicationKey.replace(/:/g, '-')}`
+      
       recommendations.push(rec)
     }
 
