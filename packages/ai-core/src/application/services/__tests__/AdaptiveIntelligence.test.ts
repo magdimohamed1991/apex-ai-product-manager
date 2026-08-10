@@ -137,7 +137,12 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
       // Test coefficients list
       const testingCoef = profile.categoryCoefficients.find((c) => c.category === 'TESTING')!
       expect(testingCoef.adoptionRate).toBe(1.0) // Approved testing action out of 1 recommendation
-      expect(testingCoef.pmCalibrationWeight).toBeGreaterThan(1.0) // Boosted based on adoption
+      // Epistemic gate (no evidence != negative evidence): a single adoption
+      // observation is INSUFFICIENT (< MIN_OBSERVATIONS_FOR_FAVORED), so the
+      // adoption multiplier contribution is exactly neutral (1.0) — it must
+      // not start influencing calibration on one data point in either
+      // direction.
+      expect(testingCoef.pmCalibrationWeight).toBe(1.0)
     })
 
     it('implements confidence safeguard to prevent overfitting from low sample sizes', async () => {

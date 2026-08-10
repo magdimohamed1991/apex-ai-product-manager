@@ -330,10 +330,20 @@ export class SqlProductRepository implements ProductRepository {
     try {
       const state = this.db.getActiveState()
       if (!state.pmDecisionTelemetry) state.pmDecisionTelemetry = []
-      // Upsert by id (id is a deterministic hash of the decision tuple, so
-      // duplicate decision records are naturally deduplicated).
+      // Upsert scoped by (id, workspaceId, projectId). The id is a
+      // deterministic hash of the (workspace, project, recommendation,
+      // decisionStartedAt) tuple, so duplicate submissions of the SAME
+      // decision window collapse idempotently. Scoping the delete by
+      // projectId as well is a belt-and-braces guarantee that a different
+      // project can never clobber this project's row even on an id
+      // collision.
       state.pmDecisionTelemetry = state.pmDecisionTelemetry.filter(
-        (t) => !(t.id === telemetry.id && t.workspaceId === telemetry.workspaceId)
+        (t) =>
+          !(
+            t.id === telemetry.id &&
+            t.workspaceId === telemetry.workspaceId &&
+            t.projectId === telemetry.projectId
+          )
       )
       state.pmDecisionTelemetry.push(JSON.parse(JSON.stringify(telemetry)))
       await this.db.commit()

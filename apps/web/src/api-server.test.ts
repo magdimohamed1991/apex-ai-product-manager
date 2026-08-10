@@ -678,6 +678,146 @@ describe('API server — composition root & route security', () => {
     expect(metrics.decisionAcceptanceRate.observationCount).toBe(1)
   })
 
+  it('rejects telemetry with impossible ownership relationships at the HTTP boundary (Finding 3)', async () => {
+    await api.initApiServer()
+    const signupA = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'ownera@acme.com', password: 'super-secure-password' },
+    })
+    const signupB = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'intruder2@acme.com', password: 'super-secure-password' },
+    })
+    const tokenA = signupA.json.token as string
+    const tokenB = signupB.json.token as string
+    const wsA = (signupA.json.workspace as { id: string }).id
+    const wsB = (signupB.json.workspace as { id: string }).id
+
+    const defaultProj = 'proj-core'
+
+    // Workspace A: connect + analyze the default project to get a real rec.
+    await request(api, {
+      method: 'POST',
+      url: `/api/projects/${defaultProj}/repository`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+      body: {
+        workspaceId: wsA,
+        provider: 'github',
+        owner: 'acme',
+        repository: 'apex-ai-product-manager',
+        defaultBranch: 'main',
+      },
+    })
+    await request(api, {
+      method: 'POST',
+      url: `/api/projects/${defaultProj}/analysis`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+      body: { workspaceId: wsA },
+    })
+    const recsRes = await request(api, {
+      method: 'GET',
+      url: `/api/projects/${defaultProj}/recommendations?workspaceId=${wsA}`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+    })
+    const recs = recsRes.json as unknown as Array<{ id: string }>
+    expect(recs.length).toBeGreaterThan(0)
+    const recA = recs[0].id
+
+    // Workspace A creates an ADDITIONAL project; workspace B will try to
+    // write telemetry against it (cross-workspace project).
+    const extra = await request(api, {
+      method: 'POST',
+      url: '/api/projects',
+      headers: { Authorization: `Bearer ${tokenA}` },
+      body: { workspaceId: wsA, name: 'Extra Project A' },
+    })
+    const extraProj = (extra.json as { id: string }).id
+    expect(extra.status).toBe(200)
+
+    const win = {
+      decisionStartedAt: '2026-08-09T10:00:00.000Z',
+      decisionCompletedAt: '2026-08-09T10:01:00.000Z',
+      recommendationPresentedAt: '2026-08-09T09:59:00.000Z',
+    }
+
+    // 1) cross-workspace project -> 403 (project owned by A, session is B).
+    const crossProj = await request(api, {
+      method: 'POST',
+      url: `/api/projects/${extraProj}/decision-telemetry`,
+      headers: { Authorization: `Bearer ${tokenB}` },
+      body: { workspaceId: wsB, recommendationId: recA, decision: 'ACCEPT', ...win },
+    })
+    expect(crossProj.status).toBe(403)
+
+    // 2) valid project + valid recommendation -> accepted.
+    const valid = await request(api, {
+      method: 'POST',
+      url: `/api/projects/${defaultProj}/decision-telemetry`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+      body: { workspaceId: wsA, recommendationId: recA, decision: 'ACCEPT', ...win },
+    })
+    expect(valid.status).toBe(200)
+
+    // 3) nonexistent recommendation -> 404/validation error.
+    const missing = await request(api, {
+      method: 'POST',
+      url: `/api/projects/${defaultProj}/decision-telemetry`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+      body: {
+        workspaceId: wsA,
+        recommendationId: 'rec-does-not-exist',
+        decision: 'ACCEPT',
+        decisionStartedAt: '2026-08-09T13:00:00.000Z',
+        decisionCompletedAt: '2026-08-09T13:01:00.000Z',
+        recommendationPresentedAt: '2026-08-09T12:59:00.000Z',
+      },
+    })
+    expect(missing.status).toBe(404)
+
+    // 4) recommendation from ANOTHER project in the same workspace -> safe
+    //    authorization failure (404, does not leak the other project's rec).
+    await request(api, {
+      method: 'POST',
+      url: `/api/projects/${extraProj}/repository`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+      body: {
+        workspaceId: wsA,
+        provider: 'github',
+        owner: 'acme',
+        repository: 'apex-ai-product-manager',
+        defaultBranch: 'main',
+      },
+    })
+    await request(api, {
+      method: 'POST',
+      url: `/api/projects/${extraProj}/analysis`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+      body: { workspaceId: wsA },
+    })
+    const extraRecs = await request(api, {
+      method: 'GET',
+      url: `/api/projects/${extraProj}/recommendations?workspaceId=${wsA}`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+    })
+    const extraRec = (extraRecs.json as unknown as Array<{ id: string }>)[0].id
+    const crossProjSameWs = await request(api, {
+      method: 'POST',
+      url: `/api/projects/${defaultProj}/decision-telemetry`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+      body: {
+        workspaceId: wsA,
+        recommendationId: extraRec,
+        decision: 'ACCEPT',
+        decisionStartedAt: '2026-08-09T14:00:00.000Z',
+        decisionCompletedAt: '2026-08-09T14:01:00.000Z',
+        recommendationPresentedAt: '2026-08-09T13:59:00.000Z',
+      },
+    })
+    expect(crossProjSameWs.status).toBe(404)
+  })
+
   it('logout invalidates the session server-side: the token is dead immediately', async () => {
     await api.initApiServer()
     const signup = await request(api, {

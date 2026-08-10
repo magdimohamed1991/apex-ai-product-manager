@@ -643,43 +643,68 @@ describe('H7 → H6 Learning Effect (telemetry MUST change calibration)', () => 
 
   // ---------- Provenance (§6) ----------
 
-  it('every H7 signal traces to exact telemetry records (sourceTelemetryIds)', async () => {
+  it('every H7 signal reconstructs its rate from persisted telemetry alone (denominator + numerator provenance)', async () => {
     const recIds = await seedAndCommit(20)
+    // 15 decisions total: 10 REJECT + 5 OVERRIDE (priority 4).
     await recordDecisions(recIds, 'REJECT', 10)
     await recordDecisions(recIds, 'OVERRIDE', 5, 4)
 
     await compile()
     const signals = await profileRepository.getSignals(WS, PROJECT)
     const telemetry = await productRepository.getPMDecisionTelemetryByProject(PROJECT, WS)
+    const allIds = telemetry.map((t) => t.id)
 
+    const RATE_SIGNALS = new Set(['ACCEPTANCE', 'REJECTION', 'DEFER', 'OVERRIDE'])
     for (const sig of decisionSignals(signals)) {
       expect(sig.sourceTelemetryIds, sig.type).toBeDefined()
       expect(sig.calibrationVersion).toBe(CALIBRATION_VERSION)
-      // Every sourceTelemetryId must be a REAL persisted telemetry id of the
-      // right decision kind.
+      // 1) Every denominator id in sourceTelemetryIds is a REAL persisted
+      //    telemetry record.
       for (const tid of sig.sourceTelemetryIds!) {
-        const record = telemetry.find((t) => t.id === tid)
-        expect(record, `${sig.type} -> ${tid}`).toBeDefined()
-        if (sig.type === 'REJECTION') expect(record!.decision).toBe('REJECT')
-        if (sig.type === 'OVERRIDE' || sig.type === 'PRIORITY_OVERRIDE_DELTA') {
-          expect(record!.decision).toBe('OVERRIDE')
-        }
+        expect(
+          telemetry.find((t) => t.id === tid),
+          `${sig.type} -> ${tid}`
+        ).toBeDefined()
       }
-      // 1:1 mapping between source telemetry records and the underlying
-      // decision-kind records: REJECTION counts exactly the REJECT records,
-      // etc. (ACCEPTANCE counts the whole population, so its source list is
-      // the ACCEPT subset — possibly empty when nothing was accepted.)
-      if (sig.type !== 'ACCEPTANCE') {
-        expect(sig.sourceTelemetryIds!.length, sig.type).toBe(sig.observationCount)
-        expect(sig.sourceRecommendationIds.length).toBe(sig.sourceTelemetryIds!.length)
+      // 2) The signal is reconstructible: observationCount is the full
+      //    denominator population.
+      expect(sig.sourceTelemetryIds!.length, sig.type).toBe(sig.observationCount)
+      expect(sig.sourceRecommendationIds.length).toBe(sig.sourceTelemetryIds!.length)
+      expect(sig.numeratorTelemetryIds, sig.type).toBeDefined()
+      // 3) A RATE signal's value is exactly |numerator| / |denominator|.
+      //    (PRIORITY_OVERRIDE_DELTA's value is a mean magnitude, not a rate;
+      //    it still carries full denominator+numerator provenance.)
+      if (RATE_SIGNALS.has(sig.type)) {
+        expect(sig.value, sig.type).toBeCloseTo(
+          sig.numeratorTelemetryIds!.length / sig.sourceTelemetryIds!.length,
+          5
+        )
       }
     }
-    // REJECTION traces to exactly the 10 REJECT records.
+
+    // REJECTION: denominator = the complete 15-record population; numerator
+    // = exactly the 10 REJECT records. value = 10/15.
     const rejection = signals.find((s) => s.type === 'REJECTION')
-    expect(rejection!.sourceTelemetryIds).toHaveLength(10)
-    expect(rejection!.observationCount).toBe(10)
-    // The delta signal carries the signed direction.
+    expect(rejection!.sourceTelemetryIds).toHaveLength(15)
+    expect(rejection!.sourceTelemetryIds!.sort()).toEqual([...allIds].sort())
+    expect(rejection!.numeratorTelemetryIds).toHaveLength(10)
+    expect(rejection!.observationCount).toBe(15)
+    expect(rejection!.value).toBeCloseTo(10 / 15, 5)
+    // Every numerator record is a real REJECT record.
+    const telemetryById = new Map(telemetry.map((t) => [t.id, t]))
+    for (const tid of rejection!.numeratorTelemetryIds!) {
+      expect(telemetryById.get(tid)!.decision).toBe('REJECT')
+    }
+    // OVERRIDE: denominator = full 15-record population; numerator = 5.
+    const override = signals.find((s) => s.type === 'OVERRIDE')
+    expect(override!.sourceTelemetryIds).toHaveLength(15)
+    expect(override!.numeratorTelemetryIds).toHaveLength(5)
+    expect(override!.value).toBeCloseTo(5 / 15, 5)
+    // The delta signal is computed over ONLY the 5 override-with-delta
+    // records (its own population is both numerator and denominator).
     const delta = signals.find((s) => s.type === 'PRIORITY_OVERRIDE_DELTA')
+    expect(delta!.sourceTelemetryIds).toHaveLength(5)
+    expect(delta!.numeratorTelemetryIds).toHaveLength(5)
     expect(delta!.meanSignedOverrideDelta).toBeCloseTo(-4, 5) // mean(4 - 8)
   })
 
@@ -717,8 +742,13 @@ describe('H7 → H6 Learning Effect (telemetry MUST change calibration)', () => 
     // Project A must have NO rejection evidence (0 rejects → no REJECTION
     // signal); project B's ACCEPTANCE rate is 0% — never A's 100%.
     expect(signalsA.find((s) => s.type === 'REJECTION')).toBeUndefined()
-    expect(signalsB.find((s) => s.type === 'ACCEPTANCE')!.value).toBe(0)
-    expect(signalsB.find((s) => s.type === 'ACCEPTANCE')!.sourceTelemetryIds).toHaveLength(0)
+    // Project B's ACCEPTANCE rate is 0% — the rate is observed (denominator
+    // = its 20-record population) but its numerator is empty. This is an
+    // OBSERVED zero rate, not absence of evidence.
+    const accB = signalsB.find((s) => s.type === 'ACCEPTANCE')!
+    expect(accB.value).toBe(0)
+    expect(accB.sourceTelemetryIds).toHaveLength(20)
+    expect(accB.numeratorTelemetryIds).toHaveLength(0)
 
     // Calibration responds only to the project's own telemetry.
     const profileA = await profileRepository.getProfile(WS, PROJECT)
