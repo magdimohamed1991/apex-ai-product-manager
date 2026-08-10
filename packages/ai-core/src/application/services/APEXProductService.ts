@@ -3,7 +3,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import {
   createWorkspaceId,
   createWorkspaceName,
@@ -196,8 +196,16 @@ export class APEXProductService {
       if (!isMockToken) {
         fs.mkdirSync(tempDir, { recursive: true })
         try {
+          // Validate owner/repo to prevent command injection — GitHub
+          // names may only contain alphanumeric, '.', '-' or '_'.
+          const SAFE_GITHUB_NAME = /^[a-zA-Z0-9._-]+$/
+          if (!SAFE_GITHUB_NAME.test(conn.owner) || !SAFE_GITHUB_NAME.test(conn.repository)) {
+            throw new SecurityError(
+              `Invalid repository owner or name: ${conn.owner}/${conn.repository}`
+            )
+          }
           const authUrl = `https://x-token-auth:${creds.token}@github.com/${conn.owner}/${conn.repository}.git`
-          execSync(`git clone --depth 1 ${authUrl} ${tempDir}`, { stdio: 'ignore' })
+          execFileSync('git', ['clone', '--depth', '1', authUrl, tempDir], { stdio: 'ignore' })
           clonedSuccessfully = true
           log.info('Successfully cloned real repository', {
             owner: conn.owner,
