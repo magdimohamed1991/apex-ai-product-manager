@@ -11,6 +11,8 @@ export type ReasoningFailureReason =
 export interface AIProductReasoning {
   recommendationId: string
   workspaceId: string
+  /** Owning project; required for newly persisted project-derived artifacts. */
+  projectId?: string
   model: string
   version: string
   contextHash: string

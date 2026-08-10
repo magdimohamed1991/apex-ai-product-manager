@@ -263,6 +263,7 @@ export class ProductReasoningService {
     const reasoning: AIProductReasoning = {
       recommendationId: rec.id,
       workspaceId: rec.workspaceId,
+      projectId: (rec as RichRecommendation & { projectId?: string }).projectId,
       model: response.model,
       version: ProductReasoningService.SCHEMA_VERSION,
       contextHash,
@@ -439,6 +440,7 @@ Schema:
     return {
       recommendationId: rec.id,
       workspaceId: rec.workspaceId,
+      projectId: (rec as RichRecommendation & { projectId?: string }).projectId,
       model: this.llmProvider.model,
       version: ProductReasoningService.SCHEMA_VERSION,
       contextHash,

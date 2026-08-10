@@ -874,18 +874,33 @@ export async function handleApiRequest(
     if (execsMatch && method === 'GET') {
       const actionId = execsMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
+      const projectId = getQueryParam(url, 'projectId')
+      if (!projectId) {
+        sendError(res, new ValidationError('Missing projectId'))
+        return true
+      }
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-      sendJson(res, await productService.getExecutions(auth.workspaceId, actionId))
+      const action = await productService.getAction(auth.workspaceId, projectId, actionId)
+      if (!action) {
+        sendError(res, new NotFoundError('Action not found'))
+        return true
+      }
+      sendJson(res, await productService.getExecutions(auth.workspaceId, projectId, actionId))
       return true
     }
     const actionMatch = pathname.match(/^\/api\/actions\/([^/]+)$/)
     if (actionMatch && method === 'GET') {
       const actionId = actionMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
+      const projectId = getQueryParam(url, 'projectId')
+      if (!projectId) {
+        sendError(res, new ValidationError('Missing projectId'))
+        return true
+      }
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
-      const action = await productService.getAction(auth.workspaceId, actionId)
+      const action = await productService.getAction(auth.workspaceId, projectId, actionId)
       sendJson(res, action || null, action ? 200 : 404)
       return true
     }
@@ -926,9 +941,10 @@ export async function handleApiRequest(
       const auth = await authenticateAndAuthorize(req, res, workspaceId)
       if (!auth) return true
       const outcomeId = String(body?.outcomeId || '')
+      const projectId = String(body?.projectId || '')
       const filesAfterChange = body?.filesAfterChange
-      if (!outcomeId || !filesAfterChange || typeof filesAfterChange !== 'object') {
-        sendError(res, new ValidationError('Missing outcomeId or filesAfterChange'))
+      if (!outcomeId || !projectId || !filesAfterChange || typeof filesAfterChange !== 'object') {
+        sendError(res, new ValidationError('Missing outcomeId, projectId or filesAfterChange'))
         return true
       }
       sendJson(
@@ -936,6 +952,7 @@ export async function handleApiRequest(
         await productService.verifyOutcome(
           outcomeId,
           auth.workspaceId,
+          projectId,
           filesAfterChange as VerificationEvidence
         )
       )
@@ -1148,10 +1165,19 @@ export async function handleApiRequest(
     if (reasoningMatch && method === 'GET') {
       const recId = reasoningMatch[1]
       const workspaceId = getQueryParam(url, 'workspaceId')
+      const projectId = getQueryParam(url, 'projectId')
+      if (!projectId) {
+        sendError(res, new ValidationError('Missing projectId'))
+        return true
+      }
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
       const wsId = createWorkspaceId(auth.workspaceId)
-      const rec = await productRepository.getRecommendationByIdAndWorkspace(recId, wsId)
+      const rec = await productRepository.getRecommendationByIdWorkspaceAndProject(
+        recId,
+        wsId,
+        projectId
+      )
       if (!rec) {
         sendError(res, new NotFoundError('Recommendation not found'))
         return true
@@ -1160,13 +1186,14 @@ export async function handleApiRequest(
       if (!rich) {
         // The persisted row is missing its H3 decoration. Answer with a
         // typed "unavailable" record — NEVER fabricate decoration.
-        const unavailable = unavailableReasoning(rec, llmProvider!.model)
+        const unavailable = { ...unavailableReasoning(rec, llmProvider!.model), projectId }
         await productRepository.saveAIProductReasoning(unavailable)
         sendJson(res, unavailable)
         return true
       }
       const reasoningService = new ProductReasoningService(productRepository, llmProvider!)
       let reasoning = await productRepository.getAIProductReasoning(recId, wsId)
+      if (reasoning && reasoning.projectId !== projectId) reasoning = null
       if (!reasoning) {
         reasoning = await reasoningService.generateReasoning(rich)
       }
@@ -1179,16 +1206,25 @@ export async function handleApiRequest(
       const workspaceId = String(body?.workspaceId || '')
       const auth = await authenticateAndAuthorize(req, res, workspaceId)
       if (!auth) return true
+      const projectId = String(body?.projectId || '')
+      if (!projectId) {
+        sendError(res, new ValidationError('Missing projectId'))
+        return true
+      }
       const projectContext = body?.projectContext ? String(body.projectContext) : undefined
       const wsId = createWorkspaceId(auth.workspaceId)
-      const rec = await productRepository.getRecommendationByIdAndWorkspace(recId, wsId)
+      const rec = await productRepository.getRecommendationByIdWorkspaceAndProject(
+        recId,
+        wsId,
+        projectId
+      )
       if (!rec) {
         sendError(res, new NotFoundError('Recommendation not found'))
         return true
       }
       const rich = buildRichRecommendationFromPersisted(rec)
       if (!rich) {
-        const unavailable = unavailableReasoning(rec, llmProvider!.model)
+        const unavailable = { ...unavailableReasoning(rec, llmProvider!.model), projectId }
         await productRepository.saveAIProductReasoning(unavailable)
         sendJson(res, unavailable)
         return true

@@ -51,6 +51,12 @@ export interface ProductRepository {
     id: string,
     workspaceId: WorkspaceId
   ): Promise<Recommendation | null>
+  /** Project-owned recommendation lookup. Use at authorization boundaries. */
+  getRecommendationByIdWorkspaceAndProject(
+    id: string,
+    workspaceId: WorkspaceId,
+    projectId: string
+  ): Promise<Recommendation | null>
   saveRecommendation(rec: Recommendation, projectId: string): Promise<void>
   deleteRecommendationsByProject(projectId: string, workspaceId: WorkspaceId): Promise<void>
 

@@ -439,12 +439,34 @@ export class APEXProductService {
     return approvedAction
   }
 
-  async getAction(workspaceId: string, actionId: string): Promise<Action | null> {
-    return this.actionRepository.getByIdAndWorkspace(actionId, createWorkspaceId(workspaceId))
+  async getAction(
+    workspaceId: string,
+    projectId: string,
+    actionId: string
+  ): Promise<Action | null> {
+    const wsId = createWorkspaceId(workspaceId)
+    const action = await this.actionRepository.getByIdAndWorkspace(actionId, wsId)
+    if (!action) return null
+    // Actions inherit ownership from their related recommendation. The frozen
+    // Action repository is workspace-scoped, so enforce project scope here.
+    return (await this.productRepository.getRecommendationByIdWorkspaceAndProject(
+      action.relatedRecommendationId,
+      wsId,
+      projectId
+    ))
+      ? action
+      : null
   }
 
-  async getExecutions(workspaceId: string, actionId: string): Promise<Execution[]> {
-    return this.actionRepository.getExecutionsByAction(actionId, createWorkspaceId(workspaceId))
+  async getExecutions(
+    workspaceId: string,
+    projectId: string,
+    actionId: string
+  ): Promise<Execution[]> {
+    const action = await this.getAction(workspaceId, projectId, actionId)
+    return action
+      ? this.actionRepository.getExecutionsByAction(actionId, createWorkspaceId(workspaceId))
+      : []
   }
 
   /**
@@ -573,11 +595,13 @@ export class APEXProductService {
   async verifyOutcome(
     outcomeId: string,
     workspaceId: string,
+    projectId: string,
     filesAfterChange: VerificationEvidence
   ): Promise<RecommendationOutcome> {
     return this.outcomeService.verifyOutcome(
       outcomeId,
       createWorkspaceId(workspaceId),
+      projectId,
       filesAfterChange
     )
   }

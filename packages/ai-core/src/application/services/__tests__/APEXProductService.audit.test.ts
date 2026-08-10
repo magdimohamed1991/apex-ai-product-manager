@@ -85,6 +85,32 @@ describe('APEXProductService audit-regression tests', () => {
     ).rejects.toThrow(NotFoundError)
   })
 
+  it('does not expose an action or execution through a different project in the same workspace', async () => {
+    await ctx.productService.createProject('ws-a', 'proj-other', 'Project Other')
+    await ctx.productService.connectRepository('ws-a', 'proj-a', {
+      provider: 'github',
+      owner: 'acme',
+      repository: 'apex-ai-product-manager',
+      defaultBranch: 'main',
+    })
+    await ctx.productService.runAnalysis('ws-a', 'proj-a')
+    const rec = (await ctx.productService.getRecommendations('ws-a', 'proj-a'))[0]
+    const action = await ctx.productService.approveAction(
+      'ws-a',
+      'proj-a',
+      rec.id,
+      rec.proposedActions[0].id
+    )
+
+    await expect(ctx.productService.getAction('ws-a', 'proj-other', action.id)).resolves.toBeNull()
+    await expect(
+      ctx.productService.getExecutions('ws-a', 'proj-other', action.id)
+    ).resolves.toEqual([])
+    await expect(ctx.productService.getAction('ws-a', 'proj-a', action.id)).resolves.toMatchObject({
+      id: action.id,
+    })
+  })
+
   it('is idempotent: double approval returns the same action and appends no duplicate transition', async () => {
     await ctx.productService.connectRepository('ws-a', 'proj-a', {
       provider: 'github',

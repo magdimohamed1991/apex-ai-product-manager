@@ -119,6 +119,7 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
       const verified = await productService.verifyOutcome(
         outcome.id,
         'ws-outcome-a',
+        'proj-1',
         filesAfterChange
       )
 
@@ -151,6 +152,7 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
       const verified = await productService.verifyOutcome(
         outcome.id,
         'ws-outcome-a',
+        'proj-1',
         filesAfterChange
       )
       expect(verified.status).toBe('FAILED')
@@ -200,10 +202,14 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
       const testRec = recs.find((r) => r.title.toLowerCase().includes('test'))!
 
       const o1 = await productService.createOutcome(tsRec.id, 'ws-outcome-a', 'proj-1')
-      await productService.verifyOutcome(o1.id, 'ws-outcome-a', { hasTypeScriptConfig: true }) // success
+      await productService.verifyOutcome(o1.id, 'ws-outcome-a', 'proj-1', {
+        hasTypeScriptConfig: true,
+      }) // success
 
       const o2 = await productService.createOutcome(testRec.id, 'ws-outcome-a', 'proj-1')
-      await productService.verifyOutcome(o2.id, 'ws-outcome-a', { hasVitestConfig: false }) // failed
+      await productService.verifyOutcome(o2.id, 'ws-outcome-a', 'proj-1', {
+        hasVitestConfig: false,
+      }) // failed
 
       // Load Metrics
       const metrics = await productService.getDecisionQualityMetrics('ws-outcome-a', 'proj-1')
@@ -240,7 +246,9 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
 
       // 2. Workspace B cannot verify Workspace A's outcome
       await expect(
-        productService.verifyOutcome(outcome.id, 'ws-outcome-b', { hasVitestConfig: true })
+        productService.verifyOutcome(outcome.id, 'ws-outcome-b', 'proj-1', {
+          hasVitestConfig: true,
+        })
       ).rejects.toThrow()
     })
   })

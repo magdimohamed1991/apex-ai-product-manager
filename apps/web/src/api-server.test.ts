@@ -153,7 +153,7 @@ describe('API server — composition root & route security', () => {
     // A lists projects in its own workspace.
     const projectsA = await request(api, {
       method: 'GET',
-      url: `/api/projects?workspaceId=${wsA}`,
+      url: `/api/projects?workspaceId=${wsA}&projectId=proj-core`,
       headers: { Authorization: `Bearer ${tokenA}` },
     })
     expect(projectsA.status).toBe(200)
@@ -161,7 +161,7 @@ describe('API server — composition root & route security', () => {
     // B asks for A's workspace projects → denied (not a member).
     const cross = await request(api, {
       method: 'GET',
-      url: `/api/projects?workspaceId=${wsA}`,
+      url: `/api/projects?workspaceId=${wsA}&projectId=proj-core`,
       headers: { Authorization: `Bearer ${tokenB}` },
     })
     expect(cross.status).toBe(403)
@@ -193,18 +193,21 @@ describe('API server — composition root & route security', () => {
     // Attacker B holds a valid session for THEIR workspace but requests
     // workspace A's resources by id. Every endpoint must return 403.
     const attempts = [
-      ['GET', `/api/projects?workspaceId=${wsA}`],
-      ['GET', `/api/projects/proj-core/repository?workspaceId=${wsA}`],
-      ['GET', `/api/projects/proj-core/findings?workspaceId=${wsA}`],
-      ['GET', `/api/projects/proj-core/recommendations?workspaceId=${wsA}`],
-      ['GET', `/api/projects/proj-core/activity?workspaceId=${wsA}`],
-      ['GET', `/api/projects/proj-core/decision-metrics?workspaceId=${wsA}`],
-      ['GET', `/api/projects/proj-core/outcomes?workspaceId=${wsA}`],
-      ['GET', `/api/projects/proj-core/profile?workspaceId=${wsA}`],
-      ['GET', `/api/projects/proj-core/learning-signals?workspaceId=${wsA}`],
-      ['GET', `/api/projects/proj-core/product-value?workspaceId=${wsA}`],
-      ['GET', `/api/recommendations/rec-any/reasoning?workspaceId=${wsA}`],
-      ['GET', `/api/recommendations/rec-any/calibration?workspaceId=${wsA}&projectId=proj-core`],
+      ['GET', `/api/projects?workspaceId=${wsA}&projectId=proj-core`],
+      ['GET', `/api/projects/proj-core/repository?workspaceId=${wsA}&projectId=proj-core`],
+      ['GET', `/api/projects/proj-core/findings?workspaceId=${wsA}&projectId=proj-core`],
+      ['GET', `/api/projects/proj-core/recommendations?workspaceId=${wsA}&projectId=proj-core`],
+      ['GET', `/api/projects/proj-core/activity?workspaceId=${wsA}&projectId=proj-core`],
+      ['GET', `/api/projects/proj-core/decision-metrics?workspaceId=${wsA}&projectId=proj-core`],
+      ['GET', `/api/projects/proj-core/outcomes?workspaceId=${wsA}&projectId=proj-core`],
+      ['GET', `/api/projects/proj-core/profile?workspaceId=${wsA}&projectId=proj-core`],
+      ['GET', `/api/projects/proj-core/learning-signals?workspaceId=${wsA}&projectId=proj-core`],
+      ['GET', `/api/projects/proj-core/product-value?workspaceId=${wsA}&projectId=proj-core`],
+      ['GET', `/api/recommendations/rec-any/reasoning?workspaceId=${wsA}&projectId=proj-core`],
+      [
+        'GET',
+        `/api/recommendations/rec-any/calibration?workspaceId=${wsA}&projectId=proj-core&projectId=proj-core`,
+      ],
       ['POST', `/api/projects/proj-core/analysis`],
       ['POST', `/api/projects/proj-core/decision-telemetry`],
     ] as const
@@ -257,7 +260,7 @@ describe('API server — composition root & route security', () => {
     })
     const recs = await request(api, {
       method: 'GET',
-      url: `/api/projects/proj-core/recommendations?workspaceId=${wsA}`,
+      url: `/api/projects/proj-core/recommendations?workspaceId=${wsA}&projectId=proj-core`,
       headers: { Authorization: `Bearer ${tokenA}` },
     })
     const rec = (
@@ -280,14 +283,14 @@ describe('API server — composition root & route security', () => {
     // (not a member of workspace A).
     const crossWs = await request(api, {
       method: 'GET',
-      url: `/api/actions/${actionId}?workspaceId=${wsA}`,
+      url: `/api/actions/${actionId}?workspaceId=${wsA}&projectId=proj-core`,
       headers: { Authorization: `Bearer ${tokenB}` },
     })
     expect(crossWs.status).toBe(403)
 
     const crossWsExec = await request(api, {
       method: 'GET',
-      url: `/api/actions/${actionId}/executions?workspaceId=${wsA}`,
+      url: `/api/actions/${actionId}/executions?workspaceId=${wsA}&projectId=proj-core`,
       headers: { Authorization: `Bearer ${tokenB}` },
     })
     expect(crossWsExec.status).toBe(403)
@@ -296,7 +299,7 @@ describe('API server — composition root & route security', () => {
     // scoped lookup finds nothing in B's workspace; existence is not leaked).
     const ownWs = await request(api, {
       method: 'GET',
-      url: `/api/actions/${actionId}?workspaceId=${(signupB.json.workspace as { id: string }).id}`,
+      url: `/api/actions/${actionId}?workspaceId=${(signupB.json.workspace as { id: string }).id}&projectId=proj-core`,
       headers: { Authorization: `Bearer ${tokenB}` },
     })
     expect(ownWs.status).toBe(404)
@@ -304,13 +307,13 @@ describe('API server — composition root & route security', () => {
     // Owner A can read their own action and its executions.
     const owner = await request(api, {
       method: 'GET',
-      url: `/api/actions/${actionId}?workspaceId=${wsA}`,
+      url: `/api/actions/${actionId}?workspaceId=${wsA}&projectId=proj-core`,
       headers: { Authorization: `Bearer ${tokenA}` },
     })
     expect(owner.status).toBe(200)
     const ownerExec = await request(api, {
       method: 'GET',
-      url: `/api/actions/${actionId}/executions?workspaceId=${wsA}`,
+      url: `/api/actions/${actionId}/executions?workspaceId=${wsA}&projectId=proj-core`,
       headers: { Authorization: `Bearer ${tokenA}` },
     })
     expect(ownerExec.status).toBe(200)
@@ -814,7 +817,7 @@ describe('API server — composition root & route security', () => {
     })
     const recsRes = await request(api, {
       method: 'GET',
-      url: `/api/projects/${defaultProj}/recommendations?workspaceId=${wsA}`,
+      url: `/api/projects/${defaultProj}/recommendations?workspaceId=${wsA}&projectId=proj-core`,
       headers: { Authorization: `Bearer ${tokenA}` },
     })
     const recs = recsRes.json as unknown as Array<{ id: string }>
@@ -894,7 +897,7 @@ describe('API server — composition root & route security', () => {
     })
     const extraRecs = await request(api, {
       method: 'GET',
-      url: `/api/projects/${extraProj}/recommendations?workspaceId=${wsA}`,
+      url: `/api/projects/${extraProj}/recommendations?workspaceId=${wsA}&projectId=proj-core`,
       headers: { Authorization: `Bearer ${tokenA}` },
     })
     const extraRec = (extraRecs.json as unknown as Array<{ id: string }>)[0].id

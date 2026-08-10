@@ -285,6 +285,18 @@ export class SqlProductRepository implements ProductRepository {
     return JSON.parse(JSON.stringify(r)) as Recommendation
   }
 
+  async getRecommendationByIdWorkspaceAndProject(
+    id: string,
+    workspaceId: WorkspaceId,
+    projectId: string
+  ): Promise<Recommendation | null> {
+    const state = this.db.getActiveState()
+    const r = (state.recommendations as StoredRecommendation[] | undefined)?.find(
+      (x) => x.id === id && x.workspaceId === workspaceId && x.projectId === projectId
+    )
+    return r ? (JSON.parse(JSON.stringify(r)) as Recommendation) : null
+  }
+
   async saveRecommendation(rec: Recommendation, projectId: string): Promise<void> {
     this.db.beginTransaction()
     try {
@@ -390,7 +402,8 @@ export class SqlProductRepository implements ProductRepository {
         (x) =>
           !(
             x.recommendationId === reasoning.recommendationId &&
-            x.workspaceId === reasoning.workspaceId
+            x.workspaceId === reasoning.workspaceId &&
+            x.projectId === reasoning.projectId
           )
       )
       state.aiReasonings.push(JSON.parse(JSON.stringify(reasoning)))
