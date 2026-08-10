@@ -202,9 +202,9 @@ export function useDashboardData(
 
   const verifyOutcome = useCallback(
     async (outcomeId: string, filesAfterChange: Record<string, unknown>) => {
-      if (!workspace) return
+      if (!workspace || !project) return
       try {
-        await apiClient.verifyOutcome(workspace.id, outcomeId, filesAfterChange)
+        await apiClient.verifyOutcome(workspace.id, project!.id, outcomeId, filesAfterChange)
         await refreshAll()
       } catch (err) {
         handleError('verify', err)
@@ -215,10 +215,10 @@ export function useDashboardData(
 
   const fetchReasoning = useCallback(
     async (recId: string) => {
-      if (!workspace) return
+      if (!workspace || !project) return
       setIsReasoningLoading(true)
       try {
-        const r = await apiClient.getReasoning(workspace.id, recId)
+        const r = await apiClient.getReasoning(workspace.id, project!.id, recId)
         setReasoning(r)
       } catch (err) {
         handleError('reasoning', err)
@@ -231,10 +231,10 @@ export function useDashboardData(
 
   const submitReasoningContext = useCallback(
     async (recId: string, projectContext: string) => {
-      if (!workspace) return
+      if (!workspace || !project) return
       setIsReasoningLoading(true)
       try {
-        const r = await apiClient.submitContext(workspace.id, recId, projectContext)
+        const r = await apiClient.submitContext(workspace.id, project!.id, recId, projectContext)
         setReasoning(r)
       } catch (err) {
         handleError('reasoning', err)

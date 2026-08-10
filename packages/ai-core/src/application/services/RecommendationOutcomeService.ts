@@ -68,9 +68,10 @@ export class RecommendationOutcomeService {
     actionId: string | null = null,
     executionId: string | null = null
   ): Promise<RecommendationOutcome> {
-    const rec = await this.productRepository.getRecommendationByIdAndWorkspace(
+    const rec = await this.productRepository.getRecommendationByIdWorkspaceAndProject(
       recommendationId,
-      workspaceId
+      workspaceId,
+      projectId
     )
     if (!rec) {
       throw new Error(
@@ -107,16 +108,22 @@ export class RecommendationOutcomeService {
   async verifyOutcome(
     outcomeId: string,
     workspaceId: WorkspaceId,
+    projectId: string,
     filesAfterChange: VerificationEvidence
   ): Promise<RecommendationOutcome> {
-    const outcome = await this.outcomeRepository.getByIdAndWorkspace(outcomeId, workspaceId)
+    const outcome = await this.outcomeRepository.getByIdWorkspaceAndProject(
+      outcomeId,
+      workspaceId,
+      projectId
+    )
     if (!outcome) {
       throw new Error(`Outcome "${outcomeId}" not found in workspace "${workspaceId}"`)
     }
 
     const rec = await this.productRepository.getRecommendationByIdAndWorkspace(
       outcome.recommendationId,
-      workspaceId
+      workspaceId,
+      projectId
     )
     if (!rec) {
       // If the recommendation was deleted/absent, outcome remains unverifiable (Item 4)

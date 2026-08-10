@@ -30,6 +30,19 @@ export class SqlRecommendationOutcomeRepository implements RecommendationOutcome
     return mapOutcomeFromDb(found)
   }
 
+  async getByIdWorkspaceAndProject(
+    id: string,
+    workspaceId: WorkspaceId,
+    projectId: string
+  ): Promise<RecommendationOutcome | null> {
+    const found = this.db
+      .getActiveState()
+      .outcomes?.find(
+        (o) => o.id === id && o.workspaceId === workspaceId && o.projectId === projectId
+      )
+    return found ? mapOutcomeFromDb(found) : null
+  }
+
   async getByRecommendation(
     recId: string,
     workspaceId: WorkspaceId

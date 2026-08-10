@@ -105,13 +105,14 @@ export const apiClient = {
     apiClient.get<Outcome[]>(`/api/projects/${pId}/outcomes?workspaceId=${wsId}`),
   getDecisionMetrics: (wsId: string, pId: string) =>
     apiClient.get<DecisionMetrics>(`/api/projects/${pId}/decision-metrics?workspaceId=${wsId}`),
-  getReasoning: (wsId: string, recId: string) =>
+  getReasoning: (wsId: string, pId: string, recId: string) =>
     apiClient.get<AIProductReasoning>(
-      `/api/recommendations/${recId}/reasoning?workspaceId=${wsId}`
+      `/api/recommendations/${recId}/reasoning?workspaceId=${wsId}&projectId=${pId}`
     ),
-  submitContext: (wsId: string, recId: string, projectContext: string) =>
+  submitContext: (wsId: string, pId: string, recId: string, projectContext: string) =>
     apiClient.post<AIProductReasoning>(`/api/recommendations/${recId}/reasoning`, {
       workspaceId: wsId,
+      projectId: pId,
       projectContext,
     }),
   approveAction: (
@@ -131,9 +132,15 @@ export const apiClient = {
       recommendationId: recId,
       actionId,
     }),
-  verifyOutcome: (wsId: string, outcomeId: string, filesAfterChange: Record<string, unknown>) =>
+  verifyOutcome: (
+    wsId: string,
+    pId: string,
+    outcomeId: string,
+    filesAfterChange: Record<string, unknown>
+  ) =>
     apiClient.post<Outcome>('/api/outcomes/verify', {
       workspaceId: wsId,
+      projectId: pId,
       outcomeId,
       filesAfterChange,
     }),
