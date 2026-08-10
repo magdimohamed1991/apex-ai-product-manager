@@ -143,7 +143,7 @@ export class RepositoryDiscoveryPipeline {
     ruleResults: RuleResult[],
     evidence: Evidence[],
     workspaceId: WorkspaceId,
-    projectId?: string
+    projectId: string
   ): { insights: Insight[]; explanations: Explanation[] } {
     const insights: Insight[] = []
     const explanations: Explanation[] = []

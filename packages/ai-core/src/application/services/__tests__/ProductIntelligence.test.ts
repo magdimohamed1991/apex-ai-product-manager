@@ -16,7 +16,7 @@ import type { RichRecommendation } from '../../../domain/entities'
 import { createWorkspaceId } from '../../../domain/value-objects'
 import { GitHubAdapter } from '../adapters/GitHubAdapter'
 
-const TEST_DB_DIR = path.join(process.cwd(), 'database-intelligence-test')
+const TEST_DB_DIR = path.join(process.cwd(), 'database-product-intelligence-test')
 const _WORKSPACE_A = createWorkspaceId('ws-intel-a')
 const _WORKSPACE_B = createWorkspaceId('ws-intel-b')
 

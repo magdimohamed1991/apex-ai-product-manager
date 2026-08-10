@@ -8,6 +8,7 @@ import { SqlAdaptiveLearningProfileRepository } from '../SqlAdaptiveLearningProf
 import { createCorrelationFinding } from '../../../domain/entities/Finding'
 import { createRecommendation } from '../../../domain/entities/Recommendation'
 import { createRecommendationOutcome } from '../../../domain/entities/RecommendationOutcome'
+import { InsightMapper } from '../../../intelligence/mappers/InsightMapper'
 import { createWorkspaceId } from '../../../domain/value-objects'
 import type {
   PMDecisionTelemetry,
@@ -223,6 +224,34 @@ describe('Cross-project id collision isolation (same workspace, two projects)', 
     expect(a.length).toBe(1)
     expect(b.length).toBe(1)
     expect(a[0].id).not.toBe(b[0].id)
+  })
+
+  it('insightMapper: produces project-scoped insight IDs (same ruleId in two projects yields distinct ids)', async () => {
+    // Proves the full architectural chain:
+    //   project → insight ID → recommendation ID → action idempotency key
+    // is project-distinct from the very first step.
+    const mapper = new InsightMapper()
+    const ruleResults = [
+      {
+        ruleId: 'add-testing',
+        title: 't',
+        message: 'm',
+        severity: 'medium' as const,
+        evidenceIds: [],
+        suggestedActions: [],
+      },
+    ]
+    const insightsA = mapper.toInsights(ruleResults, WS, 'github', PROJ_A)
+    const insightsB = mapper.toInsights(ruleResults, WS, 'github', PROJ_B)
+
+    // Same ruleId but different projects → different insight IDs
+    expect(insightsA[0].id).not.toBe(insightsB[0].id)
+    // Explicit shape check: id contains the project id
+    expect(insightsA[0].id).toContain(PROJ_A)
+    expect(insightsB[0].id).toContain(PROJ_B)
+    // Workspace is shared
+    expect(insightsA[0].workspaceId).toBe(WS)
+    expect(insightsB[0].workspaceId).toBe(WS)
   })
 
   it('learning signals + profile: two projects of one workspace keep separate signals/profiles', async () => {

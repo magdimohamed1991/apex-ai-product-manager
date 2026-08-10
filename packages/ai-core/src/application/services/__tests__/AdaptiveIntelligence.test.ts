@@ -20,7 +20,7 @@ import { PMDecisionTelemetryService } from '../PMDecisionTelemetryService'
 import { createWorkspaceId } from '../../../domain/value-objects'
 import { GitHubAdapter } from '../adapters/GitHubAdapter'
 
-const TEST_DB_DIR = path.join(process.cwd(), 'database-intelligence-test')
+const TEST_DB_DIR = path.join(process.cwd(), 'database-adaptive-intelligence-test')
 const WORKSPACE_A = createWorkspaceId('ws-adaptive-a')
 const WORKSPACE_B = createWorkspaceId('ws-adaptive-b')
 
