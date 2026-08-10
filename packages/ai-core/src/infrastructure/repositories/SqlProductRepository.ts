@@ -221,9 +221,20 @@ export class SqlProductRepository implements ProductRepository {
     try {
       const state = this.db.getActiveState()
       if (!state.findings) state.findings = []
-      // (id, workspaceId) scoped upsert — never clobber another tenant's row.
-      state.findings = state.findings.filter(
-        (f) => !(f.id === finding.id && f.workspaceId === finding.workspaceId)
+      // (id, workspaceId, projectId)-scoped upsert. A same-id finding in a
+      // DIFFERENT project of the SAME workspace must NOT clobber this
+      // project's row (Phase 3 isolation invariant). Finding ids are
+      // currently random UUIDs so collisions are improbable in practice, but
+      // the contract must hold regardless of upstream id generation — exactly
+      // the same belt-and-braces guarantee applied to telemetry upserts.
+      const findingList = state.findings as StoredFinding[]
+      state.findings = findingList.filter(
+        (f) =>
+          !(
+            f.id === finding.id &&
+            f.workspaceId === finding.workspaceId &&
+            f.projectId === projectId
+          )
       )
 
       const stored: StoredFinding = {
@@ -279,9 +290,16 @@ export class SqlProductRepository implements ProductRepository {
     try {
       const state = this.db.getActiveState()
       if (!state.recommendations) state.recommendations = []
-      // (id, workspaceId) scoped upsert — never clobber another tenant's row.
-      state.recommendations = state.recommendations.filter(
-        (r) => !(r.id === rec.id && r.workspaceId === rec.workspaceId)
+      // (id, workspaceId, projectId)-scoped upsert. A same-id recommendation
+      // in a DIFFERENT project of the SAME workspace must NOT clobber this
+      // project's row (Phase 3 isolation invariant — Scenario A/B). Today's
+      // id generation makes insight-based rec ids project-unique and
+      // finding-based rec ids random, so collisions are improbable; the
+      // contract must hold regardless of upstream id generation, matching the
+      // telemetry upsert's belt-and-braces guarantee.
+      const recList = state.recommendations as StoredRecommendation[]
+      state.recommendations = recList.filter(
+        (r) => !(r.id === rec.id && r.workspaceId === rec.workspaceId && r.projectId === projectId)
       )
 
       const stored: StoredRecommendation = {
