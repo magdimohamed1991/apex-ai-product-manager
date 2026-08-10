@@ -67,7 +67,7 @@ describe('RepositoryDiscoveryAgent', () => {
 
   it('runs without throwing', async () => {
     const result = await agent.execute(
-      { workspaceId: WORKSPACE_ID, files: minimalRepo },
+      { workspaceId: WORKSPACE_ID, projectId: 'proj-agent-test', files: minimalRepo },
       mockContext
     )
     expect(result.success).toBe(true)
@@ -75,7 +75,7 @@ describe('RepositoryDiscoveryAgent', () => {
 
   it('returns complete PipelineResult', async () => {
     const result = await agent.execute(
-      { workspaceId: WORKSPACE_ID, files: minimalRepo },
+      { workspaceId: WORKSPACE_ID, projectId: 'proj-agent-test', files: minimalRepo },
       mockContext
     )
     expect(result.success).toBe(true)
@@ -91,7 +91,7 @@ describe('RepositoryDiscoveryAgent', () => {
 
   it('generates insights from repository analysis', async () => {
     const result = await agent.execute(
-      { workspaceId: WORKSPACE_ID, files: minimalRepo },
+      { workspaceId: WORKSPACE_ID, projectId: 'proj-agent-test', files: minimalRepo },
       mockContext
     )
     expect(result.data?.insights.length).toBeGreaterThan(0)
@@ -100,7 +100,7 @@ describe('RepositoryDiscoveryAgent', () => {
 
   it('generates insight-origin recommendations', async () => {
     const result = await agent.execute(
-      { workspaceId: WORKSPACE_ID, files: minimalRepo },
+      { workspaceId: WORKSPACE_ID, projectId: 'proj-agent-test', files: minimalRepo },
       mockContext
     )
     const insightRecs = result.data?.recommendations.filter((r) => r.origin === 'insight')
@@ -109,7 +109,12 @@ describe('RepositoryDiscoveryAgent', () => {
 
   it('generates findings when external evidence provided', async () => {
     const result = await agent.execute(
-      { workspaceId: WORKSPACE_ID, files: minimalRepo, externalEvidence: multiSourceEvidence },
+      {
+        workspaceId: WORKSPACE_ID,
+        projectId: 'proj-agent-test',
+        files: minimalRepo,
+        externalEvidence: multiSourceEvidence,
+      },
       mockContext
     )
     expect(result.data?.findings.length).toBeGreaterThan(0)
@@ -118,7 +123,12 @@ describe('RepositoryDiscoveryAgent', () => {
 
   it('provenance chain intact for finding recommendations', async () => {
     const result = await agent.execute(
-      { workspaceId: WORKSPACE_ID, files: minimalRepo, externalEvidence: multiSourceEvidence },
+      {
+        workspaceId: WORKSPACE_ID,
+        projectId: 'proj-agent-test',
+        files: minimalRepo,
+        externalEvidence: multiSourceEvidence,
+      },
       mockContext
     )
     const findingRecs = result.data?.recommendations.filter((r) => r.origin === 'finding')
@@ -131,7 +141,7 @@ describe('RepositoryDiscoveryAgent', () => {
 
   it('measures duration', async () => {
     const result = await agent.execute(
-      { workspaceId: WORKSPACE_ID, files: minimalRepo },
+      { workspaceId: WORKSPACE_ID, projectId: 'proj-agent-test', files: minimalRepo },
       mockContext
     )
     expect(result.durationMs).toBeGreaterThanOrEqual(0)

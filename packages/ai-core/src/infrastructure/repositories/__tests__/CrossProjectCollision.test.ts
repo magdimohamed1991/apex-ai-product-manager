@@ -234,11 +234,12 @@ describe('Cross-project id collision isolation (same workspace, two projects)', 
     const ruleResults = [
       {
         ruleId: 'add-testing',
+        matched: true,
         title: 't',
         message: 'm',
         severity: 'medium' as const,
+        priority: 'medium' as const,
         evidenceIds: [],
-        suggestedActions: [],
       },
     ]
     const insightsA = mapper.toInsights(ruleResults, WS, 'github', PROJ_A)
