@@ -80,6 +80,8 @@ export function RecommendationsPanel({
   )
 }
 
+type DecisionKind = 'ACCEPT' | 'REJECT' | 'DEFER' | 'OVERRIDE'
+
 function RecommendationDetail({
   workspace,
   projectId,
@@ -99,11 +101,19 @@ function RecommendationDetail({
   const [approving, setApproving] = useState(false)
   const [reasoningError, setReasoningError] = useState<string | null>(null)
   const [answer, setAnswer] = useState('')
+  const [decisionBusy, setDecisionBusy] = useState<DecisionKind | null>(null)
+  const [decisionStatus, setDecisionStatus] = useState<{
+    kind: DecisionKind
+    ok: boolean
+    message: string
+  } | null>(null)
+  const [overrideOpen, setOverrideOpen] = useState(false)
+  const [overridePriority, setOverridePriority] = useState('')
   // The REAL decision window: recorded when the detail view opens (the PM
   // cannot decide before the recommendation is presented), sent to the H7
-  // telemetry stream on approval. Both timestamps share the client clock,
-  // so the measured latency is skew-free. Captured in the mount effect
-  // (NOT during render — Date.now() is impure and would violate the
+  // telemetry stream on every decision. Both timestamps share the client
+  // clock, so the measured latency is skew-free. Captured in the mount
+  // effect (NOT during render — Date.now() is impure and would violate the
   // render-purity rule).
   const decisionWindowRef = useRef<{ presentedAt: number; startedAt: number } | null>(null)
 
@@ -147,35 +157,74 @@ function RecommendationDetail({
     }
   }
 
+  /**
+   * Records a REAL PM decision into the H7 telemetry stream (the H7
+   * observation experiment). The server computes the H3/H6 scores; the
+   * client only supplies the decision kind, the PM override priority (for
+   * OVERRIDE), and the real decision-window timestamps. The client NEVER
+   * sends originalH3Score / calibratedH6Score.
+   */
+  async function recordDecision(kind: DecisionKind, pmSelectedPriority?: number) {
+    if (!workspace || !projectId) return
+    const window = decisionWindowRef.current ?? {
+      presentedAt: Date.now(),
+      startedAt: Date.now(),
+    }
+    await apiClient.recordDecision(workspace.id, projectId, {
+      recommendationId: recommendation.id,
+      decision: kind,
+      pmSelectedPriority,
+      recommendationPresentedAt: new Date(window.presentedAt).toISOString(),
+      decisionStartedAt: new Date(window.startedAt).toISOString(),
+      decisionCompletedAt: new Date().toISOString(),
+    })
+  }
+
+  async function handleDecision(kind: DecisionKind, pmSelectedPriority?: number) {
+    if (decisionBusy) return
+    setDecisionBusy(kind)
+    setDecisionStatus(null)
+    try {
+      await recordDecision(kind, pmSelectedPriority)
+      setDecisionStatus({
+        kind,
+        ok: true,
+        message: `Decision recorded: ${kind}${kind === 'OVERRIDE' ? ` (priority ${pmSelectedPriority})` : ''}`,
+      })
+    } catch (err) {
+      setDecisionStatus({
+        kind,
+        ok: false,
+        message: err instanceof ApiError ? err.message : 'Failed to record decision telemetry',
+      })
+    } finally {
+      setDecisionBusy(null)
+    }
+  }
+
   async function handleApprove(paId: string) {
     if (approving) return
     setApproving(true)
     try {
       await onAction(recommendation.id, paId)
-      // Record the real PM decision into the H7 telemetry stream. The
-      // server computes the H3/H6 scores; the client only supplies the
-      // decision kind and the real decision-window timestamps. Telemetry
-      // failure must never block the approval flow.
+      // Accept & Execute: approve the action AND record the ACCEPT
+      // decision. Telemetry failure must never block the approval flow.
       if (workspace && projectId) {
-        const window = decisionWindowRef.current ?? {
-          presentedAt: Date.now(),
-          startedAt: Date.now(),
-        }
         try {
-          await apiClient.recordDecision(workspace.id, projectId, {
-            recommendationId: recommendation.id,
-            decision: 'ACCEPT',
-            recommendationPresentedAt: new Date(window.presentedAt).toISOString(),
-            decisionStartedAt: new Date(window.startedAt).toISOString(),
-            decisionCompletedAt: new Date().toISOString(),
-          })
-        } catch (err) {
-          console.warn('Failed to record decision telemetry', err)
+          await handleDecision('ACCEPT')
+        } catch {
+          // handled inside handleDecision
         }
       }
     } finally {
       setApproving(false)
     }
+  }
+
+  function submitOverride() {
+    const value = Number(overridePriority)
+    if (!Number.isFinite(value) || value < 0 || value > 10) return
+    void handleDecision('OVERRIDE', Math.round(value * 10) / 10)
   }
 
   return (
@@ -249,7 +298,94 @@ function RecommendationDetail({
 
       <div className="p-6 flex flex-col gap-4">
         <span className="text-xs font-extrabold text-slate-400 uppercase tracking-widest block">
-          Proposed Action
+          PM Decision (H7 observation)
+        </span>
+
+        {/* Every decision records REAL telemetry: kind, window timestamps,
+            and (for OVERRIDE) the PM's numeric priority. The client never
+            sends H3/H6 scores — the server computes them. */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <button
+            type="button"
+            onClick={() => void handleDecision('ACCEPT')}
+            disabled={decisionBusy !== null}
+            className="rounded-lg py-2.5 text-xs font-bold text-white transition-colors bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50"
+          >
+            Accept
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDecision('REJECT')}
+            disabled={decisionBusy !== null}
+            className="rounded-lg py-2.5 text-xs font-bold text-white transition-colors bg-rose-600 hover:bg-rose-500 disabled:opacity-50"
+          >
+            Reject
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDecision('DEFER')}
+            disabled={decisionBusy !== null}
+            className="rounded-lg py-2.5 text-xs font-bold text-white transition-colors bg-amber-600 hover:bg-amber-500 disabled:opacity-50"
+          >
+            Defer
+          </button>
+          <button
+            type="button"
+            onClick={() => setOverrideOpen((v) => !v)}
+            disabled={decisionBusy !== null}
+            className="rounded-lg py-2.5 text-xs font-bold text-white transition-colors bg-slate-700 hover:bg-slate-600 disabled:opacity-50"
+          >
+            Override
+          </button>
+        </div>
+
+        {overrideOpen && (
+          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 flex flex-col gap-3">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              Override — PM numeric priority (0–10)
+            </span>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={0.1}
+                value={overridePriority}
+                onChange={(e) => setOverridePriority(e.target.value)}
+                placeholder={`APEX H6: ${recommendation.priorityScore?.toFixed(1) ?? '—'}`}
+                className="flex-1 min-w-0 rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={submitOverride}
+                disabled={decisionBusy !== null || overridePriority === ''}
+                className="rounded-lg bg-slate-600 hover:bg-slate-500 px-4 py-2 text-xs font-bold text-white transition-colors disabled:opacity-50"
+              >
+                {decisionBusy === 'OVERRIDE' ? 'Recording...' : 'Record Override'}
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500">
+              The recorded delta is |H6 calibrated score − PM priority|, computed server-side from
+              the persisted H6 calibration.
+            </p>
+          </div>
+        )}
+
+        {decisionStatus && (
+          <div
+            className={`rounded-lg px-3 py-2 text-[11px] font-bold border ${
+              decisionStatus.ok
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                : 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+            }`}
+          >
+            {decisionStatus.ok ? '✓ ' : '✕ '}
+            {decisionStatus.message}
+          </div>
+        )}
+
+        <span className="text-xs font-extrabold text-slate-400 uppercase tracking-widest block pt-2">
+          Accept &amp; Execute — Proposed Action
         </span>
         <div className="flex flex-col gap-3">
           {recommendation.proposedActions.map((pa) => (

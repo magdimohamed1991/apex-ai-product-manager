@@ -1,23 +1,35 @@
 # PRE-H8 H7 Measurement Integrity & Remediation Audit
 
-**Date:** 2026-08-09
-**Branch:** `arena/019fe7a9-apex-ai-product-manager`
-**Base:** `fb01aa547ec03dd6ca2ea4fe6674103c2dfef875`
+**Date:** 2026-08-09 (final evidence-first remediation pass)
+**Branch:** `arena/019fe817-apex-ai-product-manager`
+**Base:** `88d6c0217d7aac3b3eb7f7819739b0b03d077a46` (prior H7 remediation commit)
 
 ---
 
 ## 1. Executive Summary
 
-This audit performs an exhaustive verification and remediation pass focused on H7 measurement integrity and the H6 ↔ H7 learning loop. The primary objective was to ensure H7 is capable of producing trustworthy empirical evidence — not to start H8.
+This audit performs an exhaustive, evidence-first verification and remediation pass focused on H7 measurement integrity and the H6 ↔ H7 learning loop — the final pass before H8. Every claim below was verified from the actual source, tests, and live runtime behavior (a real dev server + durable on-disk database), not from prior reports.
 
-**Critical Finding:** The H6 AdaptiveProfileCompiler did NOT consume PM decision telemetry from the H7 telemetry stream. It only observed approvals via action status, making REJECT, DEFER, and OVERRIDE decisions invisible to H6. This has been fixed.
+**Findings closed in this final pass:**
 
-**Final Gate Status:**
+1. **CRITICAL — H6 did not actually consume H7 signal VALUES.** The prior pass made the compiler _generate_ REJECTION/DEFER/OVERRIDE/DECISION_LATENCY/PRIORITY_OVERRIDE_DELTA signals, but `H6PrioritizationCalibrator` still derived the effective calibration only from `pmCalibrationWeight` (adoption) + `outcomeVerifiedRate`, using the H7 signals purely as evidence gates. **Fixed:** the calibrator (contract `h6-v2`) now computes a deterministic, bounded adjustment from the real telemetry rates — `valence = acceptRate − rejectRate`, ambiguity dampening from override rate/delta, and a direction-aware signed override-delta correction — all clamped to [0.85, 1.15]. New `ACCEPTANCE` signal added so ACCEPT rate comes from the telemetry population (never action status).
+2. **HIGH — acceptance-rate population was wrong.** `ProductValidationService.decisionAcceptanceRate` and `RecommendationOutcomeService.getDecisionQualityMetrics` used approved-actions/recommendations. **Fixed:** `decisionAcceptanceRate = ACCEPT telemetry / total decision telemetry` with `observationCount = decisionCount`. Added `decisionRejectionRate`, `decisionDeferRate`, `decisionOverrideRate`, `meanPriorityOverrideDelta` as PM Decision Metrics. Execution/Outcome metrics kept in separate populations.
+3. **HIGH — UI recorded only ACCEPT.** **Fixed:** the Recommendation Center now exposes Accept, Accept & Execute, Reject, Defer, and Override (with a controlled numeric priority input). The client sends only `decision`, `pmSelectedPriority` (OVERRIDE), and the real window timestamps + ids — never H3/H6 scores.
+4. **MEDIUM — timestamp integrity gaps.** **Fixed:** strict ISO-8601 parsing at the HTTP boundary (non-ISO formats rejected), `recommendationPresentedAt <= decisionStartedAt <= decisionCompletedAt` enforced at BOTH the API boundary and the domain validator, and the clock-skew policy now validates all three client timestamps consistently (5-minute future tolerance) plus the 24-hour duration cap. Invalid telemetry is rejected, never repaired.
+5. **MEDIUM — signal provenance.** `LearningSignal` now carries typed `sourceTelemetryIds` (exact persisted telemetry record ids) and `meanSignedOverrideDelta` for every telemetry-derived signal: LearningSignal → exact telemetry observations → exact PM decisions → exact recommendation → project → workspace.
+6. **LOW — the earlier audit could not claim the UI supported all four decisions.** It now does (see #3); the doc's stale "not implemented" rows are removed.
+
+**Epistemic safeguards preserved:** N < 5 → low/insufficient evidence; 5 ≤ N < 20 → early convergence; N ≥ 20 → "high within the APEX operational measurement framework" — NEVER "statistically significant", "scientifically proven", or "validated universally". DECISION_LATENCY is observational-only evidence (no "faster = better" quality score); it is persisted and auditable but never modifies calibration.
+
+**Final Gate Status (verified this pass):**
 
 - `pnpm type-check` — PASS (8/8 tasks)
 - `pnpm lint` — PASS (8/8 tasks)
-- `pnpm test` — PASS (55 files, 649 tests)
+- `pnpm test` — PASS (56 files, 666 tests; 0 failed, 0 skipped)
 - `pnpm build` — PASS (1/1 tasks)
+- `pnpm audit` — PASS ("No known vulnerabilities found")
+- Frozen core — byte-identical (SHA-256 verified, see §3)
+- Live E2E walking skeleton — PASS (real HTTP server, durable on-disk persistence, full decision loop; see §20)
 
 ---
 
@@ -122,11 +134,12 @@ H5 outcome verification:
 
 H6 adaptive intelligence:
 
-- `AdaptiveProfileCompiler` generates deterministic learning signals
-- `H6PrioritizationCalibrator` applies signals multiplicatively with safety floors
-- Critical safety floor (≥ 8.5) and high safety floor (≥ 7.0) cannot be violated
+- `AdaptiveProfileCompiler` generates deterministic learning signals (incl. telemetry-derived ACCEPTANCE/REJECTION/DEFER/OVERRIDE/DECISION_LATENCY/PRIORITY_OVERRIDE_DELTA with `sourceTelemetryIds`)
+- `H6PrioritizationCalibrator` (contract `h6-v2`) consumes the H7 signal VALUES: telemetry valence (accept − reject), ambiguity dampening for override evidence, and a direction-aware signed override-delta correction; deterministic and bounded
+- Critical safety floor (≥ 8.5) and high safety floor (≥ 7.0) cannot be violated (verified under 100% rejection/defer/override, extreme delta, zero/failed outcomes, mixed signals)
 - Multiplier bounded to [0.85, 1.15]
-- `insufficient_evidence` signals do NOT influence calibration
+- `insufficient_evidence` signals are excluded from the formula and flagged in the explanation; categories with no observed signal are dampened to zero influence
+- DECISION_LATENCY is observational-only: auditable, never score-modifying
 
 ---
 
@@ -136,12 +149,13 @@ H6 adaptive intelligence:
 
 H7 measurement:
 
-- PM decision telemetry records real decision windows
-- All 4 decision types (ACCEPT/REJECT/DEFER/OVERRIDE) accepted
-- Timestamps validated: completion ≥ start, valid ISO format
+- PM decision telemetry records real decision windows (real timestamps from the client clock; skew-free latency)
+- All 4 decision types (ACCEPT/REJECT/DEFER/OVERRIDE) accepted through the API and the UI
+- Timestamps validated at the DOMAIN and HTTP boundaries: strict ISO-8601 only, window ordering `presentedAt <= startedAt <= completedAt`, 5-minute future-skew limit applied to ALL three timestamps, 24-hour max duration — violations rejected with 400, never repaired
 - Deterministic record ID (sha256 of workspace+recommendation+decisionStartedAt) ensures idempotency
 - Client timestamps labeled as `client-observed telemetry`
 - Confidence classification uses `decisionCount` ONLY
+- PM Decision Metrics: Acceptance / Rejection / Defer / Override / Decision Latency / Priority Override Delta — all derived from the telemetry population only
 
 ---
 
@@ -161,23 +175,38 @@ REJECT, DEFER, and OVERRIDE decisions were invisible to H6.
 
 The `AdaptiveProfileCompiler` now fetches `PMDecisionTelemetry` via `productRepository.getPMDecisionTelemetryByProject()` and generates:
 
-| Signal Type               | Description                             | Threshold            |
-| ------------------------- | --------------------------------------- | -------------------- |
-| `ADOPTION`                | Existing — recommendation approval rate | ≥ 3 observations     |
-| `EXECUTION_SUCCESS`       | Existing — action completion rate       | ≥ 3 terminal actions |
-| `OUTCOME_SUCCESS`         | Existing — verified success rate        | ≥ 3 outcomes         |
-| `REJECTION`               | **NEW** — PM explicitly rejected        | ≥ 3 rejections       |
-| `DEFER`                   | **NEW** — PM deferred decision          | ≥ 3 deferrals        |
-| `OVERRIDE`                | **NEW** — PM overrode APEX priority     | ≥ 3 overrides        |
-| `DECISION_LATENCY`        | **NEW** — Average decision window       | ≥ 3 decisions        |
-| `PRIORITY_OVERRIDE_DELTA` | **NEW** — Average                       | H6 - PM              |     | ≥ 3 overrides |
+| Signal Type               | Description                                     | Threshold        | Telemetry provenance                 |
+| ------------------------- | ----------------------------------------------- | ---------------- | ------------------------------------ |
+| `ADOPTION`                | Recommendation approval rate (action-based)     | ≥ 3 observations | — (action population)                |
+| `EXECUTION_SUCCESS`       | Action completion rate                          | ≥ 3 terminal     | — (action population)                |
+| `OUTCOME_SUCCESS`         | Verified success rate                           | ≥ 3 outcomes     | — (outcome population)               |
+| `ACCEPTANCE`              | **NEW** — ACCEPT telemetry / decision telemetry | ≥ 3 decisions    | `sourceTelemetryIds` (ACCEPT rows)   |
+| `REJECTION`               | PM explicitly rejected                          | ≥ 3 rejections   | `sourceTelemetryIds` (REJECT rows)   |
+| `DEFER`                   | PM deferred decision                            | ≥ 3 deferrals    | `sourceTelemetryIds` (DEFER rows)    |
+| `OVERRIDE`                | PM overrode APEX priority                       | ≥ 3 overrides    | `sourceTelemetryIds` (OVERRIDE rows) |
+| `DECISION_LATENCY`        | Average decision window (observational only)    | ≥ 3 decisions    | `sourceTelemetryIds` (all rows)      |
+| `PRIORITY_OVERRIDE_DELTA` | Mean \|H6 − PM\| + signed mean                  | ≥ 3 overrides    | `sourceTelemetryIds` (delta rows)    |
 
 Every signal contains full provenance:
 
 - `workspaceId`, `projectId`, `category`
 - `sourceRecommendationIds` (the actual observations)
-- `calibrationVersion` (reproducibility)
+- `sourceTelemetryIds` (**NEW** — the exact persisted `PMDecisionTelemetry.id` records that produced the signal; no opaque signal can influence H6)
+- `meanSignedOverrideDelta` (**NEW** — signed mean of `pmSelectedPriority − calibratedH6Score`, so H6 can distinguish small consistent corrections from large systematic corrections _with direction_)
+- `calibrationVersion` (reproducibility — `h6-v2` for this contract)
 - `evidenceState` (observed/estimated/insufficient_evidence)
+
+### Calibration now consumes the H7 signal VALUES (h6-v2 contract):
+
+Previously the calibrator used H7 signals only as evidence gates (`insufficient_evidence` → dampen) while the actual multiplier came from adoption + outcome rates. **This was insufficient.** The h6-v2 contract is:
+
+1. `valence = clamp(acceptRate − rejectRate, −1, 1)` — ACCEPT/REJECT/DEFER rates come ONLY from the PMDecisionTelemetry population (never action status).
+2. `ambiguity = clamp(0.5·overrideRate + 0.5·clamp((meanAbsDelta − 1)/4), 0, 1)` — a high override rate and/or large deltas mean the PM disagrees with APEX's absolute priority scale; acceptance can no longer be read as pure preference (contradictory-signal protection).
+3. `decisionAdjustment = valence · 0.3 · confidence · (1 − ambiguity)`, with `confidence = n/(n+10)` — the documented bounded dampener, never a statistical significance claim.
+4. `overrideDeltaAdjustment = clamp(meanSignedDelta/5, −1, 1) · 0.1 · confidence` — direction-aware; a 1-point correction moves at most ±0.013, a ≥5-point systematic push at most ±0.067 (both at n=20).
+5. `preferenceMultiplier = clamp(pmCalibrationWeight + decisionAdjustment + overrideDeltaAdjustment, 0.85, 1.15)`.
+6. `DECISION_LATENCY` is observational-only: persisted, included in `appliedSignals`, described in the explanation — never used to modify scores (the calibration contract defines no "faster = better" interpretation).
+7. Epistemic gate: a signal with `insufficient_evidence` is excluded from the formula and flagged in the explanation — it does not veto other observed evidence (so a 20-decision telemetry population calibrates even when one kind's count is below its own threshold), and when NO signal is observed the category is dampened to zero influence (legacy guarantee preserved).
 
 ### Confidence Classification (FIXED):
 
@@ -271,9 +300,17 @@ DurableFileDatabase guarantees:
 - Epistemic badges on all H7 metrics (UNAVAILABLE/OBSERVED/DERIVED/etc.)
 - No fabricated "1.42× measured leverage" — leverage only shown with real telemetry
 
-**Documented limitation:** Frontend only records ACCEPT decisions via the "Approve & Execute" button. REJECT/DEFER/OVERRIDE require adding additional UI controls (not yet implemented). The API fully supports all 4 decision types — the limitation is purely in the frontend interaction model.
+**Full PM decision workflow (implemented in this final pass):** the Recommendation Center now exposes five explicit controls per recommendation:
 
-**Decision latency semantics:** `recommendationPresentedAt` and `decisionStartedAt` are both set at mount time of the detail view (when the recommendation is presented to the PM and they begin their decision process). `decisionCompletedAt` is set when the PM clicks "Approve." This is semantically correct: the PM's decision window starts when they see the recommendation.
+- **Accept** — records ACCEPT telemetry
+- **Accept & Execute** — approves the proposed action AND records ACCEPT telemetry
+- **Reject** — records REJECT telemetry (the PM rejects the recommendation)
+- **Defer** — records DEFER telemetry (the PM postpones)
+- **Override** — a controlled numeric priority/rank input (0–10); records OVERRIDE telemetry with `pmSelectedPriority`
+
+The client sends only: `decision`, `pmSelectedPriority` (OVERRIDE), `decisionStartedAt`, `decisionCompletedAt`, `recommendationPresentedAt`, `recommendationId`, `projectId`, `workspaceId`. The client NEVER sends `originalH3Score` / `calibratedH6Score` — those are computed server-side from the persisted H3 decoration and the compiled H6 profile.
+
+**Decision latency semantics:** `recommendationPresentedAt` and `decisionStartedAt` are both set at mount time of the detail view (when the recommendation is presented to the PM and they begin their decision process). `decisionCompletedAt` is set when the PM submits their decision. This is semantically correct: the PM's decision window starts when they see the recommendation. All three timestamps share the client clock, so the measured latency is skew-free.
 
 ---
 
@@ -302,32 +339,34 @@ DurableFileDatabase guarantees:
 
 ## 19. Test Coverage
 
-**Total: 55 test files, 649 tests**
+**Total: 56 test files, 666 tests (0 failed, 0 skipped — verified this pass)**
 
 | Package          | Files | Tests |
 | ---------------- | ----- | ----- |
-| `@apex/ai-core`  | 47    | 574   |
+| `@apex/ai-core`  | 48    | 590   |
 | `@apex/analysis` | 3     | 36    |
 | `@apex/prompts`  | 2     | 23    |
-| `@apex/web`      | 3     | 16    |
+| `@apex/web`      | 3     | 17    |
 
-**New tests added:** 30 tests in `H7MeasurementIntegrity.test.ts` covering:
+**New tests added in the final pass:**
 
-- H7 confidence bucket classification (N = 0, 1, 4, 5, 19, 20, 100)
-- REJECTION/DEFER/OVERRIDE signal generation
-- DECISION_LATENCY signal recording
-- PRIORITY_OVERRIDE_DELTA signal recording
-- Signal threshold enforcement
-- Decision telemetry changes H6 signal set
-- Timestamp validation (negative duration, malformed dates)
-- Multi-tenant isolation (same ID / different workspace, same ID / different project)
-- Profile compilation isolation
-- H3 determinism
-- Safety floor invariants (critical, high)
-- Multiplier bounds [0.85, 1.15]
-- Signal provenance (workspaceId, projectId, category, source IDs)
-- NOT_VERIFIABLE integrity
-- Decision type persistence (ACCEPT/REJECT/DEFER/OVERRIDE)
+- `H7LearningEffect.test.ts` — **16 tests proving telemetry CHANGES H6 calibration** (not merely "telemetry exists"):
+  - Scenario A — strong ACCEPT telemetry (N=20) shifts calibration deterministically vs no telemetry
+  - Scenario B — systematic REJECT responds per the bounded rule (multiplier at the documented floor)
+  - Scenario C / C2 — systematic OVERRIDE with a consistent delta is consumed; small corrections (Δ1) produce a measurably SMALLER adjustment than large ones (Δ6)
+  - Scenario D — mixed behavior (40% ACCEPT / 30% REJECT / 20% DEFER / 10% OVERRIDE) is deterministic and bounded
+  - Scenario E — 1–4 observations produce NO meaningful calibration shift
+  - Scenario F — convergence boundary N = 4 / 5 / 19 / 20 gates the evidence exactly
+  - Scenario G — high acceptance + high override rate + large delta is NOT blindly read as preference (ambiguity dampening, bounded output)
+  - Safety floors under 100% rejection / 100% defer / 100% override / extreme delta / zero outcomes / failed outcomes / mixed signals (critical ≥ 8.5, high ≥ 7.0)
+  - Acceptance population: `decisionAcceptanceRate = ACCEPT telemetry / total decision telemetry` with separate outcome/execution populations
+  - Provenance: every telemetry-derived signal traces to exact persisted telemetry ids (`sourceTelemetryIds`)
+  - Multi-tenant/multi-project isolation: workspace A/project A telemetry cannot influence workspace A/project B; same recommendationId across workspaces cannot contaminate
+  - Domain ordering validation (presentation-after-decision-start rejected, nothing enters the store)
+  - DECISION_LATENCY stays observational — never modifies calibration
+- `apps/web/src/api-server.test.ts` — **1 new HTTP-boundary test** with 9 timestamp-integrity violations (presentedAt > startedAt, startedAt > completedAt, negative duration, startedAt/completedAt/presentedAt > serverNow + 5 min skew, duration > 24 h, non-ISO format, unparseable timestamp), each rejected with 400 and verified to never enter the telemetry stream.
+
+Existing suites updated to the new contracts: acceptance-rate population (APEXProductService.audit, AdaptiveIntelligence, ProductDecisionValidation, ProductionProductization), calibration version `h6-v2`, and the h6-v2 multiplier bound (AdaptiveIntelligence adverse profile).
 
 ---
 
@@ -354,64 +393,93 @@ The API server test (`api-server.test.ts`) verifies:
 5. Telemetry recording with all 4 decision types
 6. Server-side session invalidation
 
+**Live walking skeleton (this final pass, real HTTP server + durable on-disk DB):**
+
+A real Vite dev server was started (`NODE_ENV=test`, `DATABASE_PATH=/tmp/apex-e2e-db`) and the full causal loop was exercised with `curl`:
+
+1. signup → 2. workspace + project → 3. repository connection → 4. analysis → 5. recommendation (displayed with H3 score) → 6. ACCEPT / REJECT / DEFER / OVERRIDE (real telemetry ids `pmd-…` returned; OVERRIDE computed `overrideDelta = |H6 − 3|` server-side) → 7. H7 metrics (all four decision rates = 25%, latency = 60 s observed, mean override delta observed) → 8. compile H6 profile (`h6-v2`, signals carry `sourceTelemetryIds`) → 9. H6 calibration (dampened with insufficient evidence at N=4; explanation auditable) → 10. outcome create (PENDING) → 11. H5 verification (honest FAILED: "Codebase remains unconfigured: CI workflows are missing") → 12. updated profile/metrics.
+
+**Causal-loop proof (N ≥ 5):** after 9 real ACCEPT decisions on the live server, the ACCEPTANCE signal became `observed` (n=9), the H7 confidence bucket moved to `early_convergence` ("5 ≤ N < 20 … NOT universal statistical significance"), and the calibration multiplier rose from **1.0 → 1.112** with `calibratedScore` 13.3 → 10 (clamped to [0,10]) and an explanation citing "H7 decision evidence over 9 telemetry decision(s): ACCEPT 100% → adjustment +0.142". Real PM behavior → real telemetry → auditable metrics → real signals → bounded calibration → observable change in prioritization.
+
+**Persistence proof:** the durable DB file on disk contained the exact rows — 5 `pmDecisionTelemetry` (ACCEPT/REJECT/DEFER/OVERRIDE with window timestamps), 2 `learningSignals` (with `sourceTelemetryIds`), 1 `learningProfile`, 2 `outcomes`, 3 `recommendations`, 3 `actions`. Nothing was mocked in memory.
+
+The strict-ISO validation was also observed live: 11 of 20 scripted submissions with single-digit minute components (e.g. `10:1:00`) were rejected with 400; the 9 well-formed submissions were accepted — the boundary rejects malformed timestamps rather than repairing them.
+
 ---
 
 ## 21. Findings Register
 
-| ID  | Severity | Area     | Finding                                                                                            | Evidence                                                                            | Fix                                                                                                              | Test                                                     |
-| --- | -------- | -------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| F01 | CRITICAL | H7→H6    | AdaptiveProfileCompiler did not consume PMDecisionTelemetry; REJECT/DEFER/OVERRIDE invisible to H6 | Compiler only used actions/outcomes, never called `getPMDecisionTelemetryByProject` | Added telemetry consumption, generates REJECTION/DEFER/OVERRIDE/DECISION_LATENCY/PRIORITY_OVERRIDE_DELTA signals | `H7MeasurementIntegrity.test.ts` (14 tests)              |
-| F02 | HIGH     | H7       | Confidence bucket used mixed population (recs + outcomes + actions) instead of decisionCount       | `totalObservations = totalRecommendations + totalTrackedOutcomes + terminalActions` | Changed to `decisionCount` from telemetry stream                                                                 | `H7MeasurementIntegrity.test.ts` confidence bucket tests |
-| F03 | HIGH     | H7       | No server-side clock skew validation for client telemetry timestamps                               | API accepted any future timestamps                                                  | Added 5-minute future skew limit, 24-hour max duration                                                           | API server test existing + timestamp validation tests    |
-| F04 | MEDIUM   | H6       | LearningSignal.type union declared REJECTION/IGNORED/CALIBRATION but never generated them          | Type defined but code only generated ADOPTION/EXECUTION_SUCCESS/OUTCOME_SUCCESS     | Added generation for REJECTION/DEFER/OVERRIDE/DECISION_LATENCY/PRIORITY_OVERRIDE_DELTA                           | Signal generation tests                                  |
-| F05 | LOW      | Frontend | Frontend only records ACCEPT decisions; REJECT/DEFER/OVERRIDE not exposed in UI                    | RecommendationsPanel only calls `handleApprove` → ACCEPT                            | **Not fixed** — requires UI design for reject/defer/override interactions. API supports all 4 types.             | Documented as remaining issue                            |
-| F06 | INFO     | Frontend | `presentedAt` and `startedAt` initialized simultaneously at mount time                             | `decisionWindowRef.current = { presentedAt: Date.now(), startedAt: Date.now() }`    | **Not changed** — semantically correct: PM starts deciding when they see the recommendation                      | Documented as intentional                                |
+| ID  | Severity | Area     | Finding                                                                                                                   | Evidence                                                                                                  | Fix                                                                                                                                                                                                                             | Test                                                                |
+| --- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| F01 | CRITICAL | H7→H6    | AdaptiveProfileCompiler did not consume PMDecisionTelemetry; REJECT/DEFER/OVERRIDE invisible to H6                        | Compiler only used actions/outcomes, never called `getPMDecisionTelemetryByProject`                       | Added telemetry consumption, generates REJECTION/DEFER/OVERRIDE/DECISION_LATENCY/PRIORITY_OVERRIDE_DELTA signals                                                                                                                | `H7MeasurementIntegrity.test.ts` (14 tests)                         |
+| F02 | HIGH     | H7       | Confidence bucket used mixed population (recs + outcomes + actions) instead of decisionCount                              | `totalObservations = totalRecommendations + totalTrackedOutcomes + terminalActions`                       | Changed to `decisionCount` from telemetry stream                                                                                                                                                                                | `H7MeasurementIntegrity.test.ts` confidence bucket tests            |
+| F03 | HIGH     | H7       | No server-side clock skew validation for client telemetry timestamps                                                      | API accepted any future timestamps                                                                        | Added 5-minute future skew limit, 24-hour max duration                                                                                                                                                                          | API server test existing + timestamp validation tests               |
+| F04 | MEDIUM   | H6       | LearningSignal.type union declared REJECTION/IGNORED/CALIBRATION but never generated them                                 | Type defined but code only generated ADOPTION/EXECUTION_SUCCESS/OUTCOME_SUCCESS                           | Added generation for REJECTION/DEFER/OVERRIDE/DECISION_LATENCY/PRIORITY_OVERRIDE_DELTA                                                                                                                                          | Signal generation tests                                             |
+| F05 | LOW      | Frontend | Frontend only records ACCEPT decisions; REJECT/DEFER/OVERRIDE not exposed in UI                                           | RecommendationsPanel only called `handleApprove` → ACCEPT                                                 | **FIXED (final pass)** — Accept / Accept & Execute / Reject / Defer / Override controls with numeric priority input; all four telemetry kinds recorded                                                                          | `RecommendationsPanel.tsx` + api-server decision-kind tests         |
+| F06 | INFO     | Frontend | `presentedAt` and `startedAt` initialized simultaneously at mount time                                                    | `decisionWindowRef.current = { presentedAt: Date.now(), startedAt: Date.now() }`                          | **Not changed** — semantically correct: PM starts deciding when they see the recommendation                                                                                                                                     | Documented as intentional                                           |
+| F07 | CRITICAL | H6→H7    | Calibrator used H7 signals only as gates; effective calibration still from pmCalibrationWeight + outcomeVerifiedRate      | `preferenceMultiplier = coef.pmCalibrationWeight` only; signal VALUES never entered the formula           | **FIXED** — h6-v2 contract: telemetry rates (ACCEPTANCE/REJECTION/DEFER/OVERRIDE) + signed override delta now adjust the multiplier deterministically, bounded [0.85, 1.15], with ambiguity dampening for contradictory signals | `H7LearningEffect.test.ts` (16 tests, scenarios A–G)                |
+| F08 | HIGH     | H7       | Acceptance metric mixed populations: approved actions / total recommendations (not ACCEPT telemetry / decision telemetry) | `decisionAcceptanceRate` used `totalApproved / totalRecommendations`; same in `getDecisionQualityMetrics` | **FIXED** — acceptance = ACCEPT telemetry / decision telemetry, `observationCount = decisionCount`; added rejection/defer/override/delta metrics; execution & outcome populations kept separate                                 | `H7LearningEffect.test.ts` population test; updated existing suites |
+| F09 | MEDIUM   | H7       | No `presentedAt <= startedAt` ordering enforcement; startedAt exempt from clock-skew policy; non-ISO timestamps accepted  | `new Date(v)` accepted any parseable string; skew checked only completedAt/presentedAt                    | **FIXED** — strict ISO-8601 regex at the API boundary; window ordering enforced at API + domain; skew policy applied to all three timestamps                                                                                    | `api-server.test.ts` 9-violation boundary test; domain test         |
+| F10 | MEDIUM   | H6       | LearningSignal provenance could not trace to exact telemetry observations                                                 | `sourceRecommendationIds` alone is not unique for multi-decision records                                  | **FIXED** — typed `sourceTelemetryIds` (exact persisted telemetry ids) + `meanSignedOverrideDelta` on telemetry-derived signals                                                                                                 | `H7LearningEffect.test.ts` provenance test                          |
 
 ---
 
 ## 22. Remaining Issues
 
-| Issue                                                                                                    | Classification                                                                             |
-| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Frontend only records ACCEPT decisions                                                                   | **documented architectural limitation** — API supports all 4 types; requires UI design     |
-| `presentedAt = startedAt` at mount time                                                                  | **intentional epistemic limitation** — PM starts deciding when they see the recommendation |
-| H4 keyword-overlap grounding                                                                             | **intentional epistemic limitation** — documented in Part 7 of spec                        |
-| Single-process database limitations                                                                      | **documented architectural limitation** — DATABASE.md explicitly narrows scope             |
-| No production GitHub clone without token                                                                 | **documented architectural limitation** — requires GITHUB_TOKEN                            |
-| Decision latency metric uses `decisionCompletedAt - decisionStartedAt` (not `completedAt - presentedAt`) | **intentional** — both use same client clock, skew-cancelling                              |
+| Issue                                                                                                    | Classification                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `presentedAt = startedAt` at mount time                                                                  | **intentional epistemic limitation** — PM starts deciding when they see the recommendation                                                                      |
+| H4 keyword-overlap grounding                                                                             | **intentional epistemic limitation** — documented in Part 7 of spec                                                                                             |
+| Single-process database limitations                                                                      | **documented architectural limitation** — DATABASE.md explicitly narrows scope                                                                                  |
+| No production GitHub clone without token                                                                 | **documented architectural limitation** — requires GITHUB_TOKEN                                                                                                 |
+| Decision latency metric uses `decisionCompletedAt - decisionStartedAt` (not `completedAt - presentedAt`) | **intentional** — both use same client clock, skew-cancelling                                                                                                   |
+| DECISION_LATENCY never influences calibration                                                            | **intentional** — the calibration contract defines no deterministic interpretation of latency (no "faster = better"); it stays auditable observational evidence |
 
 ---
 
-## Files Changed
+## Files Changed (this final pass)
 
-| File                                                                                 | Change                                                                                                                                                                                                           |
-| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/ai-core/src/domain/entities/ProductAdaptive.ts`                            | Added DEFER, OVERRIDE, DECISION_LATENCY, PRIORITY_OVERRIDE_DELTA to LearningSignal type union                                                                                                                    |
-| `packages/ai-core/src/application/services/AdaptiveProfileCompiler.ts`               | +175 lines: Added PMDecisionTelemetry consumption, decision-based signal generation (REJECTION, DEFER, OVERRIDE, DECISION_LATENCY, PRIORITY_OVERRIDE_DELTA), extended ObservationPopulation with decision counts |
-| `packages/ai-core/src/application/services/ProductValidationService.ts`              | Changed confidence bucket from mixed population to decisionCount, observationCount now reflects decisionCount                                                                                                    |
-| `apps/web/src/api-server.ts`                                                         | Added server-side timestamp validation: 5-min future skew limit, 24-hour max duration, clock skew policy                                                                                                         |
-| `packages/ai-core/src/application/services/__tests__/H7MeasurementIntegrity.test.ts` | NEW: 30 comprehensive tests for H7 measurement integrity and H6 ↔ H7 learning loop                                                                                                                               |
+| File                                                                                                                                                                                                    | Change                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/ai-core/src/domain/entities/ProductAdaptive.ts`                                                                                                                                               | Added `ACCEPTANCE` signal type, `sourceTelemetryIds`, `meanSignedOverrideDelta` to `LearningSignal`                                                                                                     |
+| `packages/ai-core/src/domain/entities/PMDecisionTelemetry.ts`                                                                                                                                           | Added strict window-ordering domain validation (`presentedAt <= startedAt <= completedAt`)                                                                                                              |
+| `packages/ai-core/src/application/services/AdaptiveProfileCompiler.ts`                                                                                                                                  | h6-v2: ACCEPTANCE signal from telemetry; `sourceTelemetryIds` + `meanSignedOverrideDelta` on all telemetry-derived signals; `CALIBRATION_VERSION = 'h6-v2'`                                             |
+| `packages/ai-core/src/application/services/H6PrioritizationCalibrator.ts`                                                                                                                               | **h6-v2 contract: consumes H7 signal VALUES** — telemetry valence, ambiguity dampening, signed override-delta correction; observed-only epistemic gate; full auditable explanation; bounds [0.85, 1.15] |
+| `packages/ai-core/src/application/services/ProductValidationService.ts`                                                                                                                                 | Acceptance = ACCEPT telemetry / decision telemetry (`observationCount = decisionCount`); added rejection/defer/override/delta PM decision metrics; execution & outcome populations kept separate        |
+| `packages/ai-core/src/application/services/RecommendationOutcomeService.ts`                                                                                                                             | `getDecisionQualityMetrics`: acceptance from telemetry population; decision/reject/defer/override counts added                                                                                          |
+| `apps/web/src/api-server.ts`                                                                                                                                                                            | Strict ISO-8601 parsing; `presentedAt <= startedAt` rejection; clock-skew policy applied to all three timestamps                                                                                        |
+| `apps/web/src/features/dashboard/components/RecommendationsPanel.tsx`                                                                                                                                   | Full PM decision workflow: Accept / Accept & Execute / Reject / Defer / Override (numeric priority input); all four telemetry kinds; client never sends H3/H6 scores                                    |
+| `apps/web/src/features/dashboard/components/ValidationPanel.tsx`                                                                                                                                        | PM Decision Metrics group (acceptance/rejection/defer/override/delta/latency) + Outcome & Execution group                                                                                               |
+| `apps/web/src/features/dashboard/types/index.ts`                                                                                                                                                        | New metric + decision-count fields                                                                                                                                                                      |
+| `packages/ai-core/src/application/services/__tests__/H7LearningEffect.test.ts`                                                                                                                          | NEW: 16 tests — learning-effect scenarios A–G, safety-floor matrix, acceptance population, provenance, multi-tenant isolation, domain ordering, latency observational-only                              |
+| `apps/web/src/api-server.test.ts`                                                                                                                                                                       | NEW: HTTP-boundary timestamp-integrity test (9 violation cases)                                                                                                                                         |
+| `packages/ai-core/.../__tests__/{APEXProductService.audit,AdaptiveIntelligence,ProductDecisionValidation,ProductionProductization,H7MeasurementIntegrity,SqlAdaptiveLearningProfileRepository}.test.ts` | Updated to h6-v2 / telemetry-population contracts                                                                                                                                                       |
 
 ---
 
 ## FINAL DECISION GATE
 
-**OPTION A: `H7 ENGINEERING REMEDIATION COMPLETE`**
+**`H7 ENGINEERING + MEASUREMENT LOOP COMPLETE`**
 **`H7 OBSERVATION READY`**
 **`H8 BLOCKED`**
 
-### Justification:
+### Justification (every item verified from source, tests, and live runtime this pass):
 
-- ✅ H7 telemetry is real (PMDecisionTelemetryService records actual PM decisions)
-- ✅ Decision observations are correctly defined (ACCEPT/REJECT/DEFER/OVERRIDE with typed signals)
-- ✅ H6 consumes H7 decision evidence (AdaptiveProfileCompiler generates decision-based signals)
-- ✅ Tenant isolation is verified (API + DB + multi-workspace tests)
-- ✅ Outcomes are traceable (recommendation → decision → execution → verification → outcome)
-- ✅ Metrics are epistemically honest (epistemic badges, no inflated claims)
-- ✅ End-to-end application works (walking skeleton + API tests)
-- ✅ All executable gates pass (type-check, lint, test, build)
-- ✅ Frozen core is byte-identical
+- ✅ H7 telemetry is real and durable (PMDecisionTelemetryService + on-disk persistence verified in the live E2E)
+- ✅ The PM UI supports all four decision kinds (Accept / Accept & Execute / Reject / Defer / Override with numeric priority)
+- ✅ Acceptance metric = ACCEPT telemetry / decision telemetry — populations never mixed (PM Decision / Execution / Outcome)
+- ✅ H6 consumes H7 signal VALUES deterministically (h6-v2): scenarios A–G tested, including contradictory signals and small-sample dampening
+- ✅ DECISION_LATENCY is observational-only (no fabricated "faster = better" quality score)
+- ✅ Timestamp integrity enforced at the domain AND HTTP boundary (ordering, ISO-8601, 3-timestamp skew policy, 24 h duration) — violations rejected, never repaired
+- ✅ Full provenance: LearningSignal → `sourceTelemetryIds` → exact PM decisions → recommendation → project → workspace
+- ✅ Epistemic safeguards intact: N < 5 / 5 ≤ N < 20 / N ≥ 20 ("high within the APEX operational measurement framework" — never universal statistical significance)
+- ✅ Safety floors preserved under 100% rejection / defer / override / extreme delta / zero-failed outcomes / mixed signals
+- ✅ Multi-tenant + multi-project isolation proven (telemetry, signals, profiles, calibration, metrics)
+- ✅ End-to-end causal loop observed live: PM behavior → telemetry → metrics → signals → bounded calibration → observable prioritization change (multiplier 1.0 → 1.112)
+- ✅ No fabricated values in production code (fallback/mock audit §15; all matches are documented-removed fabrications, infra defaults, or production-guarded dev mocks)
+- ✅ All executable gates pass: type-check, lint, test (56 files / 666 tests, 0 failed), build, audit
+- ✅ Frozen core byte-identical (SHA-256 verified)
 
 ### H8 remains BLOCKED because:
 
-H8 must remain explicitly `H8 = BLOCKED` until genuine H7 empirical evidence exists from real PM interactions. The measurement infrastructure is now ready to collect that evidence.
+H8 must remain explicitly `H8 = BLOCKED` until genuine H7 empirical evidence accumulates from real PM interactions. The measurement infrastructure is complete and observation-ready; H8 work has not been started.

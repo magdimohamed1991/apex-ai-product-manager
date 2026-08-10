@@ -88,6 +88,16 @@ export function validatePMDecisionTelemetry(telemetry: PMDecisionTelemetry): voi
   ) {
     throw new Error('PMDecisionTelemetry recommendationPresentedAt must be a valid Date')
   }
+  // H7 telemetry-window invariant (strict domain validation, never repaired):
+  //   recommendationPresentedAt <= decisionStartedAt <= decisionCompletedAt
+  // A recommendation cannot be decided before it was presented, and a
+  // decision cannot complete before it started. Violations are REJECTED,
+  // not silently clamped — measurement integrity requires the raw window.
+  if (telemetry.recommendationPresentedAt.getTime() > telemetry.decisionStartedAt.getTime()) {
+    throw new Error(
+      'PMDecisionTelemetry recommendationPresentedAt must not follow decisionStartedAt (presentation must precede the decision window)'
+    )
+  }
   if (
     typeof telemetry.originalH3Score !== 'number' ||
     !Number.isFinite(telemetry.originalH3Score)

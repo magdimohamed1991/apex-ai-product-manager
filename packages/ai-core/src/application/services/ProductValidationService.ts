@@ -40,16 +40,29 @@ export interface ProductValidationMetrics {
   projectId: string
   generatedAt: Date
   observationCount: number
-  /** Decision Quality = approved PM decisions / total recommendations presented */
+  /**
+   * PM Decision Metrics — derived ONLY from the PMDecisionTelemetry
+   * population (ACCEPT / REJECT / DEFER / OVERRIDE records). Never mixed
+   * with recommendations, actions, or outcomes.
+   */
+  /** Acceptance = ACCEPT telemetry / total decision telemetry */
   decisionAcceptanceRate: TrackedMetric
-  /** Outcome Success Rate = verified success outcomes / outcomes tracked */
-  outcomeSuccessRate: TrackedMetric
-  /** Unverifiable Rate = NOT_VERIFIABLE outcomes / total outcomes */
-  unverifiableRate: TrackedMetric
-  /** Execution success rate = completed actions / terminal actions */
-  executionSuccessRate: TrackedMetric
-  /** Measured PM decision latency (s) — undefined if insufficient data */
+  /** Rejection = REJECT telemetry / total decision telemetry */
+  decisionRejectionRate: TrackedMetric
+  /** Defer = DEFER telemetry / total decision telemetry */
+  decisionDeferRate: TrackedMetric
+  /** Override = OVERRIDE telemetry / total decision telemetry */
+  decisionOverrideRate: TrackedMetric
+  /** Mean |H6 - PM priority| over OVERRIDE telemetry with a numeric priority */
+  meanPriorityOverrideDelta: TrackedMetric
+  /** Measured PM decision latency (s) — observed only, never estimated */
   measuredDecisionLatencySeconds: TrackedMetric
+  /** Outcome Metrics — verified success outcomes / outcomes tracked */
+  outcomeSuccessRate: TrackedMetric
+  /** Outcome Metrics — NOT_VERIFIABLE outcomes / total outcomes */
+  unverifiableRate: TrackedMetric
+  /** Execution Metrics — completed actions / terminal actions */
+  executionSuccessRate: TrackedMetric
   /**
    * H7 Confidence states (Milestone I - Production Hardening)
    * - Awaiting PM Telemetry: N < 5
@@ -120,7 +133,8 @@ export class ProductValidationService {
     const actions = await this.actionRepository.getByWorkspace({ workspaceId })
     const outcomes = await this.outcomeRepository.getByProject(projectId, workspaceId)
 
-    // Map actions to recs to determine project-scoped actions.
+    // Map actions to recs to determine project-scoped actions (execution
+    // metrics population — kept separate from PM decision metrics).
     const projectActionIds = new Set<string>()
     for (const a of actions) {
       if (recs.some((r) => r.id === a.relatedRecommendationId)) {
@@ -129,24 +143,120 @@ export class ProductValidationService {
     }
     const projectActions = actions.filter((a) => projectActionIds.has(a.id))
 
-    // 1. Decision acceptance rate (derived from observations)
-    const totalRecommendations = recs.length
-    const totalApproved = projectActions.filter((a) => a.status !== 'proposed').length
+    // 1. PM Decision Metrics — derived ONLY from the PMDecisionTelemetry
+    //    population. The acceptance rate is ACCEPT telemetry / total
+    //    decision telemetry. It must NEVER mix recommendations, actions,
+    //    or outcomes into the denominator (H7 measurement integrity).
+    const telemetry = await this.productRepository.getPMDecisionTelemetryByProject(
+      projectId,
+      workspaceId
+    )
+    const decisionCount = telemetry.length
+    const acceptCount = telemetry.filter((t) => t.decision === 'ACCEPT').length
+    const rejectCount = telemetry.filter((t) => t.decision === 'REJECT').length
+    const deferCount = telemetry.filter((t) => t.decision === 'DEFER').length
+    const overrideCount = telemetry.filter((t) => t.decision === 'OVERRIDE').length
+
     const decisionAcceptanceRate: TrackedMetric = {
-      name: 'Recommendation Acceptance Rate',
-      value: totalRecommendations > 0 ? (totalApproved / totalRecommendations) * 100 : null,
+      name: 'PM Decision Acceptance Rate',
+      value: decisionCount > 0 ? (acceptCount / decisionCount) * 100 : null,
       description:
-        'Percent of recommendations that PMs approved (i.e. progressed past `proposed`).',
+        'Percent of PM decision telemetry records that were ACCEPT decisions (ACCEPT telemetry / total decision telemetry).',
       source: 'empirical_observation',
-      calculation: 'approved_actions / total_recommendations * 100',
-      observationCount: totalRecommendations,
+      calculation: 'accept_telemetry / total_decision_telemetry * 100',
+      observationCount: decisionCount,
       confidence:
-        totalRecommendations < 5
+        decisionCount === 0
           ? 'insufficient_data'
-          : totalRecommendations < 20
-            ? 'low'
-            : 'medium',
-      epistemicState: totalRecommendations > 0 ? 'observed' : 'unavailable',
+          : decisionCount < 5
+            ? 'insufficient_data'
+            : decisionCount < 20
+              ? 'low'
+              : 'medium',
+      epistemicState: decisionCount > 0 ? 'observed' : 'unavailable',
+    }
+
+    const decisionRejectionRate: TrackedMetric = {
+      name: 'PM Decision Rejection Rate',
+      value: decisionCount > 0 ? (rejectCount / decisionCount) * 100 : null,
+      description: 'Percent of PM decision telemetry records that were REJECT decisions.',
+      source: 'empirical_observation',
+      calculation: 'reject_telemetry / total_decision_telemetry * 100',
+      observationCount: decisionCount,
+      confidence:
+        decisionCount === 0
+          ? 'insufficient_data'
+          : decisionCount < 5
+            ? 'insufficient_data'
+            : decisionCount < 20
+              ? 'low'
+              : 'medium',
+      epistemicState: decisionCount > 0 ? 'observed' : 'unavailable',
+    }
+
+    const decisionDeferRate: TrackedMetric = {
+      name: 'PM Decision Defer Rate',
+      value: decisionCount > 0 ? (deferCount / decisionCount) * 100 : null,
+      description: 'Percent of PM decision telemetry records that were DEFER decisions.',
+      source: 'empirical_observation',
+      calculation: 'defer_telemetry / total_decision_telemetry * 100',
+      observationCount: decisionCount,
+      confidence:
+        decisionCount === 0
+          ? 'insufficient_data'
+          : decisionCount < 5
+            ? 'insufficient_data'
+            : decisionCount < 20
+              ? 'low'
+              : 'medium',
+      epistemicState: decisionCount > 0 ? 'observed' : 'unavailable',
+    }
+
+    const decisionOverrideRate: TrackedMetric = {
+      name: 'PM Decision Override Rate',
+      value: decisionCount > 0 ? (overrideCount / decisionCount) * 100 : null,
+      description: 'Percent of PM decision telemetry records that were OVERRIDE decisions.',
+      source: 'empirical_observation',
+      calculation: 'override_telemetry / total_decision_telemetry * 100',
+      observationCount: decisionCount,
+      confidence:
+        decisionCount === 0
+          ? 'insufficient_data'
+          : decisionCount < 5
+            ? 'insufficient_data'
+            : decisionCount < 20
+              ? 'low'
+              : 'medium',
+      epistemicState: decisionCount > 0 ? 'observed' : 'unavailable',
+    }
+
+    const deltaTelemetry = telemetry.filter(
+      (t) => t.decision === 'OVERRIDE' && t.overrideDelta !== undefined
+    )
+    const meanPriorityOverrideDelta: TrackedMetric = {
+      name: 'Mean Priority Override Delta',
+      value:
+        deltaTelemetry.length > 0
+          ? Math.round(
+              (deltaTelemetry.reduce((a, t) => a + (t.overrideDelta as number), 0) /
+                deltaTelemetry.length) *
+                100
+            ) / 100
+          : null,
+      description:
+        'Mean |calibrated H6 score - PM selected priority| over OVERRIDE telemetry records that carry a numeric priority.',
+      source: 'empirical_observation',
+      calculation: 'mean(|h6_score - pm_selected_priority|) over override telemetry',
+      observationCount: deltaTelemetry.length,
+      confidence:
+        deltaTelemetry.length === 0
+          ? 'insufficient_data'
+          : deltaTelemetry.length < 5
+            ? 'insufficient_data'
+            : deltaTelemetry.length < 20
+              ? 'low'
+              : 'medium',
+      epistemicState: deltaTelemetry.length > 0 ? 'observed' : 'unavailable',
     }
 
     // 2. Outcome success rate (derived from observations)
@@ -214,11 +324,6 @@ export class ProductValidationService {
     //    Latency per record = decisionCompletedAt - decisionStartedAt on the
     //    SAME client clock, so clock skew cancels out. With zero records the
     //    metric stays `unavailable`; it is never estimated.
-    const telemetry = await this.productRepository.getPMDecisionTelemetryByProject(
-      projectId,
-      workspaceId
-    )
-    const decisionCount = telemetry.length
     const latenciesMs = telemetry
       .map((t) => t.decisionCompletedAt.getTime() - t.decisionStartedAt.getTime())
       .filter((ms) => ms >= 0)
@@ -262,11 +367,18 @@ export class ProductValidationService {
       projectId,
       generatedAt: new Date(),
       observationCount: decisionCount,
+      // PM Decision Metrics (telemetry population only)
       decisionAcceptanceRate,
+      decisionRejectionRate,
+      decisionDeferRate,
+      decisionOverrideRate,
+      meanPriorityOverrideDelta,
+      measuredDecisionLatencySeconds,
+      // Outcome Metrics (outcome population only)
       outcomeSuccessRate,
       unverifiableRate,
+      // Execution Metrics (action population only)
       executionSuccessRate,
-      measuredDecisionLatencySeconds,
       confidence: {
         bucket: confidenceBucket,
         rationale: bucketRationale(confidenceBucket),

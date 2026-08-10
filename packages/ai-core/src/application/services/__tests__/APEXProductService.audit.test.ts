@@ -16,6 +16,7 @@ import { RecommendationOutcomeService } from '../RecommendationOutcomeService'
 import { AdaptiveProfileCompiler } from '../AdaptiveProfileCompiler'
 import { H6PrioritizationCalibrator } from '../H6PrioritizationCalibrator'
 import { ProductValidationService } from '../ProductValidationService'
+import { PMDecisionTelemetryService } from '../PMDecisionTelemetryService'
 import { NotFoundError, SecurityError } from '../../../errors/AppError'
 import { createWorkspaceId } from '../../../domain/value-objects'
 
@@ -46,7 +47,8 @@ function buildService() {
     ),
     profileRepository,
     new H6PrioritizationCalibrator(),
-    new ProductValidationService(productRepository, actionRepository, outcomeRepository)
+    new ProductValidationService(productRepository, actionRepository, outcomeRepository),
+    new PMDecisionTelemetryService(productRepository)
   )
   return { database, actionRepository, productRepository, outcomeRepository, productService }
 }
@@ -160,6 +162,18 @@ describe('APEXProductService audit-regression tests', () => {
       recsA[0].id,
       recsA[0].proposedActions[0].id
     )
+    // H7 acceptance is a PM-decision-telemetry metric: record a real ACCEPT
+    // decision for project A so the acceptance rate reflects the telemetry
+    // population (never action status).
+    await ctx.productService.recordPMDecision({
+      workspaceId: 'ws-a',
+      projectId: 'proj-a',
+      recommendationId: recsA[0].id,
+      decision: 'ACCEPT',
+      decisionStartedAt: new Date('2026-08-09T10:00:00Z'),
+      decisionCompletedAt: new Date('2026-08-09T10:01:00Z'),
+      recommendationPresentedAt: new Date('2026-08-09T09:59:00Z'),
+    })
 
     const metricsA = await ctx.productService.getDecisionQualityMetrics('ws-a', 'proj-a')
     const metricsB = await ctx.productService.getDecisionQualityMetrics('ws-b', 'proj-b')
@@ -168,7 +182,11 @@ describe('APEXProductService audit-regression tests', () => {
     expect(metricsA.totalApproved).toBe(1)
     expect(metricsB.totalApproved).toBe(0)
     expect(metricsB.acceptanceRate).toBe(0)
-    expect(metricsA.acceptanceRate).toBeGreaterThan(0)
+    // Acceptance is ACCEPT telemetry / decision telemetry — 1/1 = 100.
+    expect(metricsA.decisionCount).toBe(1)
+    expect(metricsA.acceptCount).toBe(1)
+    expect(metricsA.acceptanceRate).toBe(100)
+    expect(metricsB.decisionCount).toBe(0)
   })
 
   it('createOutcome rejects a recommendation that does not belong to the claimed project', async () => {

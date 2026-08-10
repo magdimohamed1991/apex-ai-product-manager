@@ -12,6 +12,7 @@ import { EnvCredentialProvider } from '../CredentialProvider'
 import { APEXProductService } from '../APEXProductService'
 import { ProductIntelligenceService } from '../ProductIntelligenceService'
 import { RecommendationOutcomeService } from '../RecommendationOutcomeService'
+import { PMDecisionTelemetryService } from '../PMDecisionTelemetryService'
 import { createWorkspaceId } from '../../../domain/value-objects'
 import { GitHubAdapter } from '../adapters/GitHubAdapter'
 
@@ -62,7 +63,12 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
       orchestrator,
       credentialProvider,
       intelligenceService,
-      outcomeService
+      outcomeService,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      new PMDecisionTelemetryService(productRepository)
     )
 
     githubAdapter = new GitHubAdapter()
@@ -174,6 +180,18 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
         recs[0].proposedActions[0].id
       )
 
+      // Record a REAL PM decision — acceptance is ACCEPT telemetry /
+      // decision telemetry, never action status.
+      await productService.recordPMDecision({
+        workspaceId: 'ws-outcome-a',
+        projectId: 'proj-1',
+        recommendationId: recs[0].id,
+        decision: 'ACCEPT',
+        decisionStartedAt: new Date('2026-08-09T10:00:00Z'),
+        decisionCompletedAt: new Date('2026-08-09T10:01:00Z'),
+        recommendationPresentedAt: new Date('2026-08-09T09:59:00Z'),
+      })
+
       // Create 1 success outcome, 1 failed outcome
       const tsRec = recs.find(
         (r) =>
@@ -192,7 +210,8 @@ describe('Milestone H5 — Product Decision Validation Tests', () => {
 
       expect(metrics.totalRecommendations).toBe(recs.length)
       expect(metrics.totalApproved).toBe(1)
-      expect(metrics.acceptanceRate).toBeGreaterThan(0)
+      expect(metrics.decisionCount).toBe(1)
+      expect(metrics.acceptanceRate).toBe(100) // 1 ACCEPT / 1 decision
       expect(metrics.successCount).toBe(1)
       expect(metrics.successRate).toBe(50.0) // 1 of 2 succeeded!
     })
