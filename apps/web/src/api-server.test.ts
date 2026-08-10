@@ -417,7 +417,7 @@ describe('API server — composition root & route security', () => {
     // Reasoning for a recommendation that does not exist → 404.
     const missing = await request(api, {
       method: 'GET',
-      url: `/api/recommendations/rec-does-not-exist/reasoning?workspaceId=${wsId}`,
+      url: `/api/recommendations/rec-does-not-exist/reasoning?workspaceId=${wsId}&projectId=proj-core`,
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(missing.status).toBe(404)

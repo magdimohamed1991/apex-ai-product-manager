@@ -124,7 +124,7 @@ function RecommendationDetail({
     if (!workspace) return
     let active = true
     apiClient
-      .getReasoning(workspace.id, recommendation.id)
+      .getReasoning(workspace.id, projectId ?? '', recommendation.id)
       .then((data) => {
         if (!active) return
         setReasoning(data)
@@ -139,7 +139,7 @@ function RecommendationDetail({
     return () => {
       active = false
     }
-  }, [workspace, recommendation.id])
+  }, [workspace, recommendation.id, projectId])
 
   async function submitContext(e: React.FormEvent) {
     e.preventDefault()
@@ -147,7 +147,12 @@ function RecommendationDetail({
     setLoading(true)
     setReasoningError(null)
     try {
-      const data = await apiClient.submitContext(workspace.id, recommendation.id, answer)
+      const data = await apiClient.submitContext(
+        workspace.id,
+        projectId ?? '',
+        recommendation.id,
+        answer
+      )
       setReasoning(data)
       setAnswer('')
     } catch (err) {

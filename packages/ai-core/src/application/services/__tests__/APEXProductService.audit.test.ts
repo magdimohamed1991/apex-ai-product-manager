@@ -228,8 +228,10 @@ describe('APEXProductService audit-regression tests', () => {
 
     // Same workspace, WRONG project id → the outcome must NOT be created
     // (otherwise it would contaminate proj-b's outcome metrics).
+    // The project-scoped lookup correctly returns null for cross-project
+    // recommendations, so the error is "not found" rather than "belongs to project".
     await expect(ctx.productService.createOutcome(rec.id, 'ws-a', 'proj-b')).rejects.toThrow(
-      /belongs to project/
+      /not found|belongs to project/
     )
     const outcomesB = await ctx.productService.getOutcomesByProject('ws-a', 'proj-b')
     expect(outcomesB).toHaveLength(0)
@@ -255,10 +257,11 @@ describe('APEXProductService audit-regression tests', () => {
     const rec = recs[0]
 
     // Calibrating proj-a's recommendation with proj-b's profile/signals
-    // would silently mix scopes — must be rejected.
+    // would silently mix scopes — must be rejected. The project-scoped lookup
+    // correctly returns null, so the error is "not found".
     await expect(
       ctx.productService.getPriorityCalibration('ws-a', 'proj-b', rec.id)
-    ).rejects.toThrow(/belongs to project/)
+    ).rejects.toThrow(/not found|belongs to project/)
   })
 
   it('getActivityLog scopes action/execution events to the project, not the workspace', async () => {

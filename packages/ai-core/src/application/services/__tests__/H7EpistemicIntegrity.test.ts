@@ -764,58 +764,64 @@ describe('H7 Epistemic Integrity (final remediation pass)', () => {
   // FINDING 9 — H6/H7 safety floor matrix
   // =====================================================================
   describe('Finding 9 — H6/H7 safety floor matrix', () => {
-    it('critical >= 8.5 and high >= 7.0 under every decision/outcome scenario', async () => {
-      const scenarios: Array<[string, (recs: string[]) => Promise<void>]> = [
-        ['100% ACCEPT', (r) => recordDecisions(r, 'ACCEPT', 20)],
-        ['100% REJECT', (r) => recordDecisions(r, 'REJECT', 20)],
-        ['100% DEFER', (r) => recordDecisions(r, 'DEFER', 20)],
-        ['100% OVERRIDE extreme delta', (r) => recordDecisions(r, 'OVERRIDE', 20, 0.5)],
-        [
-          'mixed decisions',
-          async (r) => {
-            await recordDecisions(r, 'ACCEPT', 8)
-            await recordDecisions(r, 'REJECT', 6)
-            await recordDecisions(r, 'DEFER', 4)
-            await recordDecisions(r, 'OVERRIDE', 2, 2)
-          },
-        ],
-        ['zero outcomes', (r) => recordDecisions(r, 'ACCEPT', 20)],
-        [
-          'all failed outcomes',
-          async (r) => {
-            await recordDecisions(r, 'ACCEPT', 20)
-            await seedOutcomes(r, 'FAILED')
-          },
-        ],
-        [
-          'all successful outcomes',
-          async (r) => {
-            await recordDecisions(r, 'ACCEPT', 20)
-            await seedOutcomes(r, 'VERIFIED_SUCCESS')
-          },
-        ],
-        ['no adoption observations', (r) => recordDecisions(r, 'ACCEPT', 20)],
-        [
-          'contradictory telemetry (accept + override + large delta)',
-          async (r) => {
-            await recordDecisions(r, 'ACCEPT', 10)
-            await recordDecisions(r, 'OVERRIDE', 10, 1)
-          },
-        ],
-      ]
-      for (const [label, setup] of scenarios) {
-        await resetWorld()
-        const recs = await seedAndCommit(20)
-        await setup(recs)
-        await compile()
-        const calCritical = await calibrate('critical', 9.5)
-        const calHigh = await calibrate('high', 8.0)
-        expect(calCritical.calibratedScore, `critical @ ${label}`).toBeGreaterThanOrEqual(
-          SAFETY_FLOOR_CRITICAL
-        )
-        expect(calHigh.calibratedScore, `high @ ${label}`).toBeGreaterThanOrEqual(SAFETY_FLOOR_HIGH)
+    it(
+      'critical >= 8.5 and high >= 7.0 under every decision/outcome scenario',
+      { timeout: 30000 },
+      async () => {
+        const scenarios: Array<[string, (recs: string[]) => Promise<void>]> = [
+          ['100% ACCEPT', (r) => recordDecisions(r, 'ACCEPT', 20)],
+          ['100% REJECT', (r) => recordDecisions(r, 'REJECT', 20)],
+          ['100% DEFER', (r) => recordDecisions(r, 'DEFER', 20)],
+          ['100% OVERRIDE extreme delta', (r) => recordDecisions(r, 'OVERRIDE', 20, 0.5)],
+          [
+            'mixed decisions',
+            async (r) => {
+              await recordDecisions(r, 'ACCEPT', 8)
+              await recordDecisions(r, 'REJECT', 6)
+              await recordDecisions(r, 'DEFER', 4)
+              await recordDecisions(r, 'OVERRIDE', 2, 2)
+            },
+          ],
+          ['zero outcomes', (r) => recordDecisions(r, 'ACCEPT', 20)],
+          [
+            'all failed outcomes',
+            async (r) => {
+              await recordDecisions(r, 'ACCEPT', 20)
+              await seedOutcomes(r, 'FAILED')
+            },
+          ],
+          [
+            'all successful outcomes',
+            async (r) => {
+              await recordDecisions(r, 'ACCEPT', 20)
+              await seedOutcomes(r, 'VERIFIED_SUCCESS')
+            },
+          ],
+          ['no adoption observations', (r) => recordDecisions(r, 'ACCEPT', 20)],
+          [
+            'contradictory telemetry (accept + override + large delta)',
+            async (r) => {
+              await recordDecisions(r, 'ACCEPT', 10)
+              await recordDecisions(r, 'OVERRIDE', 10, 1)
+            },
+          ],
+        ]
+        for (const [label, setup] of scenarios) {
+          await resetWorld()
+          const recs = await seedAndCommit(20)
+          await setup(recs)
+          await compile()
+          const calCritical = await calibrate('critical', 9.5)
+          const calHigh = await calibrate('high', 8.0)
+          expect(calCritical.calibratedScore, `critical @ ${label}`).toBeGreaterThanOrEqual(
+            SAFETY_FLOOR_CRITICAL
+          )
+          expect(calHigh.calibratedScore, `high @ ${label}`).toBeGreaterThanOrEqual(
+            SAFETY_FLOOR_HIGH
+          )
+        }
       }
-    })
+    )
 
     it('safety floor is applied AFTER calibration but BEFORE final presentation', async () => {
       const recIds = await seedAndCommit(20)

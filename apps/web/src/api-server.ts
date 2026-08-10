@@ -1192,8 +1192,11 @@ export async function handleApiRequest(
         return true
       }
       const reasoningService = new ProductReasoningService(productRepository, llmProvider!)
-      let reasoning = await productRepository.getAIProductReasoning(recId, wsId)
-      if (reasoning && reasoning.projectId !== projectId) reasoning = null
+      let reasoning = await productRepository.getAIProductReasoningByWorkspaceAndProject(
+        recId,
+        wsId,
+        projectId
+      )
       if (!reasoning) {
         reasoning = await reasoningService.generateReasoning(rich)
       }

@@ -120,7 +120,7 @@ export class RecommendationOutcomeService {
       throw new Error(`Outcome "${outcomeId}" not found in workspace "${workspaceId}"`)
     }
 
-    const rec = await this.productRepository.getRecommendationByIdAndWorkspace(
+    const rec = await this.productRepository.getRecommendationByIdWorkspaceAndProject(
       outcome.recommendationId,
       workspaceId,
       projectId

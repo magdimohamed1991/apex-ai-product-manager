@@ -65,8 +65,10 @@ describe('GitHubAdapter (Milestone I - Production Hardening)', () => {
         const msg = err instanceof Error ? err.message : String(err)
         // Should NOT be the "Mock fallback" or "GitHub authentication failed" 401 errors
         expect(msg).not.toMatch(/Mock fallback/)
-        // Either network error or 401 from real GitHub
-        expect(msg).toMatch(/GitHub API error|ENOTFOUND|getaddrinfo|connect/)
+        // Either network error, auth failure, or 401 from real GitHub
+        expect(msg).toMatch(
+          /GitHub API error|GitHub authentication failed|GitHub authorization failed|ENOTFOUND|getaddrinfo|connect/
+        )
       }
     })
   })

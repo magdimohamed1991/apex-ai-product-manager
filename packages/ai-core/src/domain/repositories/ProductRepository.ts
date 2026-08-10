@@ -65,6 +65,12 @@ export interface ProductRepository {
     recommendationId: string,
     workspaceId: WorkspaceId
   ): Promise<AIProductReasoning | null>
+  /** Project-owned reasoning lookup. Use at authorization boundaries. */
+  getAIProductReasoningByWorkspaceAndProject(
+    recommendationId: string,
+    workspaceId: WorkspaceId,
+    projectId: string
+  ): Promise<AIProductReasoning | null>
   saveAIProductReasoning(reasoning: AIProductReasoning): Promise<void>
 
   // H7 PM decision telemetry operations (persisted, workspace-scoped)

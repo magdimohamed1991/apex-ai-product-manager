@@ -355,6 +355,22 @@ export class SqlProductRepository implements ProductRepository {
     return mapReasoningFromDb(found)
   }
 
+  async getAIProductReasoningByWorkspaceAndProject(
+    recommendationId: string,
+    workspaceId: WorkspaceId,
+    projectId: string
+  ): Promise<AIProductReasoning | null> {
+    const state = this.db.getActiveState()
+    const found = state.aiReasonings?.find(
+      (x) =>
+        x.recommendationId === recommendationId &&
+        x.workspaceId === workspaceId &&
+        x.projectId === projectId
+    )
+    if (!found) return null
+    return mapReasoningFromDb(found)
+  }
+
   async savePMDecisionTelemetry(telemetry: PMDecisionTelemetry): Promise<void> {
     this.db.beginTransaction()
     try {

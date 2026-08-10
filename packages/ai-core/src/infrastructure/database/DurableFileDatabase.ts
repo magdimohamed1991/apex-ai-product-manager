@@ -185,10 +185,21 @@ export class DurableFileDatabase {
     if (!this.commitInFlight) {
       this.commitInFlight = true
       try {
-        this.writeSnapshot(this.transactionState)
+        // Update in-memory state BEFORE disk write so reads always see
+        // the latest committed state, even if the file write transiently
+        // fails (e.g. Windows file-lock contention).  The durability
+        // guarantee is: committed state is visible in-process immediately;
+        // disk persistence is best-effort with retry.
         this.state = this.transactionState
+        this.writeSnapshot(this.transactionState)
         this.transactionState = null
         this.inTransaction = false
+      } catch (err) {
+        // Roll back transaction bookkeeping but keep the in-memory state
+        // update so subsequent reads see the committed data.
+        this.transactionState = null
+        this.inTransaction = false
+        throw err
       } finally {
         this.commitInFlight = false
       }
@@ -201,8 +212,8 @@ export class DurableFileDatabase {
     this.writeMutex = new Promise<void>((res) => (release = res))
     try {
       await previous
-      this.writeSnapshot(this.transactionState)
       this.state = this.transactionState
+      this.writeSnapshot(this.transactionState)
     } finally {
       this.transactionState = null
       this.inTransaction = false
@@ -226,7 +237,41 @@ export class DurableFileDatabase {
     } finally {
       fs.closeSync(fd)
     }
-    fs.renameSync(tempPath, this.dbPath)
+    this.atomicReplace(tempPath)
+  }
+
+  /**
+   * Atomically replace the target file with the source file.
+   * Retries rename up to 3 times (Windows file-locking backoff),
+   * then falls back to copy + unlink if rename is persistently blocked.
+   */
+  private atomicReplace(sourcePath: string): void {
+    const MAX_RETRIES = 3
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        fs.renameSync(sourcePath, this.dbPath)
+        return
+      } catch (err) {
+        const isLastAttempt = attempt === MAX_RETRIES
+        if (isLastAttempt) {
+          // Fallback: copy + unlink (safe on Windows when rename is blocked)
+          try {
+            fs.copyFileSync(sourcePath, this.dbPath)
+            fs.unlinkSync(sourcePath)
+            return
+          } catch {
+            // If even copy fails, throw the original rename error
+            throw err
+          }
+        }
+        // Backoff: 10ms, 20ms, 40ms
+        const delay = 10 * Math.pow(2, attempt)
+        const start = Date.now()
+        while (Date.now() - start < delay) {
+          // busy-wait (sub-50ms, acceptable for file-lock release)
+        }
+      }
+    }
   }
 
   rollback(): void {
@@ -327,7 +372,7 @@ export class DurableFileDatabase {
   private saveStateDirect(targetState: DatabaseState): void {
     const tempPath = this.dbPath + '.tmp'
     fs.writeFileSync(tempPath, JSON.stringify(targetState, null, 2), 'utf8')
-    fs.renameSync(tempPath, this.dbPath)
+    this.atomicReplace(tempPath)
   }
 
   // -- User / Session / Membership helpers --

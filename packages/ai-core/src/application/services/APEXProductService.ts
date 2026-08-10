@@ -161,9 +161,6 @@ export class APEXProductService {
       )
     }
 
-    // 1. Fetch credentials securely at the application boundary (Item 5)
-    const creds = await this.credentialProvider.getCredentials(wsId, 'github')
-
     const runId = `run-${crypto.randomUUID()}`
     const pipelineRun: PipelineRun = {
       id: runId,
@@ -179,17 +176,12 @@ export class APEXProductService {
 
     // Setup safe clone temporary directory path (Item 3)
     const tempDir = path.join(os.tmpdir(), 'apex-clones', `clone-${conn.id}`)
-    if (fs.existsSync(tempDir)) {
-      try {
-        fs.rmSync(tempDir, { recursive: true, force: true })
-      } catch {
-        // ignore
-      }
-    }
 
     const isProduction = process.env.NODE_ENV === 'production'
 
     try {
+      // 1. Fetch credentials securely at the application boundary (Item 5)
+      const creds = await this.credentialProvider.getCredentials(wsId, 'github')
       // Execute fast depth-1 clone of arbitrary repository (Item 3).
       // Token classification mirrors GitHubAdapter.isLikelyProductionToken:
       // only a token with a real GitHub PAT prefix (ghp_/github_pat_/gho_/
@@ -665,9 +657,10 @@ export class APEXProductService {
       throw new Error('Calibrator or profile repository is not registered')
     }
     const wsId = createWorkspaceId(workspaceId)
-    const rec = await this.productRepository.getRecommendationByIdAndWorkspace(
+    const rec = await this.productRepository.getRecommendationByIdWorkspaceAndProject(
       recommendationId,
-      wsId
+      wsId,
+      projectId
     )
     if (!rec) {
       throw new Error(`Recommendation "${recommendationId}" not found`)
