@@ -228,4 +228,32 @@ No modifications were made to any frozen core file during this verification pass
 
 **H1-H7 READY FOR H8.**
 
+---
+
+## H8 Architectural Prerequisites (carried from H7)
+
+### H8-ACTION-1: Eliminate workspace-only recommendation lookup
+
+**Status:** 🟡 Deferred — first H8 architectural hardening task  
+**Risk:** LOW (mitigated by pipeline-level project-scoped IDs)  
+**Files involved:**
+
+- `packages/ai-core/src/domain/repositories/ProductRepository.ts` — `getRecommendationByIdAndWorkspace()`
+- `packages/ai-core/src/infrastructure/repositories/SqlProductRepository.ts` — implementation
+- `apps/web/src/api-server.ts:517` — production call site in Action worker loop
+- `packages/ai-core/src/application/services/ActionExecutionWorker.ts` — frozen, uses workspace-only lookup
+
+**Description:**  
+The recommendation lookup `getRecommendationByIdAndWorkspace(workspaceId, recommendationId)` does not establish project ownership. The correct invariant is `(workspaceId, projectId, recommendationId)`. The newer service paths already use `getRecommendationByIdWorkspaceAndProject()`, but the frozen Action worker and one API call site still use the workspace-only variant.
+
+**Why deferred:**  
+The frozen core (`ActionExecutionWorker.ts`) cannot be modified. The pipeline already generates project-scoped recommendation IDs via `deduplicationKey` → insight IDs (project-scoped when `projectId` is provided), so the workspace-only lookup is currently safe in practice. However, this is an indirect identity invariant rather than an explicit ownership boundary.
+
+**H8 task:**
+
+1. Classify all remaining workspace-scoped repository methods
+2. Determine whether the frozen Action worker requires an architectural exception or a formal invariant proving the workspace-only lookup is safe
+3. Migrate `api-server.ts:517` to project-scoped lookup
+4. Remove `getRecommendationByIdAndWorkspace()` once all call sites are migrated (except frozen core)
+
 GitHub CI execution remains **BLOCKED BY ACCOUNT BILLING**; no CI/billing configuration was changed. Local CI-equivalent gates (type-check, lint, test, build) all pass. The 7 test failures are all pre-existing Windows platform issues or pre-existing test regressions unrelated to this verification pass.
