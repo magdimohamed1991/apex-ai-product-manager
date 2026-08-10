@@ -980,8 +980,16 @@ export async function handleApiRequest(
         sendError(res, new ValidationError('Missing recommendationId or invalid decision kind'))
         return true
       }
+      // Strict ISO-8601 parsing for ALL client-supplied telemetry
+      // timestamps. `new Date()` in JS accepts non-ISO formats (e.g.
+      // '08/09/2026', 'August 9 2026', numeric strings) which would let
+      // ambiguous or fabricated timestamps into the measurement stream.
+      // Telemetry windows must be unambiguous ISO-8601 (with timezone) or
+      // the submission is REJECTED — timestamps are never repaired.
       const toDate = (v: unknown): Date | null => {
         if (typeof v !== 'string') return null
+        const ISO_8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/
+        if (!ISO_8601.test(v)) return null
         const d = new Date(v)
         return Number.isNaN(d.getTime()) ? null : d
       }
@@ -992,7 +1000,19 @@ export async function handleApiRequest(
         sendError(
           res,
           new ValidationError(
-            'decisionStartedAt, decisionCompletedAt, and recommendationPresentedAt must be valid ISO timestamps'
+            'decisionStartedAt, decisionCompletedAt, and recommendationPresentedAt must be valid ISO-8601 timestamps'
+          )
+        )
+        return true
+      }
+      // Telemetry window invariant: presentedAt <= startedAt <= completedAt.
+      // Violations are REJECTED, never silently repaired (measurement
+      // integrity requires the raw window to be honest).
+      if (recommendationPresentedAt.getTime() > decisionStartedAt.getTime()) {
+        sendError(
+          res,
+          new ValidationError(
+            'recommendationPresentedAt must not follow decisionStartedAt (presentation must precede the decision window)'
           )
         )
         return true
@@ -1012,24 +1032,25 @@ export async function handleApiRequest(
       const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000 // 5 minutes
       const MAX_DECISION_DURATION_MS = 24 * 60 * 60 * 1000 // 24 hours
 
-      // Reject timestamps more than 5 minutes in the future.
-      if (decisionCompletedAt.getTime() > serverNow + MAX_CLOCK_SKEW_MS) {
-        sendError(
-          res,
-          new ValidationError(
-            'decisionCompletedAt is more than 5 minutes in the future; clock skew exceeds allowed tolerance'
-          )
-        )
-        return true
+      // Reject timestamps more than 5 minutes in the future. The policy is
+      // applied CONSISTENTLY to all three client timestamps.
+      const futureSkewPart = (label: string, d: Date | null): string | null => {
+        if (!d) return null
+        if (d.getTime() > serverNow + MAX_CLOCK_SKEW_MS) {
+          return `${label} is more than 5 minutes in the future; clock skew exceeds allowed tolerance`
+        }
+        return null
       }
-      if (recommendationPresentedAt.getTime() > serverNow + MAX_CLOCK_SKEW_MS) {
-        sendError(
-          res,
-          new ValidationError(
-            'recommendationPresentedAt is more than 5 minutes in the future; clock skew exceeds allowed tolerance'
-          )
-        )
-        return true
+      for (const [label, d] of [
+        ['recommendationPresentedAt', recommendationPresentedAt],
+        ['decisionStartedAt', decisionStartedAt],
+        ['decisionCompletedAt', decisionCompletedAt],
+      ] as const) {
+        const violation = futureSkewPart(label, d)
+        if (violation) {
+          sendError(res, new ValidationError(violation))
+          return true
+        }
       }
 
       // Reject unreasonably large durations (> 24 hours).

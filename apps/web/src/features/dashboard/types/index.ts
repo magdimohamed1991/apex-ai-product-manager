@@ -64,11 +64,18 @@ export interface ProductValidationMetrics {
   projectId: string
   generatedAt: string
   observationCount: number
+  // PM Decision Metrics (PMDecisionTelemetry population only)
   decisionAcceptanceRate: TrackedMetric
+  decisionRejectionRate: TrackedMetric
+  decisionDeferRate: TrackedMetric
+  decisionOverrideRate: TrackedMetric
+  meanPriorityOverrideDelta: TrackedMetric
+  measuredDecisionLatencySeconds: TrackedMetric
+  // Outcome Metrics
   outcomeSuccessRate: TrackedMetric
   unverifiableRate: TrackedMetric
+  // Execution Metrics
   executionSuccessRate: TrackedMetric
-  measuredDecisionLatencySeconds: TrackedMetric
   confidence: {
     bucket: 'awaiting_pm_telemetry' | 'early_convergence' | 'high_within_apex_framework'
     rationale: string
@@ -232,6 +239,12 @@ export interface DecisionTelemetryRecord {
 export interface DecisionMetrics {
   totalRecommendations: number
   totalApproved: number
+  // PM Decision telemetry population (ACCEPT / total decisions)
+  decisionCount: number
+  acceptCount: number
+  rejectCount: number
+  deferCount: number
+  overrideCount: number
   acceptanceRate: number
   totalOutcomes: number
   successCount: number

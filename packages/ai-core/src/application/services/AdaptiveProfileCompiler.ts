@@ -24,7 +24,14 @@ const log = new Logger('h6.compiler')
 export const SUPPORTED_CATEGORIES = ['TESTING', 'CI_CD', 'TYPESCRIPT', 'DOCKER'] as const
 export type SupportedCategory = (typeof SUPPORTED_CATEGORIES)[number]
 
-export const CALIBRATION_VERSION = 'h6-v1'
+/**
+ * Version of the calibration algorithm that produced the signals/profile.
+ * h6-v2: the calibrator now consumes H7 telemetry-derived signal VALUES
+ * (ACCEPTANCE / REJECTION / DEFER / OVERRIDE rates and the mean signed
+ * override delta) in addition to the adoption/outcome evidence, while
+ * DECISION_LATENCY remains observational-only.
+ */
+export const CALIBRATION_VERSION = 'h6-v2'
 
 /**
  * Empirical minimum-observation rule. Below this many decisions/outcomes
@@ -292,14 +299,41 @@ export class AdaptiveProfileCompiler {
 
       // --- H7 decision-telemetry-derived signals ---
       // These signals are generated from the real PMDecisionTelemetry stream
-      // and make REJECT/DEFER/OVERRIDE observations visible to H6.
+      // and make ACCEPT/REJECT/DEFER/OVERRIDE observations visible to H6.
+      // Every telemetry-derived signal carries `sourceTelemetryIds`: the
+      // exact persisted PMDecisionTelemetry.id values that produced it, so
+      // the H7 observation population is fully auditable from the signal.
+
+      // ACCEPTANCE signal: PM explicitly accepted recommendations in this
+      // category. Derived from the H7 telemetry population ONLY (ACCEPT
+      // telemetry / total decision telemetry) — never from action status.
+      if (pop.decisionCount >= MIN_OBSERVATIONS_FOR_SIGNAL) {
+        const acceptTelemetry = catTelemetry.filter((t) => t.decision === 'ACCEPT')
+        const acceptTelemetryIds = acceptTelemetry.map((t) => t.id)
+        const sourceHash = hashIds(acceptTelemetryIds)
+        signals.push({
+          id: stableSignalId(workspaceId, projectId, cat, 'ACCEPTANCE', sourceHash),
+          workspaceId,
+          projectId,
+          category: cat,
+          type: 'ACCEPTANCE',
+          observationCount: pop.decisionCount,
+          value: pop.decisionCount > 0 ? pop.acceptCount / pop.decisionCount : 0,
+          confidence: smoothConfidence(pop.decisionCount),
+          sourceRecommendationIds: acceptTelemetry.map((t) => t.recommendationId),
+          sourceTelemetryIds: acceptTelemetryIds,
+          generatedAt: new Date(),
+          evidenceState:
+            pop.decisionCount < MIN_OBSERVATIONS_FOR_FAVORED ? 'insufficient_evidence' : 'observed',
+          calibrationVersion: CALIBRATION_VERSION,
+        })
+      }
 
       // REJECTION signal: PM explicitly rejected recommendations in this category.
       if (pop.rejectCount >= MIN_OBSERVATIONS_FOR_SIGNAL) {
-        const catTelemetryIds = catTelemetry
-          .filter((t) => t.decision === 'REJECT')
-          .map((t) => t.recommendationId)
-        const sourceHash = hashIds(catTelemetryIds)
+        const rejectTelemetry = catTelemetry.filter((t) => t.decision === 'REJECT')
+        const rejectTelemetryIds = rejectTelemetry.map((t) => t.id)
+        const sourceHash = hashIds(rejectTelemetryIds)
         signals.push({
           id: stableSignalId(workspaceId, projectId, cat, 'REJECTION', sourceHash),
           workspaceId,
@@ -309,7 +343,8 @@ export class AdaptiveProfileCompiler {
           observationCount: pop.rejectCount,
           value: pop.decisionCount > 0 ? pop.rejectCount / pop.decisionCount : 0,
           confidence: smoothConfidence(pop.rejectCount),
-          sourceRecommendationIds: catTelemetryIds,
+          sourceRecommendationIds: rejectTelemetry.map((t) => t.recommendationId),
+          sourceTelemetryIds: rejectTelemetryIds,
           generatedAt: new Date(),
           evidenceState:
             pop.rejectCount < MIN_OBSERVATIONS_FOR_FAVORED ? 'insufficient_evidence' : 'observed',
@@ -319,10 +354,9 @@ export class AdaptiveProfileCompiler {
 
       // DEFER signal: PM deferred decisions in this category.
       if (pop.deferCount >= MIN_OBSERVATIONS_FOR_SIGNAL) {
-        const catTelemetryIds = catTelemetry
-          .filter((t) => t.decision === 'DEFER')
-          .map((t) => t.recommendationId)
-        const sourceHash = hashIds(catTelemetryIds)
+        const deferTelemetry = catTelemetry.filter((t) => t.decision === 'DEFER')
+        const deferTelemetryIds = deferTelemetry.map((t) => t.id)
+        const sourceHash = hashIds(deferTelemetryIds)
         signals.push({
           id: stableSignalId(workspaceId, projectId, cat, 'DEFER', sourceHash),
           workspaceId,
@@ -332,7 +366,8 @@ export class AdaptiveProfileCompiler {
           observationCount: pop.deferCount,
           value: pop.decisionCount > 0 ? pop.deferCount / pop.decisionCount : 0,
           confidence: smoothConfidence(pop.deferCount),
-          sourceRecommendationIds: catTelemetryIds,
+          sourceRecommendationIds: deferTelemetry.map((t) => t.recommendationId),
+          sourceTelemetryIds: deferTelemetryIds,
           generatedAt: new Date(),
           evidenceState:
             pop.deferCount < MIN_OBSERVATIONS_FOR_FAVORED ? 'insufficient_evidence' : 'observed',
@@ -343,8 +378,8 @@ export class AdaptiveProfileCompiler {
       // OVERRIDE signal: PM overrode APEX priority in this category.
       if (pop.overrideCount >= MIN_OBSERVATIONS_FOR_SIGNAL) {
         const overrideTelemetry = catTelemetry.filter((t) => t.decision === 'OVERRIDE')
-        const catTelemetryIds = overrideTelemetry.map((t) => t.recommendationId)
-        const sourceHash = hashIds(catTelemetryIds)
+        const overrideTelemetryIds = overrideTelemetry.map((t) => t.id)
+        const sourceHash = hashIds(overrideTelemetryIds)
         signals.push({
           id: stableSignalId(workspaceId, projectId, cat, 'OVERRIDE', sourceHash),
           workspaceId,
@@ -354,7 +389,8 @@ export class AdaptiveProfileCompiler {
           observationCount: pop.overrideCount,
           value: pop.decisionCount > 0 ? pop.overrideCount / pop.decisionCount : 0,
           confidence: smoothConfidence(pop.overrideCount),
-          sourceRecommendationIds: catTelemetryIds,
+          sourceRecommendationIds: overrideTelemetry.map((t) => t.recommendationId),
+          sourceTelemetryIds: overrideTelemetryIds,
           generatedAt: new Date(),
           evidenceState:
             pop.overrideCount < MIN_OBSERVATIONS_FOR_FAVORED ? 'insufficient_evidence' : 'observed',
@@ -363,12 +399,16 @@ export class AdaptiveProfileCompiler {
       }
 
       // DECISION_LATENCY signal: average PM decision window in this category.
+      // OBSERVATIONAL ONLY: the calibration contract does not interpret
+      // "faster = better", so this signal is persisted for auditability and
+      // is included in appliedSignals, but it never modifies scores.
       if (catTelemetry.length >= MIN_OBSERVATIONS_FOR_SIGNAL) {
         const latenciesMs = catTelemetry.map(
           (t) => t.decisionCompletedAt.getTime() - t.decisionStartedAt.getTime()
         )
         const avgLatencySec = latenciesMs.reduce((a, b) => a + b, 0) / latenciesMs.length / 1000
-        const sourceHash = hashIds(catTelemetry.map((t) => t.id))
+        const allTelemetryIds = catTelemetry.map((t) => t.id)
+        const sourceHash = hashIds(allTelemetryIds)
         signals.push({
           id: stableSignalId(workspaceId, projectId, cat, 'DECISION_LATENCY', sourceHash),
           workspaceId,
@@ -379,6 +419,7 @@ export class AdaptiveProfileCompiler {
           value: Math.round(avgLatencySec * 10) / 10,
           confidence: smoothConfidence(catTelemetry.length),
           sourceRecommendationIds: catTelemetry.map((t) => t.recommendationId),
+          sourceTelemetryIds: allTelemetryIds,
           generatedAt: new Date(),
           evidenceState:
             catTelemetry.length < MIN_OBSERVATIONS_FOR_FAVORED
@@ -388,32 +429,46 @@ export class AdaptiveProfileCompiler {
         })
       }
 
-      // PRIORITY_OVERRIDE_DELTA signal: average |H6 - PM| when override occurred.
-      const overrideDeltas = catTelemetry
-        .filter((t) => t.decision === 'OVERRIDE' && t.overrideDelta !== undefined)
-        .map((t) => t.overrideDelta as number)
-      if (overrideDeltas.length >= MIN_OBSERVATIONS_FOR_SIGNAL) {
+      // PRIORITY_OVERRIDE_DELTA signal: average |H6 - PM| when override
+      // occurred (magnitude), plus the signed mean so the calibrator can
+      // distinguish "small consistent corrections" from "large systematic
+      // corrections" WITH direction. Both are computed over the exact same
+      // telemetry records (ids in `sourceTelemetryIds`).
+      const deltaTelemetry = catTelemetry.filter(
+        (t) => t.decision === 'OVERRIDE' && t.overrideDelta !== undefined
+      )
+      if (deltaTelemetry.length >= MIN_OBSERVATIONS_FOR_SIGNAL) {
+        const overrideDeltas = deltaTelemetry.map((t) => t.overrideDelta as number)
         const avgDelta = overrideDeltas.reduce((a, b) => a + b, 0) / overrideDeltas.length
-        const sourceHash = hashIds(
-          catTelemetry
-            .filter((t) => t.decision === 'OVERRIDE' && t.overrideDelta !== undefined)
-            .map((t) => t.id)
-        )
+        const signedDeltas = deltaTelemetry
+          .map((t) =>
+            t.pmSelectedPriority !== undefined
+              ? t.pmSelectedPriority - t.calibratedH6Score
+              : undefined
+          )
+          .filter((d): d is number => d !== undefined)
+        const avgSignedDelta =
+          signedDeltas.length > 0
+            ? signedDeltas.reduce((a, b) => a + b, 0) / signedDeltas.length
+            : undefined
+        const deltaTelemetryIds = deltaTelemetry.map((t) => t.id)
+        const sourceHash = hashIds(deltaTelemetryIds)
         signals.push({
           id: stableSignalId(workspaceId, projectId, cat, 'PRIORITY_OVERRIDE_DELTA', sourceHash),
           workspaceId,
           projectId,
           category: cat,
           type: 'PRIORITY_OVERRIDE_DELTA',
-          observationCount: overrideDeltas.length,
+          observationCount: deltaTelemetry.length,
           value: Math.round(avgDelta * 100) / 100,
-          confidence: smoothConfidence(overrideDeltas.length),
-          sourceRecommendationIds: catTelemetry
-            .filter((t) => t.decision === 'OVERRIDE' && t.overrideDelta !== undefined)
-            .map((t) => t.recommendationId),
+          confidence: smoothConfidence(deltaTelemetry.length),
+          sourceRecommendationIds: deltaTelemetry.map((t) => t.recommendationId),
+          sourceTelemetryIds: deltaTelemetryIds,
+          meanSignedOverrideDelta:
+            avgSignedDelta !== undefined ? Math.round(avgSignedDelta * 100) / 100 : undefined,
           generatedAt: new Date(),
           evidenceState:
-            overrideDeltas.length < MIN_OBSERVATIONS_FOR_FAVORED
+            deltaTelemetry.length < MIN_OBSERVATIONS_FOR_FAVORED
               ? 'insufficient_evidence'
               : 'observed',
           calibrationVersion: CALIBRATION_VERSION,

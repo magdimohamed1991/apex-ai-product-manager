@@ -16,6 +16,7 @@ import { RecommendationOutcomeService } from '../RecommendationOutcomeService'
 import { AdaptiveProfileCompiler } from '../AdaptiveProfileCompiler'
 import { H6PrioritizationCalibrator } from '../H6PrioritizationCalibrator'
 import { ProductValidationService } from '../ProductValidationService'
+import { PMDecisionTelemetryService } from '../PMDecisionTelemetryService'
 import { createWorkspaceId } from '../../../domain/value-objects'
 import { GitHubAdapter } from '../adapters/GitHubAdapter'
 
@@ -92,7 +93,8 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
       profileCompiler,
       profileRepository,
       calibrator,
-      validationService
+      validationService,
+      new PMDecisionTelemetryService(productRepository)
     )
 
     githubAdapter = new GitHubAdapter()
@@ -230,7 +232,7 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
           sourceRecommendationIds: [tsRec.id],
           generatedAt: new Date(),
           evidenceState: 'observed',
-          calibrationVersion: 'h6-v1',
+          calibrationVersion: 'h6-v2',
         },
       ])
 
@@ -242,7 +244,11 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
       )
 
       expect(calibration.baseScore).toBe(9.5) // Canonical base score remains intact!
-      expect(calibration.preferenceMultiplier).toBe(0.5)
+      // The calibration contract (h6-v2) bounds the preference multiplier to
+      // [0.85, 1.15] — a profile coefficient of 0.5 (only possible via a
+      // hand-built fixture; the compiler clamps to the documented range) is
+      // clamped to the floor instead of being applied verbatim.
+      expect(calibration.preferenceMultiplier).toBe(0.85)
 
       // Preservation of Objective Risk guard: critical must not drop below 8.5 safety floor
       expect(calibration.calibratedScore).toBe(8.5)
@@ -336,19 +342,33 @@ describe('Milestone H6 — Adaptive Product Intelligence Tests', () => {
         testingRec.proposedActions[0].id
       )
 
+      // Record a REAL PM decision into the H7 telemetry stream — the
+      // acceptance metric is ACCEPT telemetry / decision telemetry.
+      await productService.recordPMDecision({
+        workspaceId: 'ws-adaptive-a',
+        projectId: 'proj-1',
+        recommendationId: testingRec.id,
+        decision: 'ACCEPT',
+        decisionStartedAt: new Date('2026-08-09T10:00:00Z'),
+        decisionCompletedAt: new Date('2026-08-09T10:01:00Z'),
+        recommendationPresentedAt: new Date('2026-08-09T09:59:00Z'),
+      })
+
       // Evaluate
       const metrics = await productService.getProductValidationMetrics('ws-adaptive-a', 'proj-1')
 
       // H7 — every metric now carries an explicit epistemic state. We assert
       // that the observation is properly recorded and not synthesized.
       expect(metrics.decisionAcceptanceRate.value).not.toBeNull()
-      expect(metrics.decisionAcceptanceRate.value!).toBeGreaterThan(0)
+      expect(metrics.decisionAcceptanceRate.value!).toBe(100) // 1 ACCEPT / 1 decision
       expect(metrics.decisionAcceptanceRate.epistemicState).toBe('observed')
-      expect(metrics.decisionAcceptanceRate.observationCount).toBeGreaterThan(0)
+      expect(metrics.decisionAcceptanceRate.observationCount).toBe(1)
+      // The PM decision metrics are separate populations.
+      expect(metrics.decisionRejectionRate.value).toBe(0)
+      expect(metrics.decisionOverrideRate.value).toBe(0)
+      expect(metrics.measuredDecisionLatencySeconds.value).toBe(60)
       // No synthetic "business utility" — that metric is no longer exposed.
       expect((metrics as unknown as { businessUtility?: unknown }).businessUtility).toBeUndefined()
-      // Latency is unavailable until the new PMDecisionTelemetry stream is in use.
-      expect(metrics.measuredDecisionLatencySeconds.epistemicState).toBe('unavailable')
       // Confidence bucket is correct
       expect(metrics.confidence.bucket).toBeDefined()
     })

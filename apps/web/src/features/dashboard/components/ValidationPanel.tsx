@@ -57,12 +57,29 @@ export function ValidationPanel({ metrics, profile, signals, onCompileProfile }:
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <MetricCard metric={metrics.decisionAcceptanceRate} />
-            <MetricCard metric={metrics.outcomeSuccessRate} />
-            <MetricCard metric={metrics.unverifiableRate} />
-            <MetricCard metric={metrics.executionSuccessRate} />
-            <MetricCard metric={metrics.measuredDecisionLatencySeconds} />
+          <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-5 flex flex-col gap-3">
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+              PM Decision Metrics — derived ONLY from PM decision telemetry
+            </span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <MetricCard metric={metrics.decisionAcceptanceRate} />
+              <MetricCard metric={metrics.decisionRejectionRate} />
+              <MetricCard metric={metrics.decisionDeferRate} />
+              <MetricCard metric={metrics.decisionOverrideRate} />
+              <MetricCard metric={metrics.meanPriorityOverrideDelta} />
+              <MetricCard metric={metrics.measuredDecisionLatencySeconds} />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-5 flex flex-col gap-3">
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+              Outcome &amp; Execution Metrics — separate observation populations
+            </span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <MetricCard metric={metrics.outcomeSuccessRate} />
+              <MetricCard metric={metrics.unverifiableRate} />
+              <MetricCard metric={metrics.executionSuccessRate} />
+            </div>
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-6 flex flex-col gap-3">

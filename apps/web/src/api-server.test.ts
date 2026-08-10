@@ -508,6 +508,176 @@ describe('API server — composition root & route security', () => {
     expect(ov.overrideDelta).toBeCloseTo(Math.abs(ov.calibratedH6Score - 1), 5)
   })
 
+  it('rejects every timestamp-integrity violation at the HTTP boundary (never repaired)', async () => {
+    await api.initApiServer()
+    const signup = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'ts@acme.com', password: 'super-secure-password' },
+    })
+    const token = signup.json.token as string
+    const wsId = (signup.json.workspace as { id: string }).id
+
+    await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/repository',
+      headers: { Authorization: `Bearer ${token}` },
+      body: {
+        workspaceId: wsId,
+        provider: 'github',
+        owner: 'acme',
+        repository: 'apex-ai-product-manager',
+        defaultBranch: 'main',
+      },
+    })
+    await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/analysis',
+      headers: { Authorization: `Bearer ${token}` },
+      body: { workspaceId: wsId },
+    })
+    const recs = await request(api, {
+      method: 'GET',
+      url: `/api/projects/proj-core/recommendations?workspaceId=${wsId}`,
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const recId = (recs.json as unknown as Array<{ id: string }>)[0].id
+
+    const now = Date.now()
+    const iso = (ms: number) => new Date(ms).toISOString()
+    const base = {
+      workspaceId: wsId,
+      recommendationId: recId,
+      decision: 'ACCEPT',
+    }
+    // Valid window used as the healthy baseline.
+    const valid = {
+      ...base,
+      recommendationPresentedAt: iso(now - 120000),
+      decisionStartedAt: iso(now - 60000),
+      decisionCompletedAt: iso(now - 1000),
+    }
+
+    // The valid baseline is accepted.
+    const ok = await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/decision-telemetry',
+      headers: { Authorization: `Bearer ${token}` },
+      body: valid,
+    })
+    expect(ok.status).toBe(200)
+
+    const violations: Array<[string, Record<string, unknown>, RegExp]> = [
+      [
+        'presentedAt > startedAt (presentation after decision start)',
+        {
+          ...valid,
+          recommendationPresentedAt: iso(now - 1000),
+          decisionStartedAt: iso(now - 60000),
+        },
+        /must not follow decisionStartedAt/,
+      ],
+      [
+        'startedAt > completedAt',
+        {
+          ...valid,
+          decisionStartedAt: iso(now - 1000),
+          decisionCompletedAt: iso(now - 60000),
+        },
+        /must not precede decisionStartedAt/,
+      ],
+      [
+        'negative duration',
+        {
+          ...valid,
+          decisionStartedAt: iso(now - 60000),
+          decisionCompletedAt: iso(now - 120000),
+        },
+        /must not precede decisionStartedAt/,
+      ],
+      [
+        'startedAt more than 5 minutes in the future (clock skew)',
+        {
+          ...valid,
+          decisionStartedAt: iso(now + 6 * 60 * 1000),
+          decisionCompletedAt: iso(now + 6 * 60 * 1000 + 60000),
+        },
+        /decisionStartedAt is more than 5 minutes in the future/,
+      ],
+      [
+        'completedAt more than 5 minutes in the future (clock skew)',
+        {
+          ...valid,
+          decisionCompletedAt: iso(now + 6 * 60 * 1000),
+        },
+        /decisionCompletedAt is more than 5 minutes in the future/,
+      ],
+      [
+        'presentedAt more than 5 minutes in the future (clock skew)',
+        {
+          ...valid,
+          // Keep window ordering valid (presented <= started <= completed)
+          // so the clock-skew policy is the violated check.
+          recommendationPresentedAt: iso(now + 6 * 60 * 1000),
+          decisionStartedAt: iso(now + 6 * 60 * 1000 + 60000),
+          decisionCompletedAt: iso(now + 6 * 60 * 1000 + 120000),
+        },
+        /recommendationPresentedAt is more than 5 minutes in the future/,
+      ],
+      [
+        'duration > 24 hours',
+        {
+          ...valid,
+          // Window ordering stays valid (presented < started < completed);
+          // only the 24h duration bound is violated.
+          recommendationPresentedAt: iso(now - 25 * 60 * 60 * 1000 - 60000),
+          decisionStartedAt: iso(now - 25 * 60 * 60 * 1000),
+        },
+        /exceeds maximum allowed \(24 hours\)/,
+      ],
+      [
+        'invalid ISO timestamp (non-ISO format)',
+        {
+          ...valid,
+          decisionStartedAt: '08/09/2026 10:00:00',
+        },
+        /must be valid ISO-8601 timestamps/,
+      ],
+      [
+        'unparseable timestamp',
+        {
+          ...valid,
+          decisionCompletedAt: 'not-a-timestamp',
+        },
+        /must be valid ISO-8601 timestamps/,
+      ],
+    ]
+
+    for (const [label, body, expected] of violations) {
+      const res = await request(api, {
+        method: 'POST',
+        url: '/api/projects/proj-core/decision-telemetry',
+        headers: { Authorization: `Bearer ${token}` },
+        body,
+      })
+      expect(res.status, label).toBe(400)
+      expect(JSON.stringify(res.json), label).toMatch(expected)
+    }
+
+    // None of the rejected submissions may have entered the stream.
+    const value = await request(api, {
+      method: 'GET',
+      url: `/api/projects/proj-core/product-value?workspaceId=${wsId}`,
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const metrics = value.json as {
+      measuredDecisionLatencySeconds: { observationCount: number }
+      decisionAcceptanceRate: { observationCount: number }
+    }
+    expect(metrics.measuredDecisionLatencySeconds.observationCount).toBe(1)
+    expect(metrics.decisionAcceptanceRate.observationCount).toBe(1)
+  })
+
   it('logout invalidates the session server-side: the token is dead immediately', async () => {
     await api.initApiServer()
     const signup = await request(api, {

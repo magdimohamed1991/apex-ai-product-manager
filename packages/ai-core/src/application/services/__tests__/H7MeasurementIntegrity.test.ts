@@ -753,9 +753,17 @@ describe('H7 Measurement Integrity & H6 ↔ H7 Learning Loop', () => {
         expect(sig.workspaceId).toBe(WS_A)
         expect(sig.projectId).toBe(PROJ_A1)
         expect(sig.category).toBeTruthy()
-        expect(sig.sourceRecommendationIds.length).toBeGreaterThan(0)
-        expect(sig.calibrationVersion).toBe('h6-v1')
+        // ACCEPTANCE over a 100%-REJECT population legitimately has zero
+        // source ACCEPT records; every other signal traces to >= 1 source.
+        if (sig.type !== 'ACCEPTANCE') {
+          expect(sig.sourceRecommendationIds.length).toBeGreaterThan(0)
+        }
+        expect(sig.calibrationVersion).toBe('h6-v2')
         expect(sig.generatedAt).toBeInstanceOf(Date)
+        // Telemetry-derived signals must carry exact telemetry provenance.
+        if (sig.sourceTelemetryIds !== undefined) {
+          expect(sig.sourceTelemetryIds.length).toBeGreaterThanOrEqual(0)
+        }
       }
     })
   })

@@ -215,21 +215,33 @@ describe('Milestone I — Production Productization & Real PM Workspace Tests', 
         testingRec.proposedActions[0].id
       )
 
+      // Record a REAL PM decision — the H7 acceptance metric is ACCEPT
+      // telemetry / decision telemetry, never action status.
+      await productService.recordPMDecision({
+        workspaceId,
+        projectId,
+        recommendationId: testingRec.id,
+        decision: 'ACCEPT',
+        decisionStartedAt: new Date('2026-08-09T10:00:00Z'),
+        decisionCompletedAt: new Date('2026-08-09T10:01:00Z'),
+        recommendationPresentedAt: new Date('2026-08-09T09:59:00Z'),
+      })
+
       // Evaluate H7 metrics
       const metrics = await productService.getProductValidationMetrics(workspaceId, projectId)
 
       // H7 — empirical decision-quality must be properly observed and reported
       // (no synthetic baselines, no fabricated numbers).
       expect(metrics.decisionAcceptanceRate.value).not.toBeNull()
-      expect(metrics.decisionAcceptanceRate.value!).toBeGreaterThan(0)
+      expect(metrics.decisionAcceptanceRate.value!).toBe(100)
       expect(metrics.decisionAcceptanceRate.epistemicState).toBe('observed')
+      expect(metrics.decisionAcceptanceRate.observationCount).toBe(1)
       // The legacy `efficiency` field is REMOVED — PM decision latency is
-      // never measured from rec.createdAt -> action.updatedAt. With no
-      // decision recorded in this flow, the metric MUST remain unavailable
-      // (no fake numbers), and the telemetry-wiring test below records a
-      // real decision to elevate it to observed.
-      expect(metrics.measuredDecisionLatencySeconds.epistemicState).toBe('unavailable')
-      expect(metrics.measuredDecisionLatencySeconds.value).toBeNull()
+      // never measured from rec.createdAt -> action.updatedAt. It is
+      // observed ONLY from the real decision window recorded above
+      // (10:00:00 → 10:01:00 = 60s) — a real measured value, never fake.
+      expect(metrics.measuredDecisionLatencySeconds.epistemicState).toBe('observed')
+      expect(metrics.measuredDecisionLatencySeconds.value).toBe(60)
     })
 
     it('records a real PM decision and elevates decision latency to observed with the measured value', async () => {

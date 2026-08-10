@@ -23,6 +23,7 @@ export interface LearningSignal {
   category: string
   type:
     | 'ADOPTION'
+    | 'ACCEPTANCE'
     | 'EXECUTION_SUCCESS'
     | 'OUTCOME_SUCCESS'
     | 'REJECTION'
@@ -38,6 +39,24 @@ export interface LearningSignal {
   confidence: number // Statistical confidence weight from 0.0 to 1.0
 
   sourceRecommendationIds: string[]
+  /**
+   * Exact PMDecisionTelemetry record ids that produced this signal (H7
+   * provenance). Present for telemetry-derived signals (ACCEPTANCE,
+   * REJECTION, DEFER, OVERRIDE, DECISION_LATENCY, PRIORITY_OVERRIDE_DELTA);
+   * absent for action/outcome-derived signals (ADOPTION,
+   * EXECUTION_SUCCESS, OUTCOME_SUCCESS). Every id here is a real persisted
+   * `PMDecisionTelemetry.id` — no opaque signal may influence H6.
+   */
+  sourceTelemetryIds?: string[]
+  /**
+   * Signed mean of (pmSelectedPriority - calibratedH6Score) over the exact
+   * OVERRIDE telemetry records in `sourceTelemetryIds`. Kept separate from
+   * `value` (which is the mean of |overrideDelta|, i.e. magnitude) so the
+   * calibrator can distinguish the DIRECTION of systematic corrections
+   * without losing the auditable magnitude. Optional — present only when
+   * override telemetry with a numeric pmSelectedPriority exists.
+   */
+  meanSignedOverrideDelta?: number
   generatedAt: Date
 
   evidenceState?: SignalEvidenceState

@@ -21,7 +21,7 @@ function signal(id: string, category: string, type: LearningSignal['type']): Lea
     sourceRecommendationIds: ['rec-1'],
     generatedAt: new Date(),
     evidenceState: 'observed',
-    calibrationVersion: 'h6-v1',
+    calibrationVersion: 'h6-v2',
   }
 }
 

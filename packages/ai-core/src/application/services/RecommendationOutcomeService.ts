@@ -10,9 +10,22 @@ import type { VerificationContext } from './verification/VerificationTypes'
 import type { VerificationEvidence } from '../../domain/entities/ProductAdaptive'
 
 export interface DecisionQualityMetrics {
+  /** Recommendation population (total recommendations presented) */
   totalRecommendations: number
+  /** Execution population: actions promoted past `proposed` */
   totalApproved: number
+  /**
+   * PM Decision population: ACCEPT telemetry / total decision telemetry.
+   * Derived ONLY from PMDecisionTelemetry records — never from actions or
+   * recommendations (H7 measurement integrity).
+   */
+  decisionCount: number
+  acceptCount: number
+  rejectCount: number
+  deferCount: number
+  overrideCount: number
   acceptanceRate: number
+  /** Outcome population */
   totalOutcomes: number
   successCount: number
   successRate: number
@@ -155,19 +168,33 @@ export class RecommendationOutcomeService {
     const recs = await this.productRepository.getRecommendationsByProject(projectId, workspaceId)
     const outcomes = await this.outcomeRepository.getByProject(projectId, workspaceId)
     const actions = await this.actionRepository.getByWorkspace({ workspaceId })
+    const telemetry = await this.productRepository.getPMDecisionTelemetryByProject(
+      projectId,
+      workspaceId
+    )
 
+    // Recommendation population (informational only).
     const totalRecommendations = recs.length
 
-    // Acceptance Rate: approved/promoted actions vs total recommendations
-    // generated. Actions MUST be scoped to the project via their linked
-    // recommendation — counting all workspace actions would leak decisions
-    // from other projects into this project's metrics.
+    // Execution population: approved/promoted actions vs total
+    // recommendations generated. Actions MUST be scoped to the project via
+    // their linked recommendation — counting all workspace actions would
+    // leak decisions from other projects into this project's metrics.
     const projectRecIds = new Set(recs.map((r) => r.id))
     const projectActions = actions.filter((a) => projectRecIds.has(a.relatedRecommendationId))
     const totalApproved = projectActions.filter((a) => a.status !== 'proposed').length
-    const acceptanceRate =
-      totalRecommendations > 0 ? (totalApproved / totalRecommendations) * 100 : 0
 
+    // PM Decision population: acceptance is ACCEPT telemetry / total
+    // decision telemetry. Never mixed with actions or recommendations
+    // (H7 measurement integrity). 0 when no telemetry exists.
+    const decisionCount = telemetry.length
+    const acceptCount = telemetry.filter((t) => t.decision === 'ACCEPT').length
+    const rejectCount = telemetry.filter((t) => t.decision === 'REJECT').length
+    const deferCount = telemetry.filter((t) => t.decision === 'DEFER').length
+    const overrideCount = telemetry.filter((t) => t.decision === 'OVERRIDE').length
+    const acceptanceRate = decisionCount > 0 ? (acceptCount / decisionCount) * 100 : 0
+
+    // Outcome population.
     const totalOutcomes = outcomes.length
     const successCount = outcomes.filter((o) => o.status === 'VERIFIED_SUCCESS').length
     const successRate = totalOutcomes > 0 ? (successCount / totalOutcomes) * 100 : 0
@@ -179,6 +206,11 @@ export class RecommendationOutcomeService {
     return {
       totalRecommendations,
       totalApproved,
+      decisionCount,
+      acceptCount,
+      rejectCount,
+      deferCount,
+      overrideCount,
       acceptanceRate: Math.round(acceptanceRate * 10) / 10,
       totalOutcomes,
       successCount,
