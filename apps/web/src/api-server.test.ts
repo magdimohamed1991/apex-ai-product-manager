@@ -220,6 +220,102 @@ describe('API server — composition root & route security', () => {
     }
   })
 
+  it('denies cross-workspace access on action-scoped endpoints (/api/actions/:id, /api/actions/:id/executions)', async () => {
+    await api.initApiServer()
+    const signupA = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'actions-a@acme.com', password: 'super-secure-password' },
+    })
+    const signupB = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'actions-b@acme.com', password: 'super-secure-password' },
+    })
+    const tokenA = signupA.json.token as string
+    const tokenB = signupB.json.token as string
+    const wsA = (signupA.json.workspace as { id: string }).id
+
+    // Workspace A creates a real action by analyzing + approving.
+    await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/repository',
+      headers: { Authorization: `Bearer ${tokenA}` },
+      body: {
+        workspaceId: wsA,
+        provider: 'github',
+        owner: 'acme',
+        repository: 'apex-ai-product-manager',
+        defaultBranch: 'main',
+      },
+    })
+    await request(api, {
+      method: 'POST',
+      url: '/api/projects/proj-core/analysis',
+      headers: { Authorization: `Bearer ${tokenA}` },
+      body: { workspaceId: wsA },
+    })
+    const recs = await request(api, {
+      method: 'GET',
+      url: `/api/projects/proj-core/recommendations?workspaceId=${wsA}`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+    })
+    const rec = (
+      recs.json as unknown as Array<{ id: string; proposedActions: Array<{ id: string }> }>
+    )[0]
+    const approve = await request(api, {
+      method: 'POST',
+      url: '/api/actions/approve',
+      headers: { Authorization: `Bearer ${tokenA}` },
+      body: {
+        workspaceId: wsA,
+        projectId: 'proj-core',
+        recommendationId: rec.id,
+        proposedActionId: rec.proposedActions[0].id,
+      },
+    })
+    const actionId = (approve.json as { id: string }).id
+
+    // Attacker B substitutes A's action id but names A's workspaceId → 403
+    // (not a member of workspace A).
+    const crossWs = await request(api, {
+      method: 'GET',
+      url: `/api/actions/${actionId}?workspaceId=${wsA}`,
+      headers: { Authorization: `Bearer ${tokenB}` },
+    })
+    expect(crossWs.status).toBe(403)
+
+    const crossWsExec = await request(api, {
+      method: 'GET',
+      url: `/api/actions/${actionId}/executions?workspaceId=${wsA}`,
+      headers: { Authorization: `Bearer ${tokenB}` },
+    })
+    expect(crossWsExec.status).toBe(403)
+
+    // Attacker B names their OWN workspaceId with A's action id → 404 (the
+    // scoped lookup finds nothing in B's workspace; existence is not leaked).
+    const ownWs = await request(api, {
+      method: 'GET',
+      url: `/api/actions/${actionId}?workspaceId=${(signupB.json.workspace as { id: string }).id}`,
+      headers: { Authorization: `Bearer ${tokenB}` },
+    })
+    expect(ownWs.status).toBe(404)
+
+    // Owner A can read their own action and its executions.
+    const owner = await request(api, {
+      method: 'GET',
+      url: `/api/actions/${actionId}?workspaceId=${wsA}`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+    })
+    expect(owner.status).toBe(200)
+    const ownerExec = await request(api, {
+      method: 'GET',
+      url: `/api/actions/${actionId}/executions?workspaceId=${wsA}`,
+      headers: { Authorization: `Bearer ${tokenA}` },
+    })
+    expect(ownerExec.status).toBe(200)
+  })
+
   it('approves idempotently through the canonical /api/actions/approve route', async () => {
     await api.initApiServer()
     const signup = await request(api, {
