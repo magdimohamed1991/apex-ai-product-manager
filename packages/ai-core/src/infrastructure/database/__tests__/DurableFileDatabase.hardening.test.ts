@@ -94,6 +94,42 @@ describe('DurableFileDatabase (Milestone I - Production Hardening)', () => {
     ).toThrow(/already a member/)
   })
 
+  it('recovers from .bak when primary db.json is corrupt', async () => {
+    // P1a regression: corrupt db.json + valid .bak → recover from .bak
+    // First commit: writes initial state to .bak (blank state).
+    // Second commit: writes state with user to db.json, .bak gets the previous state.
+    database.beginTransaction()
+    database.insertUser({
+      id: 'usr-seed',
+      email: 'seed@test.com',
+      passwordHash: 'scrypt$placeholder',
+      createdAt: new Date().toISOString(),
+    })
+    await database.commit()
+
+    database.beginTransaction()
+    database.insertUser({
+      id: 'usr-bak-recovery',
+      email: 'bak-recovery@test.com',
+      passwordHash: 'scrypt$placeholder',
+      createdAt: new Date().toISOString(),
+    })
+    await database.commit()
+
+    const dbPath = path.join(TEST_DB_DIR, 'db.json')
+    const bakPath = dbPath + '.bak'
+    expect(fs.existsSync(bakPath)).toBe(true)
+
+    // Corrupt the primary db.json
+    fs.writeFileSync(dbPath, '{ corrupted!!!', 'utf8')
+
+    // Re-open — should recover from .bak (which contains the first commit's state)
+    const db2 = new DurableFileDatabase(TEST_DB_DIR)
+    await db2.initialize()
+    // .bak has the state after first commit (usr-seed), not the second
+    expect(db2.getUserByEmail('seed@test.com')).not.toBeNull()
+  })
+
   it('handles malformed database files gracefully by re-initializing', async () => {
     const dbPath = path.join(TEST_DB_DIR, 'db.json')
     fs.writeFileSync(dbPath, '{ this is not valid json', 'utf8')

@@ -305,12 +305,7 @@ export class APEXProductService {
       //    promotion and APEXProductService re-ran it via a private-field
       //    access to persist results, producing two independent run IDs and
       //    risking divergence between promoted actions and saved rows).
-      const orchestrated = await this.orchestrator.runPipelineAndPromote(
-        wsId,
-        filesObj,
-        undefined,
-        projectId
-      )
+      const orchestrated = await this.orchestrator.runPipelineAndPromote(wsId, filesObj, projectId)
       const runResult = orchestrated.pipelineResult
 
       for (const f of runResult.findings) {

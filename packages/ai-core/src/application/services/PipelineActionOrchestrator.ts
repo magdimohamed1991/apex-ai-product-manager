@@ -46,8 +46,8 @@ export class PipelineActionOrchestrator {
   async runPipelineAndPromote(
     workspaceId: WorkspaceId,
     files: RepositoryFiles,
-    externalEvidence?: Evidence[],
-    projectId?: string
+    projectId: string,
+    externalEvidence?: Evidence[]
   ): Promise<PipelineRunResult> {
     const pipelineRunId = `run-${crypto.randomUUID()}`
 

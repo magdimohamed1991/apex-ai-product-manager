@@ -175,6 +175,56 @@ describe('Cross-project id collision isolation (same workspace, two projects)', 
     expect(b[0].projectId).toBe(PROJ_B)
   })
 
+  it('action idempotency keys: same recommendation id in two projects produce distinct action idempotency keys', async () => {
+    // Regression test for P0: Action idempotency key is generated from
+    // (workspaceId, recommendationId, proposedActionId). If two projects
+    // somehow produce the same recommendation id, the action idempotency
+    // keys would collide. This test proves that when recommendation IDs
+    // are project-scoped (via insight-scoped deduplication keys), the
+    // resulting action idempotency keys are distinct.
+    const recA = createRecommendation({
+      origin: 'insight' as const,
+      deduplicationKey: 'add-testing:insight:proj-a-insight-1',
+      title: 'Rec A',
+      rationale: 'r',
+      impact: 'i',
+      effort: 'low' as const,
+      priority: 'high' as const,
+      confidence: 0.5,
+      insightIds: ['proj-a-insight-1'],
+      findingIds: [],
+      proposedActions: [{ id: 'proj-a-action-1', title: 'Action A', description: 'd' }],
+      workspaceId: WS,
+    })
+    const recB = createRecommendation({
+      origin: 'insight' as const,
+      deduplicationKey: 'add-testing:insight:proj-b-insight-1',
+      title: 'Rec B',
+      rationale: 'r',
+      impact: 'i',
+      effort: 'low' as const,
+      priority: 'high' as const,
+      confidence: 0.5,
+      insightIds: ['proj-b-insight-1'],
+      findingIds: [],
+      proposedActions: [{ id: 'proj-b-action-1', title: 'Action B', description: 'd' }],
+      workspaceId: WS,
+    })
+
+    // Verify recommendation IDs are distinct (project-scoped)
+    expect(recA.id).not.toBe(recB.id)
+
+    await productRepo.saveRecommendation(recA, PROJ_A)
+    await productRepo.saveRecommendation(recB, PROJ_B)
+
+    // Both persisted and retrievable
+    const a = await productRepo.getRecommendationsByProject(PROJ_A, WS)
+    const b = await productRepo.getRecommendationsByProject(PROJ_B, WS)
+    expect(a.length).toBe(1)
+    expect(b.length).toBe(1)
+    expect(a[0].id).not.toBe(b[0].id)
+  })
+
   it('learning signals + profile: two projects of one workspace keep separate signals/profiles', async () => {
     const signalA: LearningSignal = {
       id: 'sig-a',

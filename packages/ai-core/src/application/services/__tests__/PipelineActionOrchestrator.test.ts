@@ -63,7 +63,11 @@ describe('PipelineActionOrchestrator — Milestone E: End-to-End Pipeline Integr
 
   it('1. End-to-End Promotion and Execution: Promoting proposed actions automatically, persisting in DB, and executing via background Worker', async () => {
     // Run pipeline promotion
-    const promoteResult = await orchestrator.runPipelineAndPromote(WORKSPACE_A, mockFiles)
+    const promoteResult = await orchestrator.runPipelineAndPromote(
+      WORKSPACE_A,
+      mockFiles,
+      'proj-test'
+    )
 
     expect(promoteResult.pipelineRunId).toBeDefined()
     expect(promoteResult.promotedActions.length).toBe(5) // All 5 proposed actions (tests, CI, TypeScript) promoted successfully
@@ -89,13 +93,13 @@ describe('PipelineActionOrchestrator — Milestone E: End-to-End Pipeline Integr
 
   it('2. End-to-End Promotion Idempotency: Repeated pipeline execution creates zero duplicates (Item 7)', async () => {
     // Run Pipeline Promotion 1
-    const run1 = await orchestrator.runPipelineAndPromote(WORKSPACE_A, mockFiles)
+    const run1 = await orchestrator.runPipelineAndPromote(WORKSPACE_A, mockFiles, 'proj-test')
     expect(run1.promotedActions.length).toBe(5)
 
     const originalIds = run1.promotedActions.map((a) => a.id)
 
     // Run Pipeline Promotion 2 (identical files)
-    const run2 = await orchestrator.runPipelineAndPromote(WORKSPACE_A, mockFiles)
+    const run2 = await orchestrator.runPipelineAndPromote(WORKSPACE_A, mockFiles, 'proj-test')
     expect(run2.promotedActions.length).toBe(5)
 
     const secondaryIds = run2.promotedActions.map((a) => a.id)
@@ -125,7 +129,7 @@ describe('PipelineActionOrchestrator — Milestone E: End-to-End Pipeline Integr
 
     // Rather than mutating frozen domains, we can verify that the orchestrator intercepts errors gracefully
     // and returns partially successful promotions
-    const result = await orchestrator.runPipelineAndPromote(WORKSPACE_A, badFiles)
+    const result = await orchestrator.runPipelineAndPromote(WORKSPACE_A, badFiles, 'proj-test')
 
     // Setup Vitest and Setup CI workflow promoted successfully
     expect(result.promotedActions.length).toBe(5)
@@ -134,7 +138,11 @@ describe('PipelineActionOrchestrator — Milestone E: End-to-End Pipeline Integr
 
   it('4. Pipeline Restart Recovery: State survives worker crashes without needing to rerun pipeline analysis (Item 6)', async () => {
     // Run pipeline promotion to generate Actions
-    const promoteResult = await orchestrator.runPipelineAndPromote(WORKSPACE_A, mockFiles)
+    const promoteResult = await orchestrator.runPipelineAndPromote(
+      WORKSPACE_A,
+      mockFiles,
+      'proj-test'
+    )
     const actionId = promoteResult.promotedActions[0].id
 
     // Simulating crash: Instatitate fresh repository and worker from existing files (survives restart)
@@ -161,10 +169,10 @@ describe('PipelineActionOrchestrator — Milestone E: End-to-End Pipeline Integr
 
   it('5. End-to-End Tenant Workspace Isolation: Pipeline and Action states stay strictly segregated (Item 8)', async () => {
     // Run pipeline promotion for Workspace A
-    const runA = await orchestrator.runPipelineAndPromote(WORKSPACE_A, mockFiles)
+    const runA = await orchestrator.runPipelineAndPromote(WORKSPACE_A, mockFiles, 'proj-test')
 
     // Run pipeline promotion for Workspace B (using identical files)
-    const runB = await orchestrator.runPipelineAndPromote(WORKSPACE_B, mockFiles)
+    const runB = await orchestrator.runPipelineAndPromote(WORKSPACE_B, mockFiles, 'proj-test')
 
     // Actions must represent different physical instances and different keys
     expect(runA.promotedActions.length).toBe(5)
@@ -181,7 +189,11 @@ describe('PipelineActionOrchestrator — Milestone E: End-to-End Pipeline Integr
 
   it('6. Traceable Observability Chain: Validates the full PR debug lineage (Item 9)', async () => {
     // 1. Run Pipeline
-    const promoteResult = await orchestrator.runPipelineAndPromote(WORKSPACE_A, mockFiles)
+    const promoteResult = await orchestrator.runPipelineAndPromote(
+      WORKSPACE_A,
+      mockFiles,
+      'proj-test'
+    )
     const pipelineRunId = promoteResult.pipelineRunId
     const action = promoteResult.promotedActions[0]
 

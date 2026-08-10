@@ -39,47 +39,81 @@ describe('RepositoryDiscoveryPipeline (in ai-core)', () => {
   const pipeline = new RepositoryDiscoveryPipeline()
 
   it('runs without throwing', () => {
-    expect(() => pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })).not.toThrow()
+    expect(() =>
+      pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo, projectId: 'proj-test' })
+    ).not.toThrow()
   })
 
   it('produces a summary', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     expect(result.summary.name).toBe('app')
   })
 
   it('generates insights for missing tests', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     expect(result.insights.some((i) => i.tags.includes('no-tests'))).toBe(true)
   })
 
   it('produces explanations for insights', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     expect(result.explanations.length).toBeGreaterThanOrEqual(result.insights.length)
   })
 
   it('each insight has a linked explanationId', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     result.insights.forEach((i) => expect(i.explanationId).toBeDefined())
   })
 
   it('explanation ids match insight explanationIds', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     const ids = new Set(result.explanations.map((e) => e.id))
     result.insights.forEach((i) => expect(ids.has(i.explanationId!)).toBe(true))
   })
 
   it('well-configured repo has no no-tests insight', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: wellConfiguredRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: wellConfiguredRepo,
+      projectId: 'proj-test',
+    })
     expect(result.insights.some((i) => i.tags.includes('no-tests'))).toBe(false)
   })
 
   it('generates recommendations', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     expect(result.recommendations.length).toBeGreaterThan(0)
   })
 
   it('measures duration', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     expect(result.durationMs).toBeGreaterThanOrEqual(0)
   })
 
@@ -107,13 +141,18 @@ describe('RepositoryDiscoveryPipeline (in ai-core)', () => {
       pipeline.run({
         workspaceId: WORKSPACE_ID,
         files: minimalRepo,
+        projectId: 'proj-test',
         externalEvidence: badEvidence,
       })
     ).toThrow('Evidence provenance mismatch')
   })
 
   it('produces findings array', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     expect(Array.isArray(result.findings)).toBe(true)
   })
 })
@@ -122,7 +161,11 @@ describe('Pipeline correlation → finding → recommendation integration', () =
   const pipeline = new RepositoryDiscoveryPipeline()
 
   it('insight recommendations have origin insight', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     const insightRecs = result.recommendations.filter((r) => r.origin === 'insight')
     expect(insightRecs.length).toBeGreaterThan(0)
     for (const rec of insightRecs) {
@@ -132,7 +175,11 @@ describe('Pipeline correlation → finding → recommendation integration', () =
   })
 
   it('finding recommendations have origin finding when findings exist', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     const findingRecs = result.recommendations.filter((r) => r.origin === 'finding')
     for (const rec of findingRecs) {
       expect(rec.findingIds.length).toBeGreaterThan(0)
@@ -141,21 +188,33 @@ describe('Pipeline correlation → finding → recommendation integration', () =
   })
 
   it('findings have correlationId when derived from correlation', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     for (const finding of result.findings) {
       expect(finding.correlationId).toBeDefined()
     }
   })
 
   it('findings have evidenceIds', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     for (const finding of result.findings) {
       expect(finding.evidenceIds.length).toBeGreaterThan(0)
     }
   })
 
   it('no finding reaches insight-only strategies', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     const findingRecs = result.recommendations.filter((r) => r.origin === 'finding')
     for (const rec of findingRecs) {
       expect(rec.title).not.toContain('Introduce automated testing')
@@ -165,25 +224,41 @@ describe('Pipeline correlation → finding → recommendation integration', () =
   })
 
   it('no duplicate recommendations by deduplicationKey', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     const keys = result.recommendations.map((r) => r.deduplicationKey)
     expect(new Set(keys).size).toBe(keys.length)
   })
 
   it('mixed insight and finding recommendations coexist', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     const origins = new Set(result.recommendations.map((r) => r.origin))
     expect(origins.has('insight')).toBe(true)
   })
 
   it('finding explanations are included in pipeline explanations', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     const findingExplanations = result.explanations.filter((e) => e.findingIds.length > 0)
     expect(findingExplanations.length).toBe(result.findings.length)
   })
 
   it('finding explanations have correct findingIds', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     const findingExplanations = result.explanations.filter((e) => e.findingIds.length > 0)
     const findingIds = new Set(result.findings.map((f) => f.id))
     for (const explanation of findingExplanations) {
@@ -194,7 +269,11 @@ describe('Pipeline correlation → finding → recommendation integration', () =
   })
 
   it('finding explanations have evidenceIds matching their findings', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     const findingExplanations = result.explanations.filter((e) => e.findingIds.length > 0)
     const findingsById = new Map(result.findings.map((f) => [f.id, f]))
     for (const explanation of findingExplanations) {
@@ -205,7 +284,11 @@ describe('Pipeline correlation → finding → recommendation integration', () =
   })
 
   it('insight explanations still have insightIds', () => {
-    const result = pipeline.run({ workspaceId: WORKSPACE_ID, files: minimalRepo })
+    const result = pipeline.run({
+      workspaceId: WORKSPACE_ID,
+      files: minimalRepo,
+      projectId: 'proj-test',
+    })
     const insightExplanations = result.explanations.filter((e) => e.insightIds.length > 0)
     expect(insightExplanations.length).toBe(result.insights.length)
   })
@@ -254,6 +337,7 @@ describe('Real multi-source evidence → finding → recommendation (end-to-end)
     const result = pipeline.run({
       workspaceId: WORKSPACE_ID,
       files: minimalRepo,
+      projectId: 'proj-test',
       externalEvidence: makeExternalEvidence(),
     })
 
@@ -270,6 +354,7 @@ describe('Real multi-source evidence → finding → recommendation (end-to-end)
     const result = pipeline.run({
       workspaceId: WORKSPACE_ID,
       files: minimalRepo,
+      projectId: 'proj-test',
       externalEvidence: makeExternalEvidence(),
     })
 
@@ -288,6 +373,7 @@ describe('Real multi-source evidence → finding → recommendation (end-to-end)
     const result = pipeline.run({
       workspaceId: WORKSPACE_ID,
       files: minimalRepo,
+      projectId: 'proj-test',
       externalEvidence: makeExternalEvidence(),
     })
 
@@ -305,6 +391,7 @@ describe('Real multi-source evidence → finding → recommendation (end-to-end)
     const result = pipeline.run({
       workspaceId: WORKSPACE_ID,
       files: minimalRepo,
+      projectId: 'proj-test',
       externalEvidence: makeExternalEvidence(),
     })
 
@@ -319,6 +406,7 @@ describe('Real multi-source evidence → finding → recommendation (end-to-end)
     const result = pipeline.run({
       workspaceId: WORKSPACE_ID,
       files: minimalRepo,
+      projectId: 'proj-test',
       externalEvidence: makeExternalEvidence(),
     })
 

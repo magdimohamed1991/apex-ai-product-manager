@@ -322,4 +322,50 @@ describe('APEXProductService audit-regression tests', () => {
       process.env.NODE_ENV = prev
     }
   })
+
+  it('propagates original error even when savePipelineRun fails during failure recording (P1b)', async () => {
+    // P1b regression: when runAnalysis fails AND savePipelineRun also fails
+    // in the catch block, the original error must still propagate to the caller.
+    // This test wraps the productRepository to throw on the second savePipelineRun
+    // call (the failure-recording one) and asserts the original error is re-thrown.
+    const { productRepository } = ctx
+
+    let saveCallCount = 0
+    const wrappedRepo = Object.create(productRepository) as typeof productRepository
+    const origSave = productRepository.savePipelineRun.bind(productRepository)
+    wrappedRepo.savePipelineRun = async (run) => {
+      saveCallCount++
+      if (saveCallCount === 2) {
+        throw new Error('Simulated persistence failure during error recording')
+      }
+      return origSave(run)
+    }
+
+    const wrappedService = new APEXProductService(
+      wrappedRepo,
+      ctx.actionRepository,
+      new ActionApplicationService(ctx.actionRepository),
+      new PipelineActionOrchestrator(
+        new RepositoryDiscoveryPipeline(),
+        new ActionApplicationService(ctx.actionRepository)
+      ),
+      new EnvCredentialProvider(),
+      new ProductIntelligenceService(),
+      new RecommendationOutcomeService(ctx.outcomeRepository, wrappedRepo, ctx.actionRepository),
+      new AdaptiveProfileCompiler(
+        new SqlAdaptiveLearningProfileRepository(new DurableFileDatabase(TEST_DB_DIR)),
+        wrappedRepo,
+        ctx.actionRepository,
+        ctx.outcomeRepository
+      ),
+      new SqlAdaptiveLearningProfileRepository(new DurableFileDatabase(TEST_DB_DIR)),
+      new H6PrioritizationCalibrator(),
+      new ProductValidationService(wrappedRepo, ctx.actionRepository, ctx.outcomeRepository),
+      new PMDecisionTelemetryService(wrappedRepo)
+    )
+
+    await expect(wrappedService.runAnalysis('ws-a', 'proj-a')).rejects.toThrow(
+      /No repository connection found/
+    )
+  })
 })

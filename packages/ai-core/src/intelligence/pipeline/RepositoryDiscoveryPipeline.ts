@@ -27,12 +27,17 @@ export interface PipelineInput {
   files: RepositoryFiles
   externalEvidence?: Evidence[]
   /**
-   * Project-scoped deterministic identity. When provided, insight and
-   * recommendation ids are scoped to the project so two projects inside the
-   * same workspace cannot produce colliding ids (and therefore cannot
-   * clobber each other's persisted rows on re-analysis).
+   * Project-scoped deterministic identity. **Strongly recommended.**
+   * When provided, insight and recommendation ids are scoped to the project
+   * so two projects inside the same workspace cannot produce colliding ids
+   * (and therefore cannot clobber each other's persisted rows on re-analysis).
+   *
+   * Omitting this value causes insight and recommendation IDs to be
+   * workspace-global. If two projects in the same workspace analyse
+   * repositories with identical structure, their IDs will collide and
+   * the second project's rows will overwrite the first's on disk.
    */
-  projectId?: string
+  projectId: string
 }
 
 export interface PipelineResult {
