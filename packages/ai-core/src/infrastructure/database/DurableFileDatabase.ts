@@ -78,17 +78,59 @@ export class DurableFileDatabase {
    * Initialize the database and run all migrations deterministically.
    */
   async initialize(): Promise<void> {
+    const bakPath = this.dbPath + '.bak'
     if (!fs.existsSync(this.dbPath)) {
-      this.state = this.blankState()
-      this.saveStateDirect(this.state)
-      log.info('Initialized new durable database', { dbPath: this.dbPath })
-    } else {
+      // No primary database — try .bak recovery
+      if (fs.existsSync(bakPath)) {
+        log.warn('Primary db.json missing, recovering from .bak', { dbPath: this.dbPath })
+        fs.copyFileSync(bakPath, this.dbPath)
+      } else {
+        this.state = this.blankState()
+        this.saveStateDirect(this.state)
+        log.info('Initialized new durable database', { dbPath: this.dbPath })
+      }
+    }
+
+    // Read and migrate the primary database
+    try {
       const data = fs.readFileSync(this.dbPath, 'utf8')
       this.state = this.migrate(JSON.parse(data))
       log.info('Loaded existing durable database', {
         dbPath: this.dbPath,
         version: this.state.version,
       })
+    } catch (readErr) {
+      // Primary db.json is corrupt — attempt recovery from .bak
+      if (fs.existsSync(bakPath)) {
+        log.warn('Primary db.json corrupt, recovering from .bak', {
+          dbPath: this.dbPath,
+          err: String(readErr),
+        })
+        try {
+          fs.copyFileSync(bakPath, this.dbPath)
+          const data = fs.readFileSync(this.dbPath, 'utf8')
+          this.state = this.migrate(JSON.parse(data))
+          log.info('Recovered durable database from .bak', {
+            dbPath: this.dbPath,
+            version: this.state.version,
+          })
+        } catch {
+          // Both primary and .bak are corrupt — initialize blank
+          log.error('Both db.json and .bak corrupt, initializing blank', {
+            dbPath: this.dbPath,
+          })
+          this.state = this.blankState()
+          this.saveStateDirect(this.state)
+        }
+      } else {
+        // No .bak available — initialize blank
+        log.error('db.json corrupt and no .bak available, initializing blank', {
+          dbPath: this.dbPath,
+          err: String(readErr),
+        })
+        this.state = this.blankState()
+        this.saveStateDirect(this.state)
+      }
     }
     await this.runMigrations()
   }
@@ -185,18 +227,16 @@ export class DurableFileDatabase {
     if (!this.commitInFlight) {
       this.commitInFlight = true
       try {
-        // Update in-memory state BEFORE disk write so reads always see
-        // the latest committed state, even if the file write transiently
-        // fails (e.g. Windows file-lock contention).  The durability
-        // guarantee is: committed state is visible in-process immediately;
-        // disk persistence is best-effort with retry.
-        this.state = this.transactionState
+        // Write to disk FIRST, THEN update in-memory state.
+        // If the disk write fails, in-memory state stays consistent with
+        // the last successful commit — no divergence after a crash.
         this.writeSnapshot(this.transactionState)
+        this.state = this.transactionState
         this.transactionState = null
         this.inTransaction = false
       } catch (err) {
-        // Roll back transaction bookkeeping but keep the in-memory state
-        // update so subsequent reads see the committed data.
+        // Disk write failed — revert transaction, in-memory state stays
+        // as the last successful commit.  The caller sees the error.
         this.transactionState = null
         this.inTransaction = false
         throw err
@@ -212,8 +252,8 @@ export class DurableFileDatabase {
     this.writeMutex = new Promise<void>((res) => (release = res))
     try {
       await previous
-      this.state = this.transactionState
       this.writeSnapshot(this.transactionState)
+      this.state = this.transactionState
     } finally {
       this.transactionState = null
       this.inTransaction = false
@@ -224,7 +264,23 @@ export class DurableFileDatabase {
   /** Write the snapshot to a temp file, fsync (best-effort), and rename. */
   private writeSnapshot(snapshot: DatabaseState): void {
     const tempPath = this.dbPath + '.tmp'
+    const bakPath = this.dbPath + '.bak'
     const data = JSON.stringify(snapshot, null, 2)
+
+    // Preserve a backup of the last known-good state before overwriting.
+    // If the new write fails mid-way (power loss, crash), the .bak file
+    // can be used for recovery.  copyFileSync is used (not rename) so
+    // the original db.json remains intact if the copy fails.
+    if (fs.existsSync(this.dbPath)) {
+      try {
+        fs.copyFileSync(this.dbPath, bakPath)
+      } catch {
+        // Best-effort — if backup fails, proceed with the write anyway.
+        // The in-memory state is the authoritative source during normal
+        // operation; the .bak is a crash-recovery aid only.
+      }
+    }
+
     const fd = fs.openSync(tempPath, 'w')
     try {
       fs.writeSync(fd, data, 0, 'utf8')

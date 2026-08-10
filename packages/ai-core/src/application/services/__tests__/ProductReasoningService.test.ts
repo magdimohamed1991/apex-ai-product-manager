@@ -26,9 +26,6 @@ function makeRepo(store: AIProductReasoning[] = []): ProductRepository {
     async saveAIProductReasoning(r: AIProductReasoning) {
       store.push(r)
     },
-    async getAIProductReasoning() {
-      return null
-    },
   } as unknown as ProductRepository
 }
 

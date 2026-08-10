@@ -343,18 +343,6 @@ export class SqlProductRepository implements ProductRepository {
     }
   }
 
-  async getAIProductReasoning(
-    recommendationId: string,
-    workspaceId: WorkspaceId
-  ): Promise<AIProductReasoning | null> {
-    const state = this.db.getActiveState()
-    const found = state.aiReasonings?.find(
-      (x) => x.recommendationId === recommendationId && x.workspaceId === workspaceId
-    )
-    if (!found) return null
-    return mapReasoningFromDb(found)
-  }
-
   async getAIProductReasoningByWorkspaceAndProject(
     recommendationId: string,
     workspaceId: WorkspaceId,

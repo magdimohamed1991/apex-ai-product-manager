@@ -61,10 +61,6 @@ export interface ProductRepository {
   deleteRecommendationsByProject(projectId: string, workspaceId: WorkspaceId): Promise<void>
 
   // AI Product Reasoning operations
-  getAIProductReasoning(
-    recommendationId: string,
-    workspaceId: WorkspaceId
-  ): Promise<AIProductReasoning | null>
   /** Project-owned reasoning lookup. Use at authorization boundaries. */
   getAIProductReasoningByWorkspaceAndProject(
     recommendationId: string,

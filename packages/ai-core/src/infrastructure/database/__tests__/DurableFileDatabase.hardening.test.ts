@@ -98,9 +98,12 @@ describe('DurableFileDatabase (Milestone I - Production Hardening)', () => {
     const dbPath = path.join(TEST_DB_DIR, 'db.json')
     fs.writeFileSync(dbPath, '{ this is not valid json', 'utf8')
     const db2 = new DurableFileDatabase(TEST_DB_DIR)
-    // Re-initializing a malformed file throws — this is the documented
-    // behavior. We assert the throw, not silent success.
-    await expect(db2.initialize()).rejects.toThrow()
+    // Graceful recovery: no .bak available, so initialize() re-initializes
+    // a blank database instead of crashing.
+    await db2.initialize()
+    const state = db2.getActiveState()
+    expect(state).toBeDefined()
+    expect(state.actions).toEqual([])
   })
 
   it('persists session, then deletes it (logout flow)', () => {

@@ -324,7 +324,17 @@ export class APEXProductService {
       pipelineRun.status = 'failed'
       pipelineRun.completedAt = new Date()
       pipelineRun.error = err instanceof Error ? err.message : String(err)
-      await this.productRepository.savePipelineRun(pipelineRun)
+      // Best-effort: persist the failure status, but never mask the
+      // original error if persistence itself fails.
+      try {
+        await this.productRepository.savePipelineRun(pipelineRun)
+      } catch (persistErr) {
+        log.error('CRITICAL: Failed to persist pipeline run failure status', {
+          runId: pipelineRun.id,
+          originalError: String(err),
+          persistenceError: String(persistErr),
+        })
+      }
       throw err
     } finally {
       // Securely delete temporary clone folder (Item 3)
@@ -564,13 +574,6 @@ export class APEXProductService {
 
     // Sort chronologically (latest first)
     return timeline.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-  }
-
-  async getAIProductReasoning(
-    recId: string,
-    workspaceId: string
-  ): Promise<AIProductReasoning | null> {
-    return this.productRepository.getAIProductReasoning(recId, createWorkspaceId(workspaceId))
   }
 
   async saveAIProductReasoning(reasoning: AIProductReasoning): Promise<void> {
