@@ -207,19 +207,28 @@ export class AdaptiveProfileCompiler {
 
       // PM calibration: weight scales with adoption rate * confidence.
       // The dampener ensures low-N categories cannot produce a strong swing.
+      //
+      // Epistemic gate (no evidence != negative evidence): the adoption
+      // weight is applied ONLY when the adoption observation population is
+      // sufficient (>= MIN_OBSERVATIONS_FOR_FAVORED). With zero or too-few
+      // adoption observations the contribution is exactly 1.0 (neutral) —
+      // an `adoptionRate` that happens to evaluate to 0 because there are
+      // no observations must NEVER drag the multiplier down. When the
+      // population IS sufficient, an observed 0% adoption rate is genuine
+      // negative evidence and is reflected normally.
       const adoptionRate =
         pop.recommendationCount > 0 ? pop.approvalCount / pop.recommendationCount : 0
       const outcomeVerifiedRate = pop.outcomeCount > 0 ? pop.verifiedCount / pop.outcomeCount : 0
       const confidence = smoothConfidence(pop.recommendationCount)
+      const adoptionSufficient = pop.recommendationCount >= MIN_OBSERVATIONS_FOR_FAVORED
       // Range: 0.85 to 1.15; bounded by confidence so we never inflate
       // a single data point into a strong signal.
       // Hard clamp to the documented [0.85, 1.15] range. Without the clamp
       // the asymptote at n → ∞ with 100% adoption reaches ≈1.30, exceeding
       // the bound this comment block claims and amplifying noise at scale.
-      const pmCalibrationWeight = Math.min(
-        1.15,
-        Math.max(0.85, 1.0 + (adoptionRate - 0.5) * 0.6 * confidence)
-      )
+      const pmCalibrationWeight = adoptionSufficient
+        ? Math.min(1.15, Math.max(0.85, 1.0 + (adoptionRate - 0.5) * 0.6 * confidence))
+        : 1.0
 
       const evidenceState: 'observed' | 'estimated' | 'insufficient_evidence' =
         pop.recommendationCount < MIN_OBSERVATIONS_FOR_FAVORED
@@ -232,6 +241,7 @@ export class AdaptiveProfileCompiler {
         executionSuccessRate: Math.round(executionSuccessRate * 100) / 100,
         outcomeVerifiedRate: Math.round(outcomeVerifiedRate * 100) / 100,
         pmCalibrationWeight: Math.round(pmCalibrationWeight * 100) / 100,
+        outcomeObservationCount: pop.outcomeCount,
       })
 
       // totalDecisionsObserved counts REAL PM decisions from the H7 telemetry
@@ -307,10 +317,24 @@ export class AdaptiveProfileCompiler {
       // ACCEPTANCE signal: PM explicitly accepted recommendations in this
       // category. Derived from the H7 telemetry population ONLY (ACCEPT
       // telemetry / total decision telemetry) — never from action status.
+      //
+      // Epistemic provenance (no evidence != negative evidence): the rate's
+      // DENOMINATOR is the complete decision population, and its identity
+      // (source hash) is over that complete population — so adding records
+      // to the population (e.g. REJECTs) changes both the value AND the
+      // deterministic source identity. `sourceTelemetryIds` = denominator
+      // population; `numeratorTelemetryIds` = the ACCEPT records. An auditor
+      // can reconstruct value = |numerator| / |sourceTelemetryIds| from
+      // persisted telemetry alone.
       if (pop.decisionCount >= MIN_OBSERVATIONS_FOR_SIGNAL) {
-        const acceptTelemetry = catTelemetry.filter((t) => t.decision === 'ACCEPT')
-        const acceptTelemetryIds = acceptTelemetry.map((t) => t.id)
-        const sourceHash = hashIds(acceptTelemetryIds)
+        const allTelemetryIds = catTelemetry.map((t) => t.id)
+        const acceptTelemetryIds = catTelemetry
+          .filter((t) => t.decision === 'ACCEPT')
+          .map((t) => t.id)
+        // Identity is over the complete observation population, not the
+        // numerator: 10 ACCEPT vs 10 ACCEPT + 10 REJECT are different
+        // observation sets and must produce different signal identities.
+        const sourceHash = hashIds(allTelemetryIds)
         signals.push({
           id: stableSignalId(workspaceId, projectId, cat, 'ACCEPTANCE', sourceHash),
           workspaceId,
@@ -320,8 +344,9 @@ export class AdaptiveProfileCompiler {
           observationCount: pop.decisionCount,
           value: pop.decisionCount > 0 ? pop.acceptCount / pop.decisionCount : 0,
           confidence: smoothConfidence(pop.decisionCount),
-          sourceRecommendationIds: acceptTelemetry.map((t) => t.recommendationId),
-          sourceTelemetryIds: acceptTelemetryIds,
+          sourceRecommendationIds: catTelemetry.map((t) => t.recommendationId),
+          sourceTelemetryIds: allTelemetryIds,
+          numeratorTelemetryIds: acceptTelemetryIds,
           generatedAt: new Date(),
           evidenceState:
             pop.decisionCount < MIN_OBSERVATIONS_FOR_FAVORED ? 'insufficient_evidence' : 'observed',
@@ -329,45 +354,59 @@ export class AdaptiveProfileCompiler {
         })
       }
 
-      // REJECTION signal: PM explicitly rejected recommendations in this category.
+      // REJECTION signal: PM explicitly rejected recommendations in this
+      // category. Denominator = full decision population; numerator =
+      // REJECT records (see ACCEPTANCE comment for the provenance contract).
       if (pop.rejectCount >= MIN_OBSERVATIONS_FOR_SIGNAL) {
-        const rejectTelemetry = catTelemetry.filter((t) => t.decision === 'REJECT')
-        const rejectTelemetryIds = rejectTelemetry.map((t) => t.id)
-        const sourceHash = hashIds(rejectTelemetryIds)
+        const allTelemetryIds = catTelemetry.map((t) => t.id)
+        const rejectTelemetryIds = catTelemetry
+          .filter((t) => t.decision === 'REJECT')
+          .map((t) => t.id)
+        const sourceHash = hashIds(allTelemetryIds)
         signals.push({
           id: stableSignalId(workspaceId, projectId, cat, 'REJECTION', sourceHash),
           workspaceId,
           projectId,
           category: cat,
           type: 'REJECTION',
-          observationCount: pop.rejectCount,
+          observationCount: pop.decisionCount,
           value: pop.decisionCount > 0 ? pop.rejectCount / pop.decisionCount : 0,
-          confidence: smoothConfidence(pop.rejectCount),
-          sourceRecommendationIds: rejectTelemetry.map((t) => t.recommendationId),
-          sourceTelemetryIds: rejectTelemetryIds,
+          confidence: smoothConfidence(pop.decisionCount),
+          sourceRecommendationIds: catTelemetry.map((t) => t.recommendationId),
+          sourceTelemetryIds: allTelemetryIds,
+          numeratorTelemetryIds: rejectTelemetryIds,
           generatedAt: new Date(),
+          // Evidence state reflects the numerator count: even when the full
+          // decision population is large, a category with only a handful of
+          // REJECT records does not yet constitute a strong reject signal.
+          // (observationCount stays the full denominator population so the
+          // rate/provenance and decision-confidence stay correct.)
           evidenceState:
             pop.rejectCount < MIN_OBSERVATIONS_FOR_FAVORED ? 'insufficient_evidence' : 'observed',
           calibrationVersion: CALIBRATION_VERSION,
         })
       }
 
-      // DEFER signal: PM deferred decisions in this category.
+      // DEFER signal: PM deferred decisions in this category. Denominator =
+      // full decision population; numerator = DEFER records.
       if (pop.deferCount >= MIN_OBSERVATIONS_FOR_SIGNAL) {
-        const deferTelemetry = catTelemetry.filter((t) => t.decision === 'DEFER')
-        const deferTelemetryIds = deferTelemetry.map((t) => t.id)
-        const sourceHash = hashIds(deferTelemetryIds)
+        const allTelemetryIds = catTelemetry.map((t) => t.id)
+        const deferTelemetryIds = catTelemetry
+          .filter((t) => t.decision === 'DEFER')
+          .map((t) => t.id)
+        const sourceHash = hashIds(allTelemetryIds)
         signals.push({
           id: stableSignalId(workspaceId, projectId, cat, 'DEFER', sourceHash),
           workspaceId,
           projectId,
           category: cat,
           type: 'DEFER',
-          observationCount: pop.deferCount,
+          observationCount: pop.decisionCount,
           value: pop.decisionCount > 0 ? pop.deferCount / pop.decisionCount : 0,
-          confidence: smoothConfidence(pop.deferCount),
-          sourceRecommendationIds: deferTelemetry.map((t) => t.recommendationId),
-          sourceTelemetryIds: deferTelemetryIds,
+          confidence: smoothConfidence(pop.decisionCount),
+          sourceRecommendationIds: catTelemetry.map((t) => t.recommendationId),
+          sourceTelemetryIds: allTelemetryIds,
+          numeratorTelemetryIds: deferTelemetryIds,
           generatedAt: new Date(),
           evidenceState:
             pop.deferCount < MIN_OBSERVATIONS_FOR_FAVORED ? 'insufficient_evidence' : 'observed',
@@ -376,21 +415,25 @@ export class AdaptiveProfileCompiler {
       }
 
       // OVERRIDE signal: PM overrode APEX priority in this category.
+      // Denominator = full decision population; numerator = OVERRIDE records.
       if (pop.overrideCount >= MIN_OBSERVATIONS_FOR_SIGNAL) {
-        const overrideTelemetry = catTelemetry.filter((t) => t.decision === 'OVERRIDE')
-        const overrideTelemetryIds = overrideTelemetry.map((t) => t.id)
-        const sourceHash = hashIds(overrideTelemetryIds)
+        const allTelemetryIds = catTelemetry.map((t) => t.id)
+        const overrideTelemetryIds = catTelemetry
+          .filter((t) => t.decision === 'OVERRIDE')
+          .map((t) => t.id)
+        const sourceHash = hashIds(allTelemetryIds)
         signals.push({
           id: stableSignalId(workspaceId, projectId, cat, 'OVERRIDE', sourceHash),
           workspaceId,
           projectId,
           category: cat,
           type: 'OVERRIDE',
-          observationCount: pop.overrideCount,
+          observationCount: pop.decisionCount,
           value: pop.decisionCount > 0 ? pop.overrideCount / pop.decisionCount : 0,
-          confidence: smoothConfidence(pop.overrideCount),
-          sourceRecommendationIds: overrideTelemetry.map((t) => t.recommendationId),
-          sourceTelemetryIds: overrideTelemetryIds,
+          confidence: smoothConfidence(pop.decisionCount),
+          sourceRecommendationIds: catTelemetry.map((t) => t.recommendationId),
+          sourceTelemetryIds: allTelemetryIds,
+          numeratorTelemetryIds: overrideTelemetryIds,
           generatedAt: new Date(),
           evidenceState:
             pop.overrideCount < MIN_OBSERVATIONS_FOR_FAVORED ? 'insufficient_evidence' : 'observed',
@@ -420,6 +463,7 @@ export class AdaptiveProfileCompiler {
           confidence: smoothConfidence(catTelemetry.length),
           sourceRecommendationIds: catTelemetry.map((t) => t.recommendationId),
           sourceTelemetryIds: allTelemetryIds,
+          numeratorTelemetryIds: allTelemetryIds,
           generatedAt: new Date(),
           evidenceState:
             catTelemetry.length < MIN_OBSERVATIONS_FOR_FAVORED
@@ -464,6 +508,7 @@ export class AdaptiveProfileCompiler {
           confidence: smoothConfidence(deltaTelemetry.length),
           sourceRecommendationIds: deltaTelemetry.map((t) => t.recommendationId),
           sourceTelemetryIds: deltaTelemetryIds,
+          numeratorTelemetryIds: deltaTelemetryIds,
           meanSignedOverrideDelta:
             avgSignedDelta !== undefined ? Math.round(avgSignedDelta * 100) / 100 : undefined,
           generatedAt: new Date(),

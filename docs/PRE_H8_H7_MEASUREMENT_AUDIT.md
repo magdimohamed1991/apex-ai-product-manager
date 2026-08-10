@@ -18,18 +18,19 @@ This audit performs an exhaustive, evidence-first verification and remediation p
 4. **MEDIUM — timestamp integrity gaps.** **Fixed:** strict ISO-8601 parsing at the HTTP boundary (non-ISO formats rejected), `recommendationPresentedAt <= decisionStartedAt <= decisionCompletedAt` enforced at BOTH the API boundary and the domain validator, and the clock-skew policy now validates all three client timestamps consistently (5-minute future tolerance) plus the 24-hour duration cap. Invalid telemetry is rejected, never repaired.
 5. **MEDIUM — signal provenance.** `LearningSignal` now carries typed `sourceTelemetryIds` (exact persisted telemetry record ids) and `meanSignedOverrideDelta` for every telemetry-derived signal: LearningSignal → exact telemetry observations → exact PM decisions → exact recommendation → project → workspace.
 6. **LOW — the earlier audit could not claim the UI supported all four decisions.** It now does (see #3); the doc's stale "not implemented" rows are removed.
+7. **FINAL EPISTEMIC INTEGRITY PASS (this document's authoritative addendum §23).** A skeptical, evidence-first remediation pass closed the remaining H7 measurement-integrity gaps: no evidence is now strictly neutral (never negative), telemetry provenance carries the complete observation population, telemetry ids are project-scoped, cross-project telemetry relationships are rejected at the service/HTTP boundary, H6 decision confidence is always N/(N+10) over the complete PM decision population, and calibration stays bounded + deterministic. Full detail in §23.
 
-**Epistemic safeguards preserved:** N < 5 → low/insufficient evidence; 5 ≤ N < 20 → early convergence; N ≥ 20 → "high within the APEX operational measurement framework" — NEVER "statistically significant", "scientifically proven", or "validated universally". DECISION_LATENCY is observational-only evidence (no "faster = better" quality score); it is persisted and auditable but never modifies calibration.
+**Epistemic safeguards preserved:** N < 5 → low/insufficient evidence; 5 ≤ N < 20 → early convergence; N ≥ 20 → "high within the APEX operational measurement framework" — NEVER "statistically significant", "scientifically proven", or "validated universally". DECISION_LATENCY is observational-only evidence (no "faster = better" quality score); it is persisted and auditable but never modifies calibration. **The H6 confidence dampener n/(n+10) is a bounded operational heuristic, NOT a statistical-significance claim.**
 
 **Final Gate Status (verified this pass):**
 
 - `pnpm type-check` — PASS (8/8 tasks)
 - `pnpm lint` — PASS (8/8 tasks)
-- `pnpm test` — PASS (56 files, 666 tests; 0 failed, 0 skipped)
+- `pnpm test` — PASS (57 files, 695 tests; 0 failed, 0 skipped)
 - `pnpm build` — PASS (1/1 tasks)
 - `pnpm audit` — PASS ("No known vulnerabilities found")
 - Frozen core — byte-identical (SHA-256 verified, see §3)
-- Live E2E walking skeleton — PASS (real HTTP server, durable on-disk persistence, full decision loop; see §20)
+- Live E2E walking skeleton — PASS (real HTTP server, durable on-disk persistence, full decision loop + 4 decision scenarios; see §20 and §23)
 
 ---
 
@@ -339,16 +340,16 @@ The client sends only: `decision`, `pmSelectedPriority` (OVERRIDE), `decisionSta
 
 ## 19. Test Coverage
 
-**Total: 56 test files, 666 tests (0 failed, 0 skipped — verified this pass)**
+**Total: 57 test files, 695 tests (0 failed, 0 skipped — verified this pass, derived from the actual test runner, not hand-counted)**
 
 | Package          | Files | Tests |
 | ---------------- | ----- | ----- |
-| `@apex/ai-core`  | 48    | 590   |
+| `@apex/ai-core`  | 49    | 618   |
 | `@apex/analysis` | 3     | 36    |
 | `@apex/prompts`  | 2     | 23    |
-| `@apex/web`      | 3     | 17    |
+| `@apex/web`      | 3     | 18    |
 
-**New tests added in the final pass:**
+**New tests added in the final passes (including this epistemic-integrity pass):**
 
 - `H7LearningEffect.test.ts` — **16 tests proving telemetry CHANGES H6 calibration** (not merely "telemetry exists"):
   - Scenario A — strong ACCEPT telemetry (N=20) shifts calibration deterministically vs no telemetry
@@ -364,7 +365,8 @@ The client sends only: `decision`, `pmSelectedPriority` (OVERRIDE), `decisionSta
   - Multi-tenant/multi-project isolation: workspace A/project A telemetry cannot influence workspace A/project B; same recommendationId across workspaces cannot contaminate
   - Domain ordering validation (presentation-after-decision-start rejected, nothing enters the store)
   - DECISION_LATENCY stays observational — never modifies calibration
-- `apps/web/src/api-server.test.ts` — **1 new HTTP-boundary test** with 9 timestamp-integrity violations (presentedAt > startedAt, startedAt > completedAt, negative duration, startedAt/completedAt/presentedAt > serverNow + 5 min skew, duration > 24 h, non-ISO format, unparseable timestamp), each rejected with 400 and verified to never enter the telemetry stream.
+- `apps/web/src/api-server.test.ts` — **1 new HTTP-boundary test** with 9 timestamp-integrity violations (presentedAt > startedAt, startedAt > completedAt, negative duration, startedAt/completedAt/presentedAt > serverNow + 5 min skew, duration > 24 h, non-ISO format, unparseable timestamp), each rejected with 400 and verified to never enter the telemetry stream. **This pass:** +1 HTTP-boundary telemetry-ownership test (cross-workspace project → 403, valid → 200, nonexistent rec → 404, cross-project same-workspace rec → 404).
+- `H7EpistemicIntegrity.test.ts` — **NEW: 28 tests** for the final epistemic-integrity contract: no-evidence-is-neutral (findings A–F), project-scoped telemetry identity (5 cases), complete denominator+numerator provenance reconstruction, population-scoped signal identity (10 ACCEPT → 10+10 changes value/count/provenance/id), zero-vs-observed-zero across decision/outcome/adoption dimensions, decision confidence N/(N+10) for every distribution, bounded+deterministic calibration, the full safety-floor matrix, and multi-tenant/multi-project same-ID isolation.
 
 Existing suites updated to the new contracts: acceptance-rate population (APEXProductService.audit, AdaptiveIntelligence, ProductDecisionValidation, ProductionProductization), calibration version `h6-v2`, and the h6-v2 multiplier bound (AdaptiveIntelligence adverse profile).
 
@@ -437,6 +439,98 @@ The strict-ISO validation was also observed live: 11 of 20 scripted submissions 
 
 ---
 
+## 23. Final H7 Epistemic Integrity & Tenancy Remediation (authoritative addendum)
+
+A final skeptical, evidence-first pass re-audited the H7/H6 measurement pipeline for
+remaining measurement-integrity defects. Every claim below was verified from the actual
+source, the regression suite, and a live HTTP end-to-end run against the real dev server.
+
+### 23.1 Epistemic contract (now explicit and enforced)
+
+1. **Zero evidence is neutral.** `no evidence != negative evidence`. A dimension with zero
+   (or insufficient) observations contributes exactly `1.0` (no influence) — it can never
+   become a negative influence merely because a `0/N` rate evaluates to zero.
+2. **An observed zero rate is real negative evidence.** 20 decisions with 0 ACCEPTs, or 20
+   outcomes with 0 verified, IS genuine negative evidence and influences calibration
+   normally.
+3. **H7 telemetry is independently calibrated** from adoption and outcome evidence. The
+   adoption, execution, outcome, and PM-decision-telemetry dimensions are separate and no
+   dimension silently substitutes for another. H7 telemetry is valid with or without
+   unrelated action/outcome evidence.
+4. **Telemetry provenance contains the full observation population.** For every
+   telemetry-derived rate signal, `sourceTelemetryIds` is the complete DENOMINATOR
+   population and `numeratorTelemetryIds` is the numerator, so an auditor can reconstruct
+   `value = |numerator| / |denominator|` from persisted telemetry alone. This covers
+   ACCEPTANCE, REJECTION, DEFER, OVERRIDE, PRIORITY_OVERRIDE_DELTA, and DECISION_LATENCY.
+5. **Telemetry IDs are project-scoped.** The deterministic identity is
+   `sha256(workspaceId | projectId | recommendationId | decisionStartedAt)`. Two projects
+   in the same workspace can never produce the same telemetry ID for an equivalent
+   recommendation/timestamp tuple.
+6. **Cross-project telemetry relationships are rejected.** At the service/API boundary the
+   claimed project must belong to the authenticated workspace (else 403) and the
+   recommendation must belong to that project (else a safe 404 authorization failure).
+   Raw telemetry is structurally valid before persistence — it never relies on downstream
+   aggregation filters.
+7. **H6 confidence is a bounded operational heuristic, not statistical significance.**
+   `decisionConfidence = N / (N + 10)` over the complete PM decision population, regardless
+   of decision distribution — never a statistical claim.
+
+### 23.2 Fixes applied (this pass)
+
+| File                                  | Change                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AdaptiveProfileCompiler.ts`          | Adoption weight gated: `< MIN_OBSERVATIONS_FOR_FAVORED` adoption observations → exactly `1.0`. Rate signals carry full denominator `sourceTelemetryIds` + `numeratorTelemetryIds`; signal identity (source hash) is over the complete population. `CategoryCoefficient.outcomeObservationCount` added.                 |
+| `H6PrioritizationCalibrator.ts`       | Outcome multiplier gated on `outcomeObservationCount` (zero/insufficient → `1.0`, neutral; observed zero rate → genuine `0.9`). Decision confidence derived from the full-population carrier (`N/(N+10)`), not the largest signal. Added `MIN_OBSERVATIONS_FOR_OUTCOME` and explicit "outcome evidence neutral" trace. |
+| `PMDecisionTelemetryService.ts`       | Deterministic id now includes `projectId`.                                                                                                                                                                                                                                                                             |
+| `SqlProductRepository.ts`             | Telemetry upsert scoped by `(id, workspaceId, projectId)`.                                                                                                                                                                                                                                                             |
+| `APEXProductService.recordPMDecision` | Added project-ownership verification at the service boundary (cross-workspace project → 403 `AuthorizationError`; recommendation must belong to the claimed project → 404 `NotFoundError`).                                                                                                                            |
+| `ProductAdaptive.ts`                  | Added `numeratorTelemetryIds` to `LearningSignal`; `outcomeObservationCount` to `CategoryCoefficient`; documented denominator/numerator provenance contract.                                                                                                                                                           |
+| `H7EpistemicIntegrity.test.ts` (NEW)  | 28 regression tests for the epistemic contract (see §19).                                                                                                                                                                                                                                                              |
+| `apps/web/src/api-server.test.ts`     | +1 HTTP-boundary telemetry-ownership test (403 cross-workspace project, 404 cross-project/nonexistent recommendation, 200 valid).                                                                                                                                                                                      |
+
+No frozen core file (`Action`, `Execution`, `ActionTransition`, `ActionRepository`,
+`ActionApplicationService`, `ActionExecutor`, `ActionExecutionWorker`) was modified —
+SHA-256 verified byte-identical to the pre-pass baseline (§3).
+
+### 23.3 Live E2E proof (real dev server, durable DB)
+
+A real Vite dev server was started and the full flow driven over HTTP: signup → workspace →
+project → repository connect → analysis → recommendation → PM decision → persisted H7
+telemetry → H7 metrics → adaptive profile compilation → H7 signals → H6 calibration →
+outcome → H5 verification → updated metrics → direct durable-DB inspection.
+
+Decision scenarios (each over a fresh workspace, 20 decisions):
+
+- **A — 20 ACCEPT:** ACCEPTANCE value `1.0`, obs `20`, `sourceTelemetryIds=20`,
+  `numeratorTelemetryIds=20`; metrics acceptance `100`, n=20; `preferenceMultiplier=1.15`
+  (positive, clamped), `outcomeReliabilityMultiplier=1.0` (no outcome evidence → neutral);
+  calibration deterministic across two calls.
+- **B — 20 REJECT:** REJECTION `1.0` (obs 20), ACCEPTANCE `0` observed (numerator 0,
+  denominator 20); `preferenceMultiplier=0.85` (floor); outcome neutral.
+- **C — 20 OVERRIDE (consistent negative delta):** OVERRIDE `1.0` (obs 20);
+  PRIORITY_OVERRIDE_DELTA `11.3` (mean |13.3−2|), obs 20; `preferenceMultiplier≈0.933`
+  (down from adoption-neutral 1.0); metrics overrideRate `100`.
+- **D — 20 mixed (5/5/5/5):** ACCEPTANCE/REJECTION/DEFER/OVERRIDE each `0.25`, obs 20,
+  denominator 20, numerator 5; PRIORITY_OVERRIDE_DELTA over the 5 override records;
+  deterministic calibration.
+
+Durable database (apps/web/dev-database/db.json) inspected directly: 81 telemetry records
+(26 ACCEPT, 25 REJECT, 25 OVERRIDE, 5 DEFER), 15 learning signals (all carrying full
+denominator + numerator provenance), 7 compiled profiles (`calibrationVersion: h6-v2`),
+3 outcomes all `VERIFIED_SUCCESS`. Idempotent re-submission of an identical decision window
+returned the exact same telemetry id.
+
+### 23.4 Multi-tenant isolation matrix
+
+| Scope                   | Isolation verified                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Workspace A / Project A | own recommendations, telemetry, signals, profile, calibration, outcomes, metrics — unaffected by other scopes                        |
+| Workspace A / Project B | telemetry + signals + profile + calibration fully independent (project-scoped ids, per-project populations)                          |
+| Workspace B / Project A | cross-workspace telemetry POST → **403**; same rec-id/timestamp in another scope produces a distinct telemetry id                    |
+| Same IDs across tenants | same recommendation id, action id, telemetry timestamp, signal type, category across (ws, project) never collide (regression-tested) |
+
+---
+
 ## Files Changed (this final pass)
 
 | File                                                                                                                                                                                                    | Change                                                                                                                                                                                                  |
@@ -452,7 +546,13 @@ The strict-ISO validation was also observed live: 11 of 20 scripted submissions 
 | `apps/web/src/features/dashboard/components/ValidationPanel.tsx`                                                                                                                                        | PM Decision Metrics group (acceptance/rejection/defer/override/delta/latency) + Outcome & Execution group                                                                                               |
 | `apps/web/src/features/dashboard/types/index.ts`                                                                                                                                                        | New metric + decision-count fields                                                                                                                                                                      |
 | `packages/ai-core/src/application/services/__tests__/H7LearningEffect.test.ts`                                                                                                                          | NEW: 16 tests — learning-effect scenarios A–G, safety-floor matrix, acceptance population, provenance, multi-tenant isolation, domain ordering, latency observational-only                              |
-| `apps/web/src/api-server.test.ts`                                                                                                                                                                       | NEW: HTTP-boundary timestamp-integrity test (9 violation cases)                                                                                                                                         |
+| `packages/ai-core/src/application/services/__tests__/H7EpistemicIntegrity.test.ts`                                                                                                                      | NEW: 28 tests — final epistemic-integrity contract (see §19)                                                                                                                                            |
+| `apps/web/src/api-server.test.ts`                                                                                                                                                                       | NEW: HTTP-boundary timestamp-integrity test (9 violation cases) + telemetry-ownership test (403/404/200)                                                                                                |
+| `packages/ai-core/src/application/services/AdaptiveProfileCompiler.ts` (this pass)                                                                                                                      | Adoption weight gated on sufficient observations (insufficient → 1.0); full denominator+numerator provenance; population-scoped signal identity                                                         |
+| `packages/ai-core/src/application/services/H6PrioritizationCalibrator.ts` (this pass)                                                                                                                   | Outcome multiplier gated on `outcomeObservationCount`; decision confidence = full-population N/(N+10); explicit "outcome evidence neutral" trace                                                        |
+| `packages/ai-core/src/application/services/PMDecisionTelemetryService.ts` (this pass)                                                                                                                   | Telemetry deterministic id now includes `projectId` (fully project-scoped)                                                                                                                              |
+| `packages/ai-core/src/infrastructure/repositories/SqlProductRepository.ts` (this pass)                                                                                                                  | Telemetry upsert scoped by `(id, workspaceId, projectId)`                                                                                                                                               |
+| `packages/ai-core/src/application/services/APEXProductService.ts` (this pass)                                                                                                                           | Project-ownership verification in `recordPMDecision` (cross-workspace project → 403; rec must belong to claimed project)                                                                                |
 | `packages/ai-core/.../__tests__/{APEXProductService.audit,AdaptiveIntelligence,ProductDecisionValidation,ProductionProductization,H7MeasurementIntegrity,SqlAdaptiveLearningProfileRepository}.test.ts` | Updated to h6-v2 / telemetry-population contracts                                                                                                                                                       |
 
 ---
@@ -475,9 +575,10 @@ The strict-ISO validation was also observed live: 11 of 20 scripted submissions 
 - ✅ Epistemic safeguards intact: N < 5 / 5 ≤ N < 20 / N ≥ 20 ("high within the APEX operational measurement framework" — never universal statistical significance)
 - ✅ Safety floors preserved under 100% rejection / defer / override / extreme delta / zero-failed outcomes / mixed signals
 - ✅ Multi-tenant + multi-project isolation proven (telemetry, signals, profiles, calibration, metrics)
-- ✅ End-to-end causal loop observed live: PM behavior → telemetry → metrics → signals → bounded calibration → observable prioritization change (multiplier 1.0 → 1.112)
+- ✅ End-to-end causal loop observed live: PM behavior → telemetry → metrics → signals → bounded calibration → observable prioritization change (multiplier 1.0 → 1.15 in scenario A; → 0.85 in scenario B; → 0.933 in scenarios C/D)
+- ✅ Epistemic integrity enforced (§23): no evidence is neutral, observed zero rate is negative, telemetry provenance is the full population, telemetry ids are project-scoped, cross-project relationships rejected, decision confidence = N/(N+10) heuristic (never statistical significance)
 - ✅ No fabricated values in production code (fallback/mock audit §15; all matches are documented-removed fabrications, infra defaults, or production-guarded dev mocks)
-- ✅ All executable gates pass: type-check, lint, test (56 files / 666 tests, 0 failed), build, audit
+- ✅ All executable gates pass: type-check, lint, test (57 files / 695 tests, 0 failed), build, audit
 - ✅ Frozen core byte-identical (SHA-256 verified)
 
 ### H8 remains BLOCKED because:

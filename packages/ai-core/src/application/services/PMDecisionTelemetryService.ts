@@ -56,8 +56,11 @@ export interface RecordDecisionInput {
  *     action approval (a different user action, possibly a different time).
  *   - This stream tracks the PM's explicit decision window on a single
  *     recommendation, with a typed decision kind, and the record id is a
- *     deterministic hash of (workspace, recommendation, decisionStartedAt)
- *     so duplicate submissions are idempotently collapsed.
+ *     deterministic hash of (workspace, project, recommendation,
+ *     decisionStartedAt) so duplicate submissions are idempotently
+ *     collapsed AND two different projects in the same workspace can never
+ *     produce the same telemetry id for an equivalent
+ *     recommendation/timestamp tuple.
  */
 export class PMDecisionTelemetryService {
   constructor(private readonly store: PMDecisionTelemetryStore) {}
@@ -157,9 +160,13 @@ export class PMDecisionTelemetryService {
   }
 
   private computeId(input: RecordDecisionInput): string {
+    // Fully project-scoped deterministic identity. Including projectId means
+    // two projects in the same workspace with the same recommendation id and
+    // the same decisionStartedAt produce DIFFERENT telemetry ids, so their
+    // persisted rows can never collide or overwrite each other.
     const h = createHash('sha256')
       .update(
-        `${input.workspaceId}|${input.recommendationId}|${input.decisionStartedAt.toISOString()}`
+        `${input.workspaceId}|${input.projectId}|${input.recommendationId}|${input.decisionStartedAt.toISOString()}`
       )
       .digest('hex')
     return `pmd-${h.slice(0, 24)}`

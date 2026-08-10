@@ -40,7 +40,7 @@ import type {
 import { ProductValidationService } from './ProductValidationService'
 import type { ProductValidationMetrics } from './ProductValidationService'
 import { Logger } from '../../observability/Logger'
-import { SecurityError, NotFoundError } from '../../errors/AppError'
+import { SecurityError, NotFoundError, AuthorizationError } from '../../errors/AppError'
 import { transitionAction } from '../../domain/entities/Action'
 import type { VerificationEvidence } from '../../domain/entities/ProductAdaptive'
 import type { PMDecisionTelemetry, PMDecisionKind } from '../../domain/entities'
@@ -701,8 +701,29 @@ export class APEXProductService {
     }
     const wsId = createWorkspaceId(input.workspaceId)
 
-    // Project-scoped lookup — the recommendation must belong to the project
-    // the caller claims (ID-substitution guard).
+    // Telemetry ownership verification at the service boundary (H7
+    // measurement integrity): raw telemetry must be structurally valid
+    // BEFORE it is persisted — it must never rely on downstream aggregation
+    // filters to hide a cross-tenant/cross-project relationship.
+    //
+    // 1. The claimed project must actually belong to the authenticated
+    //    workspace. A cross-workspace project (or a project that does not
+    //    exist in this workspace at all) is rejected with a 403-style
+    //    AuthorizationError — we do NOT leak whether the id exists in
+    //    another tenant.
+    const project = await this.productRepository.getProjectByIdAndWorkspace(input.projectId, wsId)
+    if (!project) {
+      throw new AuthorizationError(
+        `Project "${input.projectId}" is not accessible in workspace "${input.workspaceId}"; telemetry rejected.`
+      )
+    }
+
+    // 2. The recommendation must belong to BOTH the claimed project AND the
+    //    authenticated workspace (project.workspaceId === auth workspace, and
+    //    recommendation.projectId === claimed projectId). A recommendation
+    //    from another project in the same workspace, or from another
+    //    workspace, fails this lookup and is rejected as a safe
+    //    authorization failure (NotFoundError → 404/validation error).
     const recs = await this.productRepository.getRecommendationsByProject(input.projectId, wsId)
     const rec = recs.find((r) => r.id === input.recommendationId)
     if (!rec) {

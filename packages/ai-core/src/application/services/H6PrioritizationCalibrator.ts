@@ -21,6 +21,16 @@ export const SAFETY_FLOOR_CRITICAL = 8.5
 export const SAFETY_FLOOR_HIGH = 7.0
 
 /**
+ * Minimum number of REAL outcome observations before the outcome
+ * reliability multiplier may influence calibration. Below this, the
+ * outcome dimension is neutral (multiplier = 1.0) — zero outcome
+ * observations must never be read as an observed zero verification rate.
+ * Mirrors the compiler's outcome evidence threshold
+ * (MIN_OBSERVATIONS_FOR_FAVORED) so compiler and calibrator agree.
+ */
+export const MIN_OBSERVATIONS_FOR_OUTCOME = 5
+
+/**
  * Bounds of the H7 telemetry-driven calibration adjustments (h6-v2).
  *
  * - H7_DECISION_ADJUSTMENT_MAX: maximum contribution of the telemetry
@@ -189,8 +199,18 @@ export class H6PrioritizationCalibrator {
     const overrideRate = overrideSignal?.value ?? 0
     const meanAbsOverrideDelta = deltaSignal?.value ?? 0
 
+    // The telemetry confidence denominator is the COMPLETE PM decision
+    // population (N), not the largest individual signal's count. Every
+    // telemetry rate signal now reports the full decision population as its
+    // observationCount, and ACCEPTANCE is generated whenever the population
+    // is non-empty — so N is taken from the authoritative full-population
+    // carrier, independent of the decision mix (20 ACCEPT, 10/10, 20 REJECT,
+    // or a 5-way split all yield N = total decisions). Fall back to the max
+    // only in the (impossible-in-practice) case where ACCEPTANCE is absent
+    // but other rate signals exist.
     const decisionObservationCount =
-      decisionSignals.length > 0 ? Math.max(...decisionSignals.map((s) => s.observationCount)) : 0
+      acceptanceSignal?.observationCount ??
+      (decisionSignals.length > 0 ? Math.max(...decisionSignals.map((s) => s.observationCount)) : 0)
     // Same bounded dampener as the compiler (n / (n + 10)): never a
     // statistical claim — just a deterministic small-sample dampener.
     const decisionConfidence =
@@ -240,9 +260,22 @@ export class H6PrioritizationCalibrator {
         coef.pmCalibrationWeight + decisionAdjustment + overrideDeltaAdjustment
       )
     )
+    // Outcome success multiplier: bounded 0.9 to 1.1 (outcome population).
+    //
+    // Epistemic gate (no evidence != negative evidence): the outcome
+    // dimension is independently gated on the number of REAL outcome
+    // observations. With zero (or insufficient) outcome observations the
+    // multiplier is exactly 1.0 (neutral) — a `verifiedCount / outcomeCount`
+    // that evaluates to 0 because there is NO denominator must NEVER apply
+    // the 0.9 penalty. Only when the outcome population is observed and
+    // sufficient can an OBSERVED zero verification rate act as genuine
+    // negative evidence.
+    const outcomeObservationCount = coef.outcomeObservationCount ?? 0
     const outcomeVerifiedRate = coef.outcomeVerifiedRate
-    // Outcome success multiplier: bounded 0.9 to 1.1 (outcome population)
-    const outcomeReliabilityMultiplier = 1.0 + (outcomeVerifiedRate - 0.5) * 0.2
+    const outcomeReliabilityMultiplier =
+      outcomeObservationCount >= MIN_OBSERVATIONS_FOR_OUTCOME
+        ? 1.0 + (outcomeVerifiedRate - 0.5) * 0.2
+        : 1.0
 
     let calibratedScore = baseScore * preferenceMultiplier * outcomeReliabilityMultiplier
     let safetyFloorEnforced = false
@@ -270,6 +303,14 @@ export class H6PrioritizationCalibrator {
       if (overrideSignal) rateParts.push(`OVERRIDE ${pct(overrideRate)}`)
       evidenceParts.push(
         `H7 decision evidence over ${decisionObservationCount} telemetry decision(s): ${rateParts.join(' / ')} → adjustment ${decisionAdjustment >= 0 ? '+' : ''}${decisionAdjustment.toFixed(3)}`
+      )
+    }
+    // Epistemic trace: when the outcome dimension is neutral because there
+    // are no/insufficient outcome observations, state it explicitly rather
+    // than implying an observed rate.
+    if (outcomeObservationCount < MIN_OBSERVATIONS_FOR_OUTCOME) {
+      evidenceParts.push(
+        `outcome evidence neutral (${outcomeObservationCount} outcome observation(s) < ${MIN_OBSERVATIONS_FOR_OUTCOME}); no outcome influence applied`
       )
     }
     // Flag signals that exist but were excluded from the formula because

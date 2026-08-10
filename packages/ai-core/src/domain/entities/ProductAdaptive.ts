@@ -40,14 +40,29 @@ export interface LearningSignal {
 
   sourceRecommendationIds: string[]
   /**
-   * Exact PMDecisionTelemetry record ids that produced this signal (H7
-   * provenance). Present for telemetry-derived signals (ACCEPTANCE,
-   * REJECTION, DEFER, OVERRIDE, DECISION_LATENCY, PRIORITY_OVERRIDE_DELTA);
-   * absent for action/outcome-derived signals (ADOPTION,
-   * EXECUTION_SUCCESS, OUTCOME_SUCCESS). Every id here is a real persisted
-   * `PMDecisionTelemetry.id` — no opaque signal may influence H6.
+   * The COMPLETE denominator population used to calculate this signal's
+   * value. For a telemetry-derived RATE signal (ACCEPTANCE / REJECTION /
+   * DEFER / OVERRIDE) this is every PMDecisionTelemetry record in the
+   * project+category decision population (e.g. ALL_DECISIONS), so an
+   * auditor can reconstruct `value = numerator / |sourceTelemetryIds|`.
+   * For DECISION_LATENCY / PRIORITY_OVERRIDE_DELTA the denominator is the
+   * exact record set the statistic was computed over. Present for
+   * telemetry-derived signals; absent for action/outcome-derived signals
+   * (ADOPTION, EXECUTION_SUCCESS, OUTCOME_SUCCESS). Every id here is a
+   * real persisted `PMDecisionTelemetry.id` — no opaque signal may
+   * influence H6.
    */
   sourceTelemetryIds?: string[]
+  /**
+   * The records contributing to the NUMERATOR of a telemetry-derived rate
+   * signal (e.g. the ACCEPT records within the ACCEPTANCE denominator).
+   * Together with `sourceTelemetryIds` (the denominator) this lets an
+   * auditor fully reconstruct `value = numerator.length / denominator.length`
+   * from persisted telemetry alone. For statistics where the numerator is
+   * the entire population (DECISION_LATENCY, PRIORITY_OVERRIDE_DELTA) this
+   * equals `sourceTelemetryIds`. Absent for non-telemetry signals.
+   */
+  numeratorTelemetryIds?: string[]
   /**
    * Signed mean of (pmSelectedPriority - calibratedH6Score) over the exact
    * OVERRIDE telemetry records in `sourceTelemetryIds`. Kept separate from
@@ -74,6 +89,17 @@ export interface CategoryCoefficient {
   executionSuccessRate: number
   outcomeVerifiedRate: number
   pmCalibrationWeight: number
+  /**
+   * Number of REAL outcome observations (RecommendationOutcome rows) for
+   * this category. `outcomeVerifiedRate` alone is ambiguous: a 0 value can
+   * mean "0 verified of N observed" (genuine negative evidence) or "0
+   * observations" (no evidence at all). The calibrator uses this count to
+   * gate the outcome multiplier so ZERO observations stay neutral while an
+   * OBSERVED zero rate remains real negative evidence. Optional so legacy /
+   * hand-built profiles (without the count) default to neutral (no outcome
+   * influence).
+   */
+  outcomeObservationCount?: number
 }
 
 export interface AdaptiveLearningProfile {
