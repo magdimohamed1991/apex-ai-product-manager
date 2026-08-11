@@ -37,7 +37,6 @@ import type {
   LLMProvider,
   RichRecommendation,
   Recommendation as ApiRecommendation,
-  Recommendation,
   AIProductReasoning,
   UserRecord,
   VerificationEvidence,
@@ -514,11 +513,10 @@ async function processWorkspaceActions() {
       }
       for (const action of pending) {
         try {
-          const rec = await productRepository.getRecommendationByIdAndWorkspace(
+          const projectId = await productRepository.getRecommendationProjectId(
             action.relatedRecommendationId,
             wsIdObj
           )
-          const projectId = (rec as (Recommendation & { projectId?: string }) | null)?.projectId
           const conn = projectId
             ? await productRepository.getRepositoryConnectionByProject(projectId, wsIdObj)
             : null

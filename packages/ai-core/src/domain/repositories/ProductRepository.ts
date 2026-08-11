@@ -47,10 +47,13 @@ export interface ProductRepository {
     projectId: string,
     workspaceId: WorkspaceId
   ): Promise<Recommendation[]>
+  /** @deprecated Use getRecommendationByIdWorkspaceAndProject for authorization boundaries. */
   getRecommendationByIdAndWorkspace(
     id: string,
     workspaceId: WorkspaceId
   ): Promise<Recommendation | null>
+  /** Lightweight lookup: returns only the projectId for a recommendation. */
+  getRecommendationProjectId(id: string, workspaceId: WorkspaceId): Promise<string | null>
   /** Project-owned recommendation lookup. Use at authorization boundaries. */
   getRecommendationByIdWorkspaceAndProject(
     id: string,
