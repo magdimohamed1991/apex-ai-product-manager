@@ -273,3 +273,45 @@ Every prioritization calibration computed by H6 is fully inspectable, auditable,
             ↓
   Final Calibrated Priority Score
 ```
+
+## Milestone H8 — Productization
+
+H8 transforms the APEX dashboard from a read-only analytics view into a full PM workspace with recommendation review, explainability, execution lifecycle tracking, outcomes management, and adaptive intelligence transparency.
+
+### Frozen Core
+
+The following files are **immutable** — SHA-256 hashes captured in `docs/H8_FROZEN_CORE_HASHES.txt`:
+
+- `Action.ts`, `Execution.ts`, `ActionTransition.ts`
+- `ActionRepository.ts`, `ActionApplicationService.ts`, `ActionExecutor.ts`, `ActionExecutionWorker.ts`
+
+H8 does NOT modify frozen core or redesign H7 measurement.
+
+### H8 Features
+
+| Feature                                | Description                                                                                                                               | Key Files                                        |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| **Project-Scoped Identity**            | Recommendations are scoped to `(workspaceId, projectId)` tuples. Cross-project ID collisions are safe.                                    | `CrossProjectCollision.test.ts`                  |
+| **PM Project Workspace**               | Dashboard shows project-level stats: recommendations by priority, outcomes, learning state, latest analysis.                              | `ProjectDashboard.tsx`, `api-server.ts:1172`     |
+| **Recommendation Review**              | Full review experience with confidence explanation, multi-factor risk assessment, numeric override, and "Why This Priority" breakdown.    | `RecommendationReview.tsx`                       |
+| **Explainability**                     | AI reasoning chain shows strategic rationale, impact, confidence, trade-offs, alternatives, knowns/inferences/unknowns.                   | `ReasoningPanel.tsx`, `RecommendationReview.tsx` |
+| **Execution Lifecycle**                | Tracks actions from pending through execution with target field, recommendation linkage, outcome details, and failed state visualization. | `ExecutionLifecycle.tsx`                         |
+| **Outcomes Center**                    | Displays verified, failed, pending, not-verifiable, and reverted outcomes with execution ID links.                                        | `OutcomesCenter.tsx`                             |
+| **Adaptive Intelligence Transparency** | Shows calibration version, bias adjustments, category detail rates, calibration scores, and applied signals.                              | `AdaptiveTransparency.tsx`                       |
+
+### API Endpoints (H8)
+
+All endpoints use `authenticateAndAuthorize()` for tenant isolation:
+
+- `GET /api/projects/:id/stats` — aggregated project statistics
+- `GET /api/projects/:id/findings` — project findings
+- `GET /api/projects/:id/recommendations` — project recommendations
+- `GET /api/projects/:id/outcomes` — project outcomes
+- `GET /api/projects/:id/decision-metrics` — decision metrics
+- `POST /api/projects/:id/decision-telemetry` — record PM decisions
+- `GET /api/projects/:id/learning-signals` — learning signals
+- `GET /api/projects/:id/product-value` — product value metrics
+- `GET /api/projects/:id/profile` — adaptive learning profile
+- `POST /api/projects/:id/compile-profile` — trigger profile compilation
+- `GET /api/recommendations/:id/calibration` — priority calibration
+- `GET /api/recommendations/:id/reasoning` — AI reasoning chain
