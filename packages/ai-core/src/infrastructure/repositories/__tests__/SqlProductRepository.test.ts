@@ -95,44 +95,6 @@ describe('SqlProductRepository — cross-workspace id collision isolation', () =
     expect(b!.title).toBe('B title')
   })
 
-  it('getRecommendationProjectId returns null for cross-workspace lookup', async () => {
-    const wsA = createWorkspaceId('ws-a')
-    const wsB = createWorkspaceId('ws-b')
-    const sharedId = 'rec-isolation-proj-id'
-    const base = {
-      id: sharedId,
-      origin: 'insight' as const,
-      deduplicationKey: 'test:insight:proj-id',
-      title: 'Test',
-      rationale: 'Test',
-      impact: 'Test',
-      effort: 'medium' as const,
-      priority: 'high' as const,
-      confidence: 0.9,
-      insightIds: ['ins-test'],
-      findingIds: [],
-      proposedActions: [],
-    }
-
-    await repo.saveRecommendation(
-      { ...base, workspaceId: wsA, title: 'A', createdAt: new Date('2026-01-01T00:00:00Z') },
-      'proj-a'
-    )
-    await repo.saveRecommendation(
-      { ...base, workspaceId: wsB, title: 'B', createdAt: new Date('2026-02-01T00:00:00Z') },
-      'proj-b'
-    )
-
-    const projA = await repo.getRecommendationProjectId(sharedId, wsA)
-    const projB = await repo.getRecommendationProjectId(sharedId, wsB)
-
-    expect(projA).toBe('proj-a')
-    expect(projB).toBe('proj-b')
-
-    const crossA = await repo.getRecommendationProjectId(sharedId, createWorkspaceId('ws-c'))
-    expect(crossA).toBeNull()
-  })
-
   it('keeps workspace A finding rows when workspace B saves the same finding id', async () => {
     const wsA = createWorkspaceId('ws-a')
     const wsB = createWorkspaceId('ws-b')

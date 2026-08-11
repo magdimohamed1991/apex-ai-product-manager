@@ -285,14 +285,6 @@ export class SqlProductRepository implements ProductRepository {
     return JSON.parse(JSON.stringify(r)) as Recommendation
   }
 
-  async getRecommendationProjectId(id: string, workspaceId: WorkspaceId): Promise<string | null> {
-    const state = this.db.getActiveState()
-    const r = (state.recommendations as StoredRecommendation[] | undefined)?.find(
-      (x) => x.id === id && x.workspaceId === workspaceId
-    )
-    return r?.projectId ?? null
-  }
-
   async getRecommendationByIdWorkspaceAndProject(
     id: string,
     workspaceId: WorkspaceId,
