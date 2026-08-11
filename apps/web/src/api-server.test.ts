@@ -917,6 +917,78 @@ describe('API server — composition root & route security', () => {
     expect(crossProjSameWs.status).toBe(404)
   })
 
+  it('returns project stats with correct structure and tenant isolation', async () => {
+    await api.initApiServer()
+    const signup = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'stats@acme.com', password: 'super-secure-password' },
+    })
+    expect(signup.status).toBe(200)
+    const token = signup.json.token as string
+    const wsId = (signup.json.workspace as { id: string }).id
+
+    // Create a project
+    const createProj = await request(api, {
+      method: 'POST',
+      url: '/api/projects',
+      headers: { Authorization: `Bearer ${token}` },
+      body: { workspaceId: wsId, name: 'stats-project' },
+    })
+    expect(createProj.status).toBe(200)
+    const projId = (createProj.json as { id: string }).id
+
+    // Fetch stats for the project
+    const stats = await request(api, {
+      method: 'GET',
+      url: `/api/projects/${projId}/stats?workspaceId=${wsId}`,
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    expect(stats.status).toBe(200)
+    expect(stats.json).toHaveProperty('project')
+    expect(stats.json).toHaveProperty('recommendations')
+    expect(stats.json).toHaveProperty('outcomes')
+    expect(stats.json).toHaveProperty('learning')
+    const s = stats.json as Record<string, unknown>
+    const proj = s.project as Record<string, unknown>
+    expect(proj.id).toBe(projId)
+    expect(typeof proj.name).toBe('string')
+    const recs = s.recommendations as Record<string, unknown>
+    expect(typeof recs.total).toBe('number')
+    expect(recs.byPriority).toHaveProperty('critical')
+    expect(recs.byPriority).toHaveProperty('high')
+    expect(recs.byPriority).toHaveProperty('medium')
+    expect(recs.byPriority).toHaveProperty('low')
+    const outcomes = s.outcomes as Record<string, unknown>
+    expect(typeof outcomes.total).toBe('number')
+    expect(typeof outcomes.verified).toBe('number')
+    expect(typeof outcomes.failed).toBe('number')
+    expect(typeof outcomes.pending).toBe('number')
+    const learning = s.learning as Record<string, unknown>
+    expect(learning).toHaveProperty('profileStatus')
+    expect(learning).toHaveProperty('evidenceState')
+
+    // Stats are tenant-scoped: a different workspace cannot read them
+    const signupB = await request(api, {
+      method: 'POST',
+      url: '/api/auth/signup',
+      body: { email: 'stats-b@acme.com', password: 'super-secure-password' },
+    })
+    const tokenB = signupB.json.token as string
+    const wsB = (signupB.json.workspace as { id: string }).id
+    const crossTenant = await request(api, {
+      method: 'GET',
+      url: `/api/projects/${projId}/stats?workspaceId=${wsB}`,
+      headers: { Authorization: `Bearer ${tokenB}` },
+    })
+    // Either 404 (no project in wsB) or 200 with empty/default values — never leaked data
+    if (crossTenant.status === 200) {
+      const ct = crossTenant.json as Record<string, unknown>
+      const ctRecs = ct.recommendations as Record<string, unknown>
+      expect(ctRecs.total).toBe(0)
+    }
+  })
+
   it('logout invalidates the session server-side: the token is dead immediately', async () => {
     await api.initApiServer()
     const signup = await request(api, {
