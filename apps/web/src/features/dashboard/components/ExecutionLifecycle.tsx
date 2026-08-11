@@ -1,9 +1,10 @@
-import type { Action, ActivityEvent, Outcome } from '../types'
+import type { Action, ActivityEvent, Outcome, Recommendation } from '../types'
 
 interface ExecutionLifecycleProps {
   actions: Action[]
   activityLog: ActivityEvent[]
   outcomes: Outcome[]
+  recommendations: Recommendation[]
   loading: boolean
 }
 
@@ -11,6 +12,7 @@ export function ExecutionLifecycle({
   actions,
   activityLog,
   outcomes,
+  recommendations,
   loading,
 }: ExecutionLifecycleProps) {
   if (loading) {
@@ -74,13 +76,17 @@ export function ExecutionLifecycle({
         const executionEvents = activityLog.filter(
           (e) => e.type === 'execution' && e.metadata?.actionId === action.id
         )
+        const recommendation = recommendations.find((r) => r.id === action.relatedRecommendationId)
 
         return (
           <div key={action.id} className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
             <div className="flex items-start justify-between mb-3">
-              <div>
+              <div className="flex-1">
                 <p className="text-sm font-bold text-white">{action.title}</p>
                 <p className="text-[11px] text-slate-500 mt-0.5">{action.description}</p>
+                {action.target && (
+                  <p className="text-[10px] text-slate-600 mt-1">Target: {action.target}</p>
+                )}
               </div>
               <ActionStatusBadge status={action.status} />
             </div>
@@ -90,15 +96,18 @@ export function ExecutionLifecycle({
               {['proposed', 'approved', 'queued', 'in-progress', 'completed'].map((step, i) => {
                 const isActive = getStepIndex(action.status) >= i
                 const isCurrent = getStepIndex(action.status) === i
+                const isFailed = action.status === 'failed' && step === 'completed'
                 return (
                   <div key={step} className="flex items-center">
                     <div
                       className={`w-2 h-2 rounded-full ${
-                        isCurrent
-                          ? 'bg-indigo-500 ring-2 ring-indigo-500/30'
-                          : isActive
-                            ? 'bg-emerald-500'
-                            : 'bg-slate-700'
+                        isFailed
+                          ? 'bg-rose-500 ring-2 ring-rose-500/30'
+                          : isCurrent
+                            ? 'bg-indigo-500 ring-2 ring-indigo-500/30'
+                            : isActive
+                              ? 'bg-emerald-500'
+                              : 'bg-slate-700'
                       }`}
                     />
                     {i < 4 && (
@@ -113,14 +122,37 @@ export function ExecutionLifecycle({
               })}
             </div>
 
-            <div className="flex flex-col gap-1 text-[11px]">
+            <div className="flex flex-col gap-1.5 text-[11px]">
               {action.externalId && (
                 <p className="text-slate-500">External ID: {action.externalId}</p>
               )}
-              {outcome && (
+              {recommendation && (
                 <p className="text-slate-500">
-                  Outcome: <OutcomeStatusInline status={outcome.status} />
+                  Recommendation: <span className="text-slate-400">{recommendation.title}</span>
                 </p>
+              )}
+              {outcome && (
+                <div className="mt-1 rounded-lg bg-slate-800/50 p-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Outcome</span>
+                    <OutcomeStatusInline status={outcome.status} />
+                  </div>
+                  {outcome.outcomeSummary && (
+                    <p className="text-[11px] text-slate-400">{outcome.outcomeSummary}</p>
+                  )}
+                  <div className="flex gap-3 mt-1 text-[10px] text-slate-600">
+                    <span>Detected: {new Date(outcome.detectedAt).toLocaleDateString()}</span>
+                    {outcome.resolvedAt && (
+                      <span>Resolved: {new Date(outcome.resolvedAt).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                  {outcome.verificationEvidence.length > 0 && (
+                    <p className="text-[10px] text-slate-600 mt-1">
+                      {outcome.verificationEvidence.length} verification evidence
+                      {outcome.verificationEvidence.length !== 1 ? 's' : ''}
+                    </p>
+                  )}
+                </div>
               )}
               {executionEvents.length > 0 && (
                 <p className="text-slate-500">
@@ -142,7 +174,7 @@ function getStepIndex(status: string): number {
     queued: 2,
     'in-progress': 3,
     completed: 4,
-    failed: 4,
+    failed: 3,
   }
   return map[status] ?? 0
 }

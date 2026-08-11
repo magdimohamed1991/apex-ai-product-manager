@@ -451,6 +451,7 @@ export function DashboardPage() {
                 actions={actions}
                 activityLog={data.activityLog}
                 outcomes={data.outcomes}
+                recommendations={data.recommendations}
                 loading={false}
               />
             )}
