@@ -234,27 +234,26 @@ No modifications were made to any frozen core file during this verification pass
 
 ### H8-ACTION-1: Eliminate workspace-only recommendation lookup
 
-**Status:** ✅ Complete  
+**Status:** 🟡 Deferred — first H8 architectural hardening task  
 **Risk:** LOW (mitigated by pipeline-level project-scoped IDs)  
 **Files involved:**
 
-- `packages/ai-core/src/domain/repositories/ProductRepository.ts` — `getRecommendationByIdAndWorkspace()` marked `@deprecated`; new `getRecommendationProjectId()` added
-- `packages/ai-core/src/infrastructure/repositories/SqlProductRepository.ts` — implementation of both methods
-- `apps/web/src/api-server.ts:517` — background worker now calls `getRecommendationProjectId()` instead of loading the full recommendation
-- `packages/ai-core/src/infrastructure/repositories/__tests__/SqlProductRepository.test.ts` — regression test proving cross-workspace isolation for projectId lookup
+- `packages/ai-core/src/domain/repositories/ProductRepository.ts` — `getRecommendationByIdAndWorkspace()`
+- `packages/ai-core/src/infrastructure/repositories/SqlProductRepository.ts` — implementation
+- `apps/web/src/api-server.ts:517` — production call site in Action worker loop
+- `packages/ai-core/src/application/services/ActionExecutionWorker.ts` — frozen, uses workspace-only lookup
 
-**What was done:**
+**Description:**  
+The recommendation lookup `getRecommendationByIdAndWorkspace(workspaceId, recommendationId)` does not establish project ownership. The correct invariant is `(workspaceId, projectId, recommendationId)`. The newer service paths already use `getRecommendationByIdWorkspaceAndProject()`, but the frozen Action worker and one API call site still use the workspace-only variant.
 
-1. Added lightweight `getRecommendationProjectId(id, workspaceId): Promise<string | null>` to `ProductRepository` interface and `SqlProductRepository` — returns only the projectId, not the full Recommendation
-2. Migrated `api-server.ts:517` background worker to use `getRecommendationProjectId()` instead of `getRecommendationByIdAndWorkspace()` + unsafe cast
-3. Marked `getRecommendationByIdAndWorkspace()` as `@deprecated` in the interface
-4. Removed unused `Recommendation` type import from `api-server.ts`
-5. Added regression test: same recommendation ID in workspace A/B returns correct projectIds; non-existent workspace returns null
+**Why deferred:**  
+The frozen core (`ActionExecutionWorker.ts`) cannot be modified. The pipeline already generates project-scoped recommendation IDs via `deduplicationKey` → insight IDs (project-scoped when `projectId` is provided), so the workspace-only lookup is currently safe in practice. However, this is an indirect identity invariant rather than an explicit ownership boundary.
 
-**Why `getRecommendationByIdAndWorkspace` is retained (deprecated):**
+**H8 task:**
 
-- The frozen `ActionExecutionWorker.ts` calls `getByIdAndWorkspace` on the Action repository (frozen, cannot be modified)
-- The existing test in `SqlProductRepository.test.ts` proves workspace isolation for the method
-- Removing it would break the frozen core boundary; deprecation is the correct architectural exception
+1. Classify all remaining workspace-scoped repository methods
+2. Determine whether the frozen Action worker requires an architectural exception or a formal invariant proving the workspace-only lookup is safe
+3. Migrate `api-server.ts:517` to project-scoped lookup
+4. Remove `getRecommendationByIdAndWorkspace()` once all call sites are migrated (except frozen core)
 
 GitHub CI execution remains **BLOCKED BY ACCOUNT BILLING**; no CI/billing configuration was changed. Local CI-equivalent gates (type-check, lint, test, build) all pass. The 7 test failures are all pre-existing Windows platform issues or pre-existing test regressions unrelated to this verification pass.
