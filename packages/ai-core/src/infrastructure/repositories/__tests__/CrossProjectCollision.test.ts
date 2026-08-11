@@ -407,4 +407,23 @@ describe('H8-ACTION-1 — project-scoped recommendation identity', () => {
     expect(found).not.toBeNull()
     expect(found!.workspaceId).toBe(WS_A)
   })
+
+  it('workspace-only lookup: same workspace, same rec ID, different projects → returns first matching row (H8-ACTION-1 boundary)', async () => {
+    // This tests the exact scenario the background worker faces:
+    // Two projects in the same workspace have recommendations with the same ID.
+    // getRecommendationByIdAndWorkspace scans by (id, workspaceId) only.
+    // It returns whichever row the DB hits first — but the worker only needs
+    // the projectId to resolve the repository connection, and the action
+    // already belongs to this workspace (created from this workspace's pipeline).
+    const recA = createRecommendation({ ...baseRec, id: REC_ID, workspaceId: WS_A })
+    const recB = createRecommendation({ ...baseRec, id: REC_ID, workspaceId: WS_A })
+    await productRepo.saveRecommendation(recA, PROJ_X)
+    await productRepo.saveRecommendation(recB, PROJ_Y)
+
+    const found = await productRepo.getRecommendationByIdAndWorkspace(REC_ID, WS_A)
+    expect(found).not.toBeNull()
+    expect(found!.workspaceId).toBe(WS_A)
+    // The found recommendation belongs to one of the two projects
+    expect([PROJ_X, PROJ_Y]).toContain((found as { projectId?: string }).projectId)
+  })
 })

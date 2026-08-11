@@ -2,6 +2,17 @@ FROZEN CORE SHA-256 BASELINE — H8 Productization
 =================================================
 Captured at: H8 Implementation Start
 
+VERIFICATION METHOD (IMPORTANT):
+These hashes are valid for files checked out via git. The repository's
+.gitattributes enforces `eol=lf` on all text files. If files are
+extracted from a ZIP archive on Windows, CRLF line endings will be
+introduced and hashes will NOT match. Always verify through git:
+
+  git checkout main
+  Get-FileHash -Algorithm SHA256 <file>
+
+Do not verify from ZIP extractions or manual downloads.
+
 packages/ai-core/src/domain/entities/Action.ts
   D8B530B1395C0CCDF1B8E7963DD2F027AA469CD302B6BAD56E0DF5727BADBA93
 
