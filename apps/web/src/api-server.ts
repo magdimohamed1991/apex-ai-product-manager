@@ -1242,6 +1242,13 @@ export async function handleApiRequest(
       if (!checkApiRateLimit(res, auth.workspaceId, 'stats')) return true
       const wsId = createWorkspaceId(auth.workspaceId)
 
+      // Verify project exists in the requesting workspace before returning data
+      const project = await productRepository.getProjectByIdAndWorkspace(projectId, wsId)
+      if (!project) {
+        sendError(res, new NotFoundError('Resource not found'))
+        return true
+      }
+
       const [recs, outcomes, profile, signals, conn, telemetry] = await Promise.all([
         productService.getRecommendations(auth.workspaceId, projectId),
         productService.getOutcomesByProject(auth.workspaceId, projectId),

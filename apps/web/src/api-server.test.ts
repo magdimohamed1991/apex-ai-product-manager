@@ -981,12 +981,8 @@ describe('API server — composition root & route security', () => {
       url: `/api/projects/${projId}/stats?workspaceId=${wsB}`,
       headers: { Authorization: `Bearer ${tokenB}` },
     })
-    // Either 404 (no project in wsB) or 200 with empty/default values — never leaked data
-    if (crossTenant.status === 200) {
-      const ct = crossTenant.json as Record<string, unknown>
-      const ctRecs = ct.recommendations as Record<string, unknown>
-      expect(ctRecs.total).toBe(0)
-    }
+    // Cross-workspace access must be rejected with 404 (project not found in workspace B)
+    expect(crossTenant.status).toBe(404)
   })
 
   it('logout invalidates the session server-side: the token is dead immediately', async () => {

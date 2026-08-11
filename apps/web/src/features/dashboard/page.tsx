@@ -123,6 +123,8 @@ export function DashboardPage() {
   // Load project stats when project changes
   useEffect(() => {
     if (!selectedWorkspace || !selectedProject) {
+      // Selection reset: cleared when workspace or project is deselected. Scoped suppression.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProjectStats(null)
       setActions([])
       return
