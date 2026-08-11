@@ -86,6 +86,51 @@ export function ProjectDashboard({ stats, loading, error }: ProjectDashboardProp
         />
       </div>
 
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="PM Decisions"
+          value={
+            stats.decisions.accept +
+            stats.decisions.reject +
+            stats.decisions.defer +
+            stats.decisions.override
+          }
+          detail={`${stats.decisions.accept} accept, ${stats.decisions.reject} reject, ${stats.decisions.defer} defer, ${stats.decisions.override} override`}
+          color="cyan"
+        />
+        <StatCard
+          label="Execution Pipeline"
+          value={
+            stats.execution.pending +
+            stats.execution.approved +
+            stats.execution.queued +
+            stats.execution['in-progress']
+          }
+          detail={`${stats.execution.pending} pending, ${stats.execution.approved} approved, ${stats.execution.queued} queued, ${stats.execution['in-progress']} active`}
+          color="violet"
+        />
+        <StatCard
+          label="Executions Succeeded"
+          value={stats.execution.completed}
+          detail={
+            stats.execution.completed + stats.execution.failed > 0
+              ? `${Math.round((stats.execution.completed / (stats.execution.completed + stats.execution.failed)) * 100)}% success rate`
+              : 'No executions'
+          }
+          color="emerald"
+        />
+        <StatCard
+          label="Executions Failed"
+          value={stats.execution.failed}
+          detail={
+            stats.execution.completed + stats.execution.failed > 0
+              ? `${stats.execution.failed} failures`
+              : 'No failures'
+          }
+          color="rose"
+        />
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
@@ -168,13 +213,15 @@ function StatCard({
   label: string
   value: number
   detail: string
-  color: 'indigo' | 'emerald' | 'rose' | 'amber'
+  color: 'indigo' | 'emerald' | 'rose' | 'amber' | 'cyan' | 'violet'
 }) {
   const colorClasses = {
     indigo: 'text-indigo-400 border-indigo-500/20',
     emerald: 'text-emerald-400 border-emerald-500/20',
     rose: 'text-rose-400 border-rose-500/20',
     amber: 'text-amber-400 border-amber-500/20',
+    cyan: 'text-cyan-400 border-cyan-500/20',
+    violet: 'text-violet-400 border-violet-500/20',
   }
 
   return (

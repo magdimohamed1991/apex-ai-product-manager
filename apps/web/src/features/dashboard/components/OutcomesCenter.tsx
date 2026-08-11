@@ -1,12 +1,18 @@
-import type { Outcome, Recommendation } from '../types'
+import type { Outcome, Recommendation, DecisionTelemetryRecord } from '../types'
 
 interface OutcomesCenterProps {
   outcomes: Outcome[]
   recommendations: Recommendation[]
+  telemetry: DecisionTelemetryRecord[]
   loading: boolean
 }
 
-export function OutcomesCenter({ outcomes, recommendations, loading }: OutcomesCenterProps) {
+export function OutcomesCenter({
+  outcomes,
+  recommendations,
+  telemetry,
+  loading,
+}: OutcomesCenterProps) {
   if (loading) {
     return (
       <div className="flex flex-col gap-4">
@@ -59,6 +65,7 @@ export function OutcomesCenter({ outcomes, recommendations, loading }: OutcomesC
 
       {outcomes.map((outcome) => {
         const rec = recommendations.find((r) => r.id === outcome.recommendationId)
+        const decision = telemetry.find((t) => t.recommendationId === outcome.recommendationId)
         return (
           <div key={outcome.id} className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
             <div className="flex items-start justify-between mb-2">
@@ -85,6 +92,31 @@ export function OutcomesCenter({ outcomes, recommendations, loading }: OutcomesC
               </p>
               {outcome.executionId && (
                 <p className="text-[10px] text-slate-600">Execution: {outcome.executionId}</p>
+              )}
+              {decision && (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">
+                    PM Decision:
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                      decision.decision === 'ACCEPT'
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                        : decision.decision === 'REJECT'
+                          ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                          : decision.decision === 'DEFER'
+                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                            : 'bg-violet-500/10 text-violet-400 border-violet-500/20'
+                    }`}
+                  >
+                    {decision.decision}
+                  </span>
+                  {decision.pmSelectedPriority !== undefined && (
+                    <span className="text-[10px] text-slate-500">
+                      Priority: {decision.pmSelectedPriority}
+                    </span>
+                  )}
+                </div>
               )}
               {outcome.verificationEvidence.length > 0 && (
                 <div className="mt-1">

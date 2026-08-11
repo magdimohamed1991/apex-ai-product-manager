@@ -13,6 +13,7 @@ import type {
   LearningSignal,
   ProductValidationMetrics,
   PriorityCalibration,
+  DecisionTelemetryRecord,
 } from '../types'
 
 const POLL_INTERVAL_MS = 5000
@@ -31,6 +32,7 @@ interface DashboardData {
   // Outcomes
   outcomes: Outcome[]
   decisionMetrics: DecisionMetrics | null
+  telemetry: DecisionTelemetryRecord[]
 
   // H4 reasoning
   reasoning: unknown | null
@@ -76,6 +78,7 @@ export function useDashboardData(
   const [learningSignals, setLearningSignals] = useState<LearningSignal[]>([])
   const [calibration, setCalibration] = useState<PriorityCalibration | null>(null)
   const [validationMetrics, setValidationMetrics] = useState<ProductValidationMetrics | null>(null)
+  const [telemetry, setTelemetry] = useState<DecisionTelemetryRecord[]>([])
   const [reasoning, setReasoning] = useState<unknown | null>(null)
   const [isReasoningLoading, setIsReasoningLoading] = useState(false)
 
@@ -106,17 +109,19 @@ export function useDashboardData(
     if (!workspace || !project) return
     const seq = ++requestSeqRef.current
     try {
-      const [repo, recs, found, log, outs, dm, profile, signals, validation] = await Promise.all([
-        apiClient.getRepository(workspace.id, project.id),
-        apiClient.listRecommendations(workspace.id, project.id),
-        apiClient.listFindings(workspace.id, project.id),
-        apiClient.listActivity(workspace.id, project.id),
-        apiClient.listOutcomes(workspace.id, project.id),
-        apiClient.getDecisionMetrics(workspace.id, project.id),
-        apiClient.getProfile(workspace.id, project.id),
-        apiClient.getLearningSignals(workspace.id, project.id),
-        apiClient.getProductValue(workspace.id, project.id),
-      ])
+      const [repo, recs, found, log, outs, dm, profile, signals, validation, tel] =
+        await Promise.all([
+          apiClient.getRepository(workspace.id, project.id),
+          apiClient.listRecommendations(workspace.id, project.id),
+          apiClient.listFindings(workspace.id, project.id),
+          apiClient.listActivity(workspace.id, project.id),
+          apiClient.listOutcomes(workspace.id, project.id),
+          apiClient.getDecisionMetrics(workspace.id, project.id),
+          apiClient.getProfile(workspace.id, project.id),
+          apiClient.getLearningSignals(workspace.id, project.id),
+          apiClient.getProductValue(workspace.id, project.id),
+          apiClient.getDecisionTelemetry(workspace.id, project.id),
+        ])
       if (!aliveRef.current || seq !== requestSeqRef.current) return
       setConnection(repo && 'id' in repo ? repo : null)
       setRecommendations(recs)
@@ -127,6 +132,7 @@ export function useDashboardData(
       setLearningProfile(profile)
       setLearningSignals(signals)
       setValidationMetrics(validation)
+      setTelemetry(tel)
     } catch (err) {
       if (seq === requestSeqRef.current) {
         handleError('load', err)
@@ -150,6 +156,7 @@ export function useDashboardData(
       setLearningSignals([])
       setCalibration(null)
       setValidationMetrics(null)
+      setTelemetry([])
       setReasoning(null)
       return
     }
@@ -284,6 +291,7 @@ export function useDashboardData(
     activityLog,
     outcomes,
     decisionMetrics,
+    telemetry,
     reasoning,
     isReasoningLoading,
     fetchReasoning,

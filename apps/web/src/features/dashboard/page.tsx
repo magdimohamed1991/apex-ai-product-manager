@@ -459,6 +459,7 @@ export function DashboardPage() {
               <OutcomesCenter
                 outcomes={data.outcomes}
                 recommendations={data.recommendations}
+                telemetry={data.telemetry}
                 loading={false}
               />
             )}

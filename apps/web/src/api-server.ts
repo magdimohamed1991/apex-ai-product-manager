@@ -1242,12 +1242,13 @@ export async function handleApiRequest(
       if (!checkApiRateLimit(res, auth.workspaceId, 'stats')) return true
       const wsId = createWorkspaceId(auth.workspaceId)
 
-      const [recs, outcomes, profile, signals, conn] = await Promise.all([
+      const [recs, outcomes, profile, signals, conn, telemetry] = await Promise.all([
         productService.getRecommendations(auth.workspaceId, projectId),
         productService.getOutcomesByProject(auth.workspaceId, projectId),
         productService.getAdaptiveProfile(auth.workspaceId, projectId),
         productService.getLearningSignals(auth.workspaceId, projectId),
         productService.getRepositoryConnection(auth.workspaceId, projectId),
+        productRepository.getPMDecisionTelemetryByProject(projectId, wsId),
       ])
 
       const pipelineRuns = await productRepository.getPipelineRunsByProject(projectId, wsId)
@@ -1261,6 +1262,29 @@ export async function handleApiRequest(
       const recByPriority = { critical: 0, high: 0, medium: 0, low: 0 }
       for (const r of recs) {
         recByPriority[r.priority as keyof typeof recByPriority]++
+      }
+
+      // Execution stats: count actions by status for this project's recommendations
+      const recIds = new Set(recs.map((r) => r.id))
+      const allActions = actionRepository
+        ? await actionRepository.getByWorkspace({ workspaceId: wsId })
+        : []
+      const projectActions = allActions.filter((a) => recIds.has(a.relatedRecommendationId))
+      const executionStats = {
+        pending: projectActions.filter((a) => a.status === 'proposed').length,
+        approved: projectActions.filter((a) => a.status === 'approved').length,
+        queued: projectActions.filter((a) => a.status === 'queued').length,
+        'in-progress': projectActions.filter((a) => a.status === 'in-progress').length,
+        completed: projectActions.filter((a) => a.status === 'completed').length,
+        failed: projectActions.filter((a) => a.status === 'failed').length,
+      }
+
+      // Decision breakdown from telemetry
+      const decisionBreakdown = {
+        accept: telemetry.filter((t) => t.decision === 'ACCEPT').length,
+        reject: telemetry.filter((t) => t.decision === 'REJECT').length,
+        defer: telemetry.filter((t) => t.decision === 'DEFER').length,
+        override: telemetry.filter((t) => t.decision === 'OVERRIDE').length,
       }
 
       sendJson(res, {
@@ -1281,6 +1305,8 @@ export async function handleApiRequest(
           total: recs.length,
           byPriority: recByPriority,
         },
+        decisions: decisionBreakdown,
+        execution: executionStats,
         outcomes: {
           total: outcomes.length,
           verified: outcomes.filter((o: RecommendationOutcome) => o.status === 'VERIFIED_SUCCESS')
@@ -1383,6 +1409,26 @@ export async function handleApiRequest(
       const reasoningService = new ProductReasoningService(productRepository, llmProvider!)
       const reasoning = await reasoningService.generateReasoning(rich, projectContext)
       sendJson(res, reasoning)
+      return true
+    }
+
+    // -- H8 Telemetry Records --
+
+    const telemetryListMatch = pathname.match(/^\/api\/projects\/([^/]+)\/telemetry$/)
+    if (telemetryListMatch && method === 'GET') {
+      const projectId = telemetryListMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'telemetry')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+
+      const telemetry = await productRepository.getPMDecisionTelemetryByProject(projectId, wsId)
+      sendJson(res, telemetry)
       return true
     }
 

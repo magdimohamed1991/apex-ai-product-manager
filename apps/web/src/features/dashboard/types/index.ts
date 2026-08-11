@@ -281,6 +281,20 @@ export interface ProjectStats {
     total: number
     byPriority: { critical: number; high: number; medium: number; low: number }
   }
+  decisions: {
+    accept: number
+    reject: number
+    defer: number
+    override: number
+  }
+  execution: {
+    pending: number
+    approved: number
+    queued: number
+    'in-progress': number
+    completed: number
+    failed: number
+  }
   outcomes: {
     total: number
     verified: number

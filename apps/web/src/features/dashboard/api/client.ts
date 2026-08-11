@@ -179,4 +179,6 @@ export const apiClient = {
     ),
   getProjectStats: (wsId: string, pId: string) =>
     apiClient.get<ProjectStats>(`/api/projects/${pId}/stats?workspaceId=${wsId}`),
+  getDecisionTelemetry: (wsId: string, pId: string) =>
+    apiClient.get<DecisionTelemetryRecord[]>(`/api/projects/${pId}/telemetry?workspaceId=${wsId}`),
 }
