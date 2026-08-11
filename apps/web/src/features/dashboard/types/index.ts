@@ -112,7 +112,15 @@ export interface Action {
   title: string
   description: string
   target: string
-  status: 'proposed' | 'approved' | 'queued' | 'in-progress' | 'completed' | 'failed'
+  status:
+    | 'pending'
+    | 'proposed'
+    | 'approved'
+    | 'queued'
+    | 'in-progress'
+    | 'completed'
+    | 'failed'
+    | 'blocked'
   relatedRecommendationId: string
   relatedProposedActionId: string
   externalId: string | null

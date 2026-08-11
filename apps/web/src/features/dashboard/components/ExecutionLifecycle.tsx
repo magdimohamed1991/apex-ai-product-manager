@@ -47,6 +47,8 @@ export function ExecutionLifecycle({
     'proposed',
     'completed',
     'failed',
+    'pending',
+    'blocked',
   ] as const
   const sorted = [...actions].sort((a, b) => {
     const ai = statusOrder.indexOf(a.status as (typeof statusOrder)[number])
@@ -59,6 +61,9 @@ export function ExecutionLifecycle({
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-slate-300">Execution Lifecycle</h3>
         <div className="flex gap-3 text-[10px]">
+          <span className="text-slate-400">
+            {actions.filter((a) => a.status === 'pending').length} pending
+          </span>
           <span className="text-emerald-400">
             {actions.filter((a) => a.status === 'completed').length} succeeded
           </span>
@@ -67,6 +72,9 @@ export function ExecutionLifecycle({
           </span>
           <span className="text-rose-400">
             {actions.filter((a) => a.status === 'failed').length} failed
+          </span>
+          <span className="text-orange-400">
+            {actions.filter((a) => a.status === 'blocked').length} blocked
           </span>
         </div>
       </div>
@@ -169,18 +177,26 @@ export function ExecutionLifecycle({
 
 function getStepIndex(status: string): number {
   const map: Record<string, number> = {
+    pending: 0,
     proposed: 0,
     approved: 1,
     queued: 2,
     'in-progress': 3,
     completed: 4,
     failed: 3,
+    blocked: 2,
   }
   return map[status] ?? 0
 }
 
 function ActionStatusBadge({ status }: { status: string }) {
   const config: Record<string, { bg: string; text: string; border: string; label: string }> = {
+    pending: {
+      bg: 'bg-slate-500/10',
+      text: 'text-slate-400',
+      border: 'border-slate-500/20',
+      label: 'Pending',
+    },
     proposed: {
       bg: 'bg-slate-500/10',
       text: 'text-slate-400',
@@ -216,6 +232,12 @@ function ActionStatusBadge({ status }: { status: string }) {
       text: 'text-rose-400',
       border: 'border-rose-500/20',
       label: 'Failed',
+    },
+    blocked: {
+      bg: 'bg-orange-500/10',
+      text: 'text-orange-400',
+      border: 'border-orange-500/20',
+      label: 'Blocked',
     },
   }
   const c = config[status] || config.proposed
