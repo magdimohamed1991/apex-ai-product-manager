@@ -1,0 +1,24 @@
+FROZEN CORE SHA-256 BASELINE — H8 Productization
+=================================================
+Captured at: H8 Implementation Start
+
+packages/ai-core/src/domain/entities/Action.ts
+  D8B530B1395C0CCDF1B8E7963DD2F027AA469CD302B6BAD56E0DF5727BADBA93
+
+packages/ai-core/src/domain/entities/Execution.ts
+  5A518694EEB4722C80ED3773557E533E3820124C84CC61D5DB2DE9BD2ACAD5B3
+
+packages/ai-core/src/domain/entities/ActionTransition.ts
+  566A0BD278488125C6B22B5F996ABFB518E2F40F5B5BAF23D9A841331493DB00
+
+packages/ai-core/src/domain/repositories/ActionRepository.ts
+  57F910A4054BEC740A3023E90D8EBB6AC744113F058A125968435F40838BF449
+
+packages/ai-core/src/application/services/ActionApplicationService.ts
+  82F7C4AC271B9E5D39EC27DC6E9C91B40A44AE0C167BFAF9735BB505D4B2C633
+
+packages/ai-core/src/application/services/ActionExecutor.ts
+  8AB365B2CB9A9FE35E6474AA214037CA1448B11DBA2DD20A2723B4252844144B
+
+packages/ai-core/src/application/services/ActionExecutionWorker.ts
+  450A277BAA005D98E8171BCCA190E0E73F722C78DC3632B66710DF2FB00DFABD

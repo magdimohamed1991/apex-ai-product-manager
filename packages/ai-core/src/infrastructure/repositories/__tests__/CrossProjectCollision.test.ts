@@ -235,10 +235,10 @@ describe('Cross-project id collision isolation (same workspace, two projects)', 
       {
         ruleId: 'add-testing',
         matched: true,
-        title: 't',
-        message: 'm',
         severity: 'medium' as const,
         priority: 'medium' as const,
+        title: 't',
+        message: 'm',
         evidenceIds: [],
       },
     ]
