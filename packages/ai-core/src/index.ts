@@ -27,6 +27,8 @@ export type { PasswordHasher } from './security/PasswordHasher'
 export { SecureIdGenerator } from './security/IdGenerator'
 export { AuthRateLimiter } from './security/AuthRateLimiter'
 export type { RateLimitResult } from './security/AuthRateLimiter'
+export { ApiRateLimiter } from './security/ApiRateLimiter'
+export type { ApiRateLimitResult } from './security/ApiRateLimiter'
 
 // Auth
 export { AuthService } from './application/services/AuthService'

@@ -26,6 +26,7 @@ import {
   Logger,
   AuthService,
   AuthRateLimiter,
+  ApiRateLimiter,
   SecureIdGenerator,
   toSafeEnvelope,
   AppError,
@@ -175,6 +176,7 @@ let workerInterval: NodeJS.Timeout | null = null
 
 const logger = new Logger('api.server')
 const authRateLimiter = new AuthRateLimiter(5, 15 * 60 * 1000)
+const apiRateLimiter = new ApiRateLimiter(60, 60 * 1000) // 60 req/min per workspace
 
 // -- HTTP helpers --
 
@@ -194,6 +196,15 @@ function sendJson(res: ServerResponse, data: unknown, status = 200) {
 function sendError(res: ServerResponse, err: unknown) {
   const { envelope, status } = toSafeEnvelope(err)
   sendJson(res, envelope, status)
+}
+
+function checkApiRateLimit(res: ServerResponse, workspaceId: string, endpoint: string): boolean {
+  const result = apiRateLimiter.record(`${workspaceId}:${endpoint}`)
+  if (!result.allowed) {
+    sendJson(res, { error: { code: 'RATE_LIMITED', message: 'Too many requests' } }, 429)
+    return false
+  }
+  return true
 }
 
 function getBody(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -834,18 +845,28 @@ export async function handleApiRequest(
     const findingsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/findings$/)
     if (findingsMatch && method === 'GET') {
       const projectId = findingsMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
       const workspaceId = getQueryParam(url, 'workspaceId')
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'findings')) return true
       sendJson(res, await productService.getFindings(auth.workspaceId, projectId))
       return true
     }
     const recsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/recommendations$/)
     if (recsMatch && method === 'GET') {
       const projectId = recsMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
       const workspaceId = getQueryParam(url, 'workspaceId')
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'recommendations')) return true
       sendJson(res, await productService.getRecommendations(auth.workspaceId, projectId))
       return true
     }
@@ -927,18 +948,28 @@ export async function handleApiRequest(
     const metricsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/decision-metrics$/)
     if (metricsMatch && method === 'GET') {
       const projectId = metricsMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
       const workspaceId = getQueryParam(url, 'workspaceId')
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'metrics')) return true
       sendJson(res, await productService.getDecisionQualityMetrics(auth.workspaceId, projectId))
       return true
     }
     const outcomesMatch = pathname.match(/^\/api\/projects\/([^/]+)\/outcomes$/)
     if (outcomesMatch && method === 'GET') {
       const projectId = outcomesMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
       const workspaceId = getQueryParam(url, 'workspaceId')
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'outcomes')) return true
       sendJson(res, await productService.getOutcomesByProject(auth.workspaceId, projectId))
       return true
     }
@@ -995,6 +1026,10 @@ export async function handleApiRequest(
     const telemetryMatch = pathname.match(/^\/api\/projects\/([^/]+)\/decision-telemetry$/)
     if (telemetryMatch && method === 'POST') {
       const projectId = telemetryMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
       const body = await getBody(req)
       const workspaceId = String(body?.workspaceId || '')
       const auth = await authenticateAndAuthorize(req, res, workspaceId)
@@ -1117,19 +1152,29 @@ export async function handleApiRequest(
     const compileProfileMatch = pathname.match(/^\/api\/projects\/([^/]+)\/compile-profile$/)
     if (compileProfileMatch && method === 'POST') {
       const projectId = compileProfileMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
       const body = await getBody(req)
       const workspaceId = String(body?.workspaceId || '')
       const auth = await authenticateAndAuthorize(req, res, workspaceId)
       if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'compile-profile')) return true
       sendJson(res, await productService.compileAdaptiveProfile(auth.workspaceId, projectId))
       return true
     }
     const profileMatch = pathname.match(/^\/api\/projects\/([^/]+)\/profile$/)
     if (profileMatch && method === 'GET') {
       const projectId = profileMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
       const workspaceId = getQueryParam(url, 'workspaceId')
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'profile')) return true
       const profile = await productService.getAdaptiveProfile(auth.workspaceId, projectId)
       sendJson(res, profile || null, profile ? 200 : 404)
       return true
@@ -1137,15 +1182,24 @@ export async function handleApiRequest(
     const signalsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/learning-signals$/)
     if (signalsMatch && method === 'GET') {
       const projectId = signalsMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
       const workspaceId = getQueryParam(url, 'workspaceId')
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'signals')) return true
       sendJson(res, await productService.getLearningSignals(auth.workspaceId, projectId))
       return true
     }
     const calibrationMatch = pathname.match(/^\/api\/recommendations\/([^/]+)\/calibration$/)
     if (calibrationMatch && method === 'GET') {
       const recId = calibrationMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(recId)) {
+        sendError(res, new ValidationError('Invalid recommendation ID format'))
+        return true
+      }
       const workspaceId = getQueryParam(url, 'workspaceId')
       const projectId = getQueryParam(url, 'projectId')
       if (!workspaceId || !projectId) {
@@ -1154,15 +1208,21 @@ export async function handleApiRequest(
       }
       const auth = await authenticateAndAuthorize(req, res, workspaceId)
       if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'calibration')) return true
       sendJson(res, await productService.getPriorityCalibration(auth.workspaceId, projectId, recId))
       return true
     }
     const valMatch = pathname.match(/^\/api\/projects\/([^/]+)\/product-value$/)
     if (valMatch && method === 'GET') {
       const projectId = valMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
       const workspaceId = getQueryParam(url, 'workspaceId')
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'product-value')) return true
       sendJson(res, await productService.getProductValidationMetrics(auth.workspaceId, projectId))
       return true
     }
@@ -1172,9 +1232,14 @@ export async function handleApiRequest(
     const statsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/stats$/)
     if (statsMatch && method === 'GET') {
       const projectId = statsMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
       const workspaceId = getQueryParam(url, 'workspaceId')
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'stats')) return true
       const wsId = createWorkspaceId(auth.workspaceId)
 
       const [recs, outcomes, profile, signals, conn] = await Promise.all([
