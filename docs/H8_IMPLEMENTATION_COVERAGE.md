@@ -31,13 +31,13 @@
 
 ## H8 Code Tags (from grep)
 
-| Tag         | Location                            | Description                                             |
-| ----------- | ----------------------------------- | ------------------------------------------------------- |
-| H8-ACTION-1 | `api-server.ts:530`                 | Workspace-only lookup is intentional                    |
-| H8-ACTION-1 | `CrossProjectCollision.test.ts:315` | Project-scoped recommendation identity regression tests |
-| H8-ACTION-3 | `types/index.ts:321`                | PM decision options for recommendation review           |
-| H8-ACTION-5 | `types/index.ts:315`                | Execution lifecycle states                              |
-| H8-ACTION-8 | `types/index.ts:266`                | Project dashboard stats                                 |
+| Tag         | Location                            | Description                                                      |
+| ----------- | ----------------------------------- | ---------------------------------------------------------------- |
+| H8-ACTION-1 | `api-server.ts:530`                 | Background worker recommendation ownership is now ambiguity-safe |
+| H8-ACTION-1 | `CrossProjectCollision.test.ts:315` | Project-scoped recommendation identity regression tests          |
+| H8-ACTION-3 | `types/index.ts:321`                | PM decision options for recommendation review                    |
+| H8-ACTION-5 | `types/index.ts:315`                | Execution lifecycle states                                       |
+| H8-ACTION-8 | `types/index.ts:266`                | Project dashboard stats                                          |
 
 ## H8 Commit History
 

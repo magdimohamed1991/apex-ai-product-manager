@@ -32,6 +32,9 @@ import {
   AppError,
   ValidationError,
   NotFoundError,
+  transitionAction,
+  createActionTransitionRecord,
+  createExecution,
 } from '@apex/ai-core'
 
 import type {
@@ -492,6 +495,78 @@ export function shutdownApiServer(): void {
   llmProvider = null
 }
 
+/**
+ * Transitions an action to failed state due to ownership resolution failure.
+ * This prevents infinite retry loops when the action cannot be executed
+ * due to missing or ambiguous recommendation ownership.
+ *
+ * The action must be in 'queued' state. We transition:
+ *   queued → in-progress → failed
+ *
+ * This is a terminal state — the action will not be retried.
+ */
+async function failActionDueToOwnership(
+  actionId: string,
+  workspaceId: ReturnType<typeof createWorkspaceId>,
+  reason: string,
+  repo: SqlActionRepository
+): Promise<void> {
+  const action = await repo.getByIdAndWorkspace(actionId, workspaceId)
+  if (!action) {
+    logger.warn('Cannot fail action: not found', { actionId, workspaceId })
+    return
+  }
+
+  // Only fail actions in 'queued' state — don't interfere with in-progress actions
+  if (action.status !== 'queued') {
+    logger.warn('Cannot fail action: not in queued state', {
+      actionId,
+      status: action.status,
+    })
+    return
+  }
+
+  // Step 1: Transition queued → in-progress
+  const inProgressAction = transitionAction(action, 'in-progress', 'system')
+  inProgressAction.claimedByExecutionId = null
+  inProgressAction.leaseExpiresAt = null
+
+  // Step 2: Create execution record with failed status
+  const execution = createExecution({
+    actionId,
+    workspaceId,
+    attempt: 1,
+    status: 'failed',
+    externalId: null,
+    error: { code: 'not_found', message: reason, retryable: false, timestamp: new Date() },
+  })
+
+  // Step 3: Transition in-progress → failed
+  const failedAction = transitionAction(inProgressAction, 'failed', 'system')
+  failedAction.claimedByExecutionId = null
+  failedAction.leaseExpiresAt = null
+
+  // Step 4: Create transition record
+  const transition = createActionTransitionRecord({
+    actionId,
+    workspaceId,
+    fromStatus: 'queued',
+    toStatus: 'failed',
+    sequence: 1,
+    actor: 'system',
+    reason,
+  })
+
+  // Step 5: Atomically persist the outcome
+  await repo.persistExecutionOutcome(failedAction, execution, transition)
+
+  logger.info('Action transitioned to failed state', {
+    actionId,
+    workspaceId,
+    reason,
+  })
+}
+
 async function processWorkspaceActions() {
   if (!productService || !actionRepository || !productRepository) return
   try {
@@ -539,23 +614,35 @@ async function processWorkspaceActions() {
 
           // Case 0: No matching recommendation — cannot determine project
           if (projectIds.length === 0) {
-            logger.warn('Worker skipping action: recommendation not found', {
+            logger.warn('Worker failing action: recommendation not found', {
               actionId: action.id,
               recommendationId: action.relatedRecommendationId,
               workspaceId: wsId,
             })
+            await failActionDueToOwnership(
+              action.id,
+              wsIdObj,
+              'Recommendation not found — cannot determine project ownership',
+              actionRepository
+            )
             continue
           }
 
           // Case >1: Ambiguous — same recommendation ID in multiple projects
           if (projectIds.length > 1) {
-            logger.error('Worker refusing action: ambiguous recommendation ownership', {
+            logger.error('Worker failing action: ambiguous recommendation ownership', {
               actionId: action.id,
               recommendationId: action.relatedRecommendationId,
               workspaceId: wsId,
               projectCount: projectIds.length,
               projectIds,
             })
+            await failActionDueToOwnership(
+              action.id,
+              wsIdObj,
+              `Ambiguous recommendation ownership — found in ${projectIds.length} projects: [${projectIds.join(', ')}]`,
+              actionRepository
+            )
             continue
           }
 

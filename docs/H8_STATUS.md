@@ -68,11 +68,11 @@ The background Action execution worker previously resolved recommendations using
 
 The worker now uses `findProjectIdsForRecommendation` to determine project ownership before execution:
 
-- **0 matching recommendations**: Skip action, log warning
+- **0 matching recommendations**: Refuse action, transition to `failed` with `not_found` reason
 - **1 matching recommendation**: Safe to proceed with that project
-- **>1 matching recommendations**: Refuse execution, log error with ambiguity details
+- **>1 matching recommendations**: Refuse action, transition to `failed` with `not_found` reason
 
-The lookup is project-scoped at the repository level, ensuring the worker never executes against an ambiguous or wrong project.
+The lookup is workspace-scoped (same workspace only), ensuring the worker never executes against an ambiguous or wrong project. Ambiguous or missing recommendations are handled with a proper terminal failure instead of leaving the action in a poisoned `queued` state.
 
 ### Security Invariant
 
@@ -84,7 +84,7 @@ relatedRecommendationId
 findProjectIdsForRecommendation (workspace-scoped)
   ↓
 Exactly 1 project? → Execute
-0 or >1 projects? → Refuse safely
+0 or >1 projects? → Fail action (terminal, not poisoned)
 ```
 
 ### Evidence
