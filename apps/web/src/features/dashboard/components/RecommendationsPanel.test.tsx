@@ -44,6 +44,7 @@ describe('RecommendationsPanel', () => {
         selected={null}
         onSelect={() => undefined}
         onAction={async () => undefined}
+        onReview={() => undefined}
       />
     )
     expect(
@@ -61,6 +62,7 @@ describe('RecommendationsPanel', () => {
         selected={null}
         onSelect={onSelect}
         onAction={async () => undefined}
+        onReview={() => undefined}
       />
     )
     const card = screen.getByRole('button', { name: /Introduce automated testing/i })
@@ -82,6 +84,7 @@ describe('RecommendationsPanel', () => {
         selected={bare}
         onSelect={() => undefined}
         onAction={async () => undefined}
+        onReview={() => undefined}
       />
     )
     // The legacy fallbacks ('TECHNICAL_DEBT', '5.0') must not appear.
@@ -106,6 +109,7 @@ describe('RecommendationsPanel', () => {
         selected={rec}
         onSelect={() => undefined}
         onAction={onAction}
+        onReview={() => undefined}
       />
     )
 

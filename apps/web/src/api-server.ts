@@ -42,6 +42,8 @@ import type {
   UserRecord,
   VerificationEvidence,
   PMDecisionKind,
+  RecommendationOutcome,
+  LearningSignal,
 } from '@apex/ai-core'
 import {
   OpenAIResponsesProvider,
@@ -1162,6 +1164,81 @@ export async function handleApiRequest(
       const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
       if (!auth) return true
       sendJson(res, await productService.getProductValidationMetrics(auth.workspaceId, projectId))
+      return true
+    }
+
+    // -- H8 Project Stats --
+
+    const statsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/stats$/)
+    if (statsMatch && method === 'GET') {
+      const projectId = statsMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+
+      const [recs, outcomes, profile, signals, conn] = await Promise.all([
+        productService.getRecommendations(auth.workspaceId, projectId),
+        productService.getOutcomesByProject(auth.workspaceId, projectId),
+        productService.getAdaptiveProfile(auth.workspaceId, projectId),
+        productService.getLearningSignals(auth.workspaceId, projectId),
+        productService.getRepositoryConnection(auth.workspaceId, projectId),
+      ])
+
+      const pipelineRuns = await productRepository.getPipelineRunsByProject(projectId, wsId)
+      const latestRun =
+        pipelineRuns.length > 0
+          ? pipelineRuns.sort(
+              (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+            )[0]
+          : null
+
+      const recByPriority = { critical: 0, high: 0, medium: 0, low: 0 }
+      for (const r of recs) {
+        recByPriority[r.priority as keyof typeof recByPriority]++
+      }
+
+      sendJson(res, {
+        project: {
+          id: projectId,
+          name: conn ? `${conn.owner}/${conn.repository}` : projectId,
+          status: conn?.status || 'not_connected',
+          latestAnalysis: latestRun
+            ? {
+                status: latestRun.status,
+                startedAt: latestRun.startedAt,
+                completedAt: latestRun.completedAt,
+                error: latestRun.error,
+              }
+            : null,
+        },
+        recommendations: {
+          total: recs.length,
+          byPriority: recByPriority,
+        },
+        outcomes: {
+          total: outcomes.length,
+          verified: outcomes.filter((o: RecommendationOutcome) => o.status === 'VERIFIED_SUCCESS')
+            .length,
+          failed: outcomes.filter((o: RecommendationOutcome) => o.status === 'FAILED').length,
+          pending: outcomes.filter((o: RecommendationOutcome) => o.status === 'PENDING').length,
+        },
+        learning: {
+          profileStatus: profile ? 'active' : 'not_compiled',
+          totalDecisionsObserved: profile?.totalDecisionsObserved || 0,
+          signalCount: signals.length,
+          evidenceState:
+            signals.length === 0
+              ? 'no_data'
+              : signals.some((s: LearningSignal) => s.observationCount < 5)
+                ? 'early'
+                : signals.some((s: LearningSignal) => s.observationCount < 20)
+                  ? 'limited'
+                  : 'established',
+          favoredCategories: profile?.PMPreferences?.favoredCategories || [],
+          ignoredCategories: profile?.PMPreferences?.ignoredCategories || [],
+        },
+      })
       return true
     }
 

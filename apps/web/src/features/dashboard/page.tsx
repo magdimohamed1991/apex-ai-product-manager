@@ -25,23 +25,51 @@ import { RepositoryPanel } from './components/RepositoryPanel'
 import { OverviewPanel } from './components/OverviewPanel'
 import { FindingsPanel } from './components/FindingsPanel'
 import { RecommendationsPanel } from './components/RecommendationsPanel'
-import { ExecutionsPanel } from './components/ExecutionsPanel'
+import { RecommendationReview } from './components/RecommendationReview'
+import { ExecutionLifecycle } from './components/ExecutionLifecycle'
 import { ValidationPanel } from './components/ValidationPanel'
 import { ActivityTimeline } from './components/ActivityTimeline'
+import { ProjectDashboard } from './components/ProjectDashboard'
+import { OutcomesCenter } from './components/OutcomesCenter'
+import { AdaptiveTransparency } from './components/AdaptiveTransparency'
 import { useDashboardData } from './hooks/useDashboardData'
-import type { Workspace, Project, Recommendation } from './types'
+import type {
+  Workspace,
+  Project,
+  Recommendation,
+  ProjectStats,
+  Action,
+  AIProductReasoning,
+  PriorityCalibration,
+} from './types'
 
-type TabName = 'overview' | 'findings' | 'recommendations' | 'executions' | 'validation'
+type TabName =
+  | 'dashboard'
+  | 'overview'
+  | 'findings'
+  | 'recommendations'
+  | 'executions'
+  | 'outcomes'
+  | 'validation'
 
 export function DashboardPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
-  const [activeTab, setActiveTab] = useState<TabName>('overview')
+  const [activeTab, setActiveTab] = useState<TabName>('dashboard')
   const [selectedRecommendation, setSelectedRecommendation] = useState<Recommendation | null>(null)
+  const [reviewingRecommendation, setReviewingRecommendation] = useState<Recommendation | null>(
+    null
+  )
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(true)
   const [globalError, setGlobalError] = useState<string | null>(null)
+  const [projectStats, setProjectStats] = useState<ProjectStats | null>(null)
+  const [loadingStats, setLoadingStats] = useState(false)
+  const [actions, setActions] = useState<Action[]>([])
+  const [reviewReasoning, setReviewReasoning] = useState<AIProductReasoning | null>(null)
+  const [reviewCalibration, setReviewCalibration] = useState<PriorityCalibration | null>(null)
+  const [loadingReview, setLoadingReview] = useState(false)
 
   const data = useDashboardData(selectedWorkspace, selectedProject, setGlobalError)
 
@@ -92,6 +120,33 @@ export function DashboardPage() {
     }
   }, [selectedWorkspace])
 
+  // Load project stats when project changes
+  useEffect(() => {
+    if (!selectedWorkspace || !selectedProject) {
+      setProjectStats(null)
+      setActions([])
+      return
+    }
+    let active = true
+    setLoadingStats(true)
+    apiClient
+      .getProjectStats(selectedWorkspace.id, selectedProject.id)
+      .then((stats) => {
+        if (!active) return
+        setProjectStats(stats)
+      })
+      .catch(() => {
+        if (!active) return
+        setProjectStats(null)
+      })
+      .finally(() => {
+        if (active) setLoadingStats(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [selectedWorkspace, selectedProject])
+
   async function handleCreateWorkspace(name: string) {
     if (!name.trim()) return
     try {
@@ -125,10 +180,48 @@ export function DashboardPage() {
       })
       setProjects((prev) => [...prev, proj])
       setSelectedProject(proj)
+      setActiveTab('dashboard')
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Failed to create project'
       setGlobalError(message)
     }
+  }
+
+  async function startReview(rec: Recommendation) {
+    setReviewingRecommendation(rec)
+    setLoadingReview(true)
+    try {
+      const [reasoning, calibration] = await Promise.all([
+        apiClient
+          .getReasoning(selectedWorkspace!.id, selectedProject!.id, rec.id)
+          .catch(() => null),
+        apiClient
+          .getCalibration(selectedWorkspace!.id, selectedProject!.id, rec.id)
+          .catch(() => null),
+      ])
+      setReviewReasoning(reasoning)
+      setReviewCalibration(calibration)
+    } finally {
+      setLoadingReview(false)
+    }
+  }
+
+  async function handleReviewDecision(recId: string, decision: string) {
+    if (!selectedWorkspace || !selectedProject) return
+    const now = new Date().toISOString()
+    await apiClient.recordDecision(selectedWorkspace.id, selectedProject.id, {
+      recommendationId: recId,
+      decision: decision as 'ACCEPT' | 'REJECT' | 'DEFER' | 'OVERRIDE',
+      decisionStartedAt: now,
+      decisionCompletedAt: now,
+      recommendationPresentedAt: now,
+    })
+    if (decision === 'ACCEPT' || decision === 'ACCEPT_EXECUTE') {
+      await data.approveAction(recId, reviewingRecommendation?.proposedActions?.[0]?.id || '')
+    }
+    setReviewingRecommendation(null)
+    setReviewReasoning(null)
+    setReviewCalibration(null)
   }
 
   if (loadingWorkspaces) {
@@ -175,12 +268,18 @@ export function DashboardPage() {
         {data.connection && (
           <nav className="flex flex-col gap-1.5 border-t border-slate-800 pt-6">
             <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-1.5 block">
-              Workspaces
+              Navigation
             </span>
+            <NavTab
+              active={activeTab === 'dashboard'}
+              onClick={() => setActiveTab('dashboard')}
+              icon="📊"
+              label="Project Dashboard"
+            />
             <NavTab
               active={activeTab === 'overview'}
               onClick={() => setActiveTab('overview')}
-              icon="📊"
+              icon="📋"
               label="Overview"
             />
             <NavTab
@@ -194,22 +293,29 @@ export function DashboardPage() {
               active={activeTab === 'recommendations'}
               onClick={() => setActiveTab('recommendations')}
               icon="💡"
-              label="Recommendation Center"
+              label="Recommendations"
               badge={data.recommendations.length}
             />
             <NavTab
               active={activeTab === 'executions'}
               onClick={() => setActiveTab('executions')}
               icon="⚙️"
-              label="Execution Monitor"
+              label="Executions"
               badge={data.executionsInProgress}
               pulse
+            />
+            <NavTab
+              active={activeTab === 'outcomes'}
+              onClick={() => setActiveTab('outcomes')}
+              icon="🎯"
+              label="Outcomes"
+              badge={data.outcomes.length}
             />
             <NavTab
               active={activeTab === 'validation'}
               onClick={() => setActiveTab('validation')}
               icon="📈"
-              label="Product Leverage (H7)"
+              label="Product Leverage"
             />
           </nav>
         )}
@@ -282,8 +388,34 @@ export function DashboardPage() {
             connection={data.connection}
             onConnectionChange={(c) => data.setConnection(c)}
           />
+        ) : reviewingRecommendation ? (
+          <RecommendationReview
+            recommendation={reviewingRecommendation}
+            reasoning={reviewReasoning}
+            findings={data.findings}
+            calibration={reviewCalibration}
+            isReasoningLoading={loadingReview}
+            onFetchReasoning={async (recId) => {
+              if (!selectedWorkspace || !selectedProject) return
+              const r = await apiClient.getReasoning(
+                selectedWorkspace.id,
+                selectedProject.id,
+                recId
+              )
+              setReviewReasoning(r)
+            }}
+            onDecision={handleReviewDecision}
+            onBack={() => {
+              setReviewingRecommendation(null)
+              setReviewReasoning(null)
+              setReviewCalibration(null)
+            }}
+          />
         ) : (
           <div className="flex flex-col gap-8">
+            {activeTab === 'dashboard' && (
+              <ProjectDashboard stats={projectStats} loading={loadingStats} error={globalError} />
+            )}
             {activeTab === 'overview' && (
               <OverviewPanel
                 data={data}
@@ -305,15 +437,39 @@ export function DashboardPage() {
                   if (!selectedWorkspace || !selectedProject) return
                   await data.approveAction(recId, paId)
                 }}
+                onReview={startReview}
               />
             )}
-            {activeTab === 'executions' && <ExecutionsPanel activityLog={data.activityLog} />}
+            {activeTab === 'executions' && (
+              <ExecutionLifecycle
+                actions={actions}
+                activityLog={data.activityLog}
+                outcomes={data.outcomes}
+                loading={false}
+              />
+            )}
+            {activeTab === 'outcomes' && (
+              <OutcomesCenter
+                outcomes={data.outcomes}
+                recommendations={data.recommendations}
+                loading={false}
+              />
+            )}
             {activeTab === 'validation' && (
               <ValidationPanel
                 metrics={data.validationMetrics}
                 profile={data.learningProfile}
                 signals={data.learningSignals}
                 onCompileProfile={data.compileProfile}
+              />
+            )}
+
+            {/* Adaptive Intelligence sidebar widget */}
+            {activeTab !== 'dashboard' && (
+              <AdaptiveTransparency
+                profile={data.learningProfile}
+                signals={data.learningSignals}
+                calibration={data.calibration}
               />
             )}
           </div>

@@ -10,6 +10,7 @@ interface Props {
   selected: Recommendation | null
   onSelect: (r: Recommendation) => void
   onAction: (recId: string, paId: string) => Promise<void>
+  onReview: (rec: Recommendation) => void
 }
 
 export function RecommendationsPanel({
@@ -19,6 +20,7 @@ export function RecommendationsPanel({
   selected,
   onSelect,
   onAction,
+  onReview,
 }: Props) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
@@ -69,6 +71,7 @@ export function RecommendationsPanel({
             projectId={projectId}
             recommendation={selected}
             onAction={onAction}
+            onReview={() => onReview(selected)}
           />
         ) : (
           <div className="rounded-xl border border-dashed border-slate-800 p-8 text-center text-slate-500 text-sm">
@@ -87,11 +90,13 @@ function RecommendationDetail({
   projectId,
   recommendation,
   onAction,
+  onReview,
 }: {
   workspace: Workspace | null
   projectId: string | null
   recommendation: Recommendation
   onAction: (recId: string, paId: string) => Promise<void>
+  onReview: () => void
 }) {
   // All per-recommendation state starts fresh on every selection because the
   // parent remounts this component with key={recommendation.id}. No state is
@@ -343,6 +348,14 @@ function RecommendationDetail({
             Override
           </button>
         </div>
+
+        <button
+          type="button"
+          onClick={onReview}
+          className="rounded-lg py-2.5 text-xs font-bold text-white transition-colors bg-cyan-600 hover:bg-cyan-500 mt-2"
+        >
+          Review in Detail
+        </button>
 
         {overrideOpen && (
           <div className="rounded-xl border border-slate-800 bg-slate-950 p-4 flex flex-col gap-3">

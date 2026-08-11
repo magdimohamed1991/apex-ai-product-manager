@@ -27,6 +27,7 @@ import type {
   LearningSignal,
   PriorityCalibration,
   ProductValidationMetrics,
+  ProjectStats,
 } from '../types'
 
 const DEFAULT_TIMEOUT_MS = 30000
@@ -176,4 +177,6 @@ export const apiClient = {
     apiClient.get<ProductValidationMetrics>(
       `/api/projects/${pId}/product-value?workspaceId=${wsId}`
     ),
+  getProjectStats: (wsId: string, pId: string) =>
+    apiClient.get<ProjectStats>(`/api/projects/${pId}/stats?workspaceId=${wsId}`),
 }

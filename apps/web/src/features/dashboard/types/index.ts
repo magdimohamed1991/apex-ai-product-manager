@@ -103,6 +103,7 @@ export interface Recommendation {
   pmCategory?: string
   priorityScore?: number
   expectedOutcome?: string
+  findingIds?: string[]
 }
 
 export interface Action {
@@ -252,3 +253,49 @@ export interface DecisionMetrics {
   failedCount: number
   unverifiableRate: number
 }
+
+/**
+ * H8-ACTION-8: Project dashboard stats — aggregated from persisted data.
+ */
+export interface ProjectStats {
+  project: {
+    id: string
+    name: string
+    status: string
+    latestAnalysis: {
+      status: string
+      startedAt: string
+      completedAt: string | null
+      error: string | null
+    } | null
+  }
+  recommendations: {
+    total: number
+    byPriority: { critical: number; high: number; medium: number; low: number }
+  }
+  outcomes: {
+    total: number
+    verified: number
+    failed: number
+    pending: number
+  }
+  learning: {
+    profileStatus: string
+    totalDecisionsObserved: number
+    signalCount: number
+    evidenceState: string
+    favoredCategories: string[]
+    ignoredCategories: string[]
+  }
+}
+
+/**
+ * H8-ACTION-5: Execution lifecycle states.
+ */
+export type ExecutionLifecycleState =
+  'pending' | 'approved' | 'executing' | 'succeeded' | 'failed' | 'verified' | 'blocked'
+
+/**
+ * H8-ACTION-3: PM decision options for recommendation review.
+ */
+export type PMDecision = 'ACCEPT' | 'ACCEPT_EXECUTE' | 'REJECT' | 'DEFER' | 'OVERRIDE'
