@@ -48,6 +48,12 @@ export function OutcomesCenter({ outcomes, recommendations, loading }: OutcomesC
           <span className="text-rose-400">
             {outcomes.filter((o) => o.status === 'FAILED').length} failed
           </span>
+          <span className="text-slate-400">
+            {outcomes.filter((o) => o.status === 'NOT_VERIFIABLE').length} not verifiable
+          </span>
+          <span className="text-rose-400">
+            {outcomes.filter((o) => o.status === 'REVERTED').length} reverted
+          </span>
         </div>
       </div>
 
@@ -77,6 +83,9 @@ export function OutcomesCenter({ outcomes, recommendations, loading }: OutcomesC
               <p className="text-[10px] text-slate-500">
                 Verification: {outcome.verificationStatus}
               </p>
+              {outcome.executionId && (
+                <p className="text-[10px] text-slate-600">Execution: {outcome.executionId}</p>
+              )}
               {outcome.verificationEvidence.length > 0 && (
                 <div className="mt-1">
                   <p className="text-[10px] font-bold text-slate-500 uppercase">Evidence</p>

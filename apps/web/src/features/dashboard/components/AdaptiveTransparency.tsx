@@ -26,13 +26,33 @@ export function AdaptiveTransparency({ profile, signals, calibration }: Adaptive
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 Active
               </span>
+              {profile.calibrationVersion && (
+                <span className="text-[10px] text-slate-600">v{profile.calibrationVersion}</span>
+              )}
             </div>
+
+            <p className="text-[10px] text-slate-600">
+              Last updated: {new Date(profile.lastCalculatedAt).toLocaleString()}
+            </p>
 
             {profile.totalDecisionsObserved > 0 && (
               <p className="text-[11px] text-slate-400">
                 {profile.totalDecisionsObserved} decision
                 {profile.totalDecisionsObserved !== 1 ? 's' : ''} observed
               </p>
+            )}
+
+            {(profile.biasAdjustments.overPrioritizedLowEffort ||
+              profile.biasAdjustments.favoredHighImpact) && (
+              <div className="rounded-lg bg-amber-500/5 border border-amber-500/10 p-2">
+                <p className="text-[10px] font-bold text-amber-400 uppercase mb-1">Detected bias</p>
+                <div className="flex flex-col gap-0.5 text-[11px] text-slate-400">
+                  {profile.biasAdjustments.overPrioritizedLowEffort && (
+                    <p>Over-prioritizing low-effort items</p>
+                  )}
+                  {profile.biasAdjustments.favoredHighImpact && <p>Favoring high-impact items</p>}
+                </div>
+              </div>
             )}
 
             {profile.PMPreferences.favoredCategories.length > 0 && (
@@ -76,19 +96,26 @@ export function AdaptiveTransparency({ profile, signals, calibration }: Adaptive
                 <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">
                   Category behavior
                 </p>
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-2">
                   {profile.categoryCoefficients.map((cc) => (
-                    <div key={cc.category} className="flex items-center gap-2 text-[11px]">
-                      <span className="text-slate-400 w-20">{cc.category}</span>
-                      <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-indigo-500 rounded-full"
-                          style={{ width: `${Math.min(cc.pmCalibrationWeight * 100, 100)}%` }}
-                        />
+                    <div key={cc.category} className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span className="text-slate-400 w-20">{cc.category}</span>
+                        <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-indigo-500 rounded-full"
+                            style={{ width: `${Math.min(cc.pmCalibrationWeight * 100, 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-slate-500 w-12 text-right">
+                          {cc.pmCalibrationWeight.toFixed(2)}x
+                        </span>
                       </div>
-                      <span className="text-slate-500 w-12 text-right">
-                        {cc.pmCalibrationWeight.toFixed(2)}x
-                      </span>
+                      <div className="flex gap-3 text-[9px] text-slate-600 pl-22">
+                        <span>adopt: {Math.round(cc.adoptionRate * 100)}%</span>
+                        <span>success: {Math.round(cc.executionSuccessRate * 100)}%</span>
+                        <span>verified: {Math.round(cc.outcomeVerifiedRate * 100)}%</span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -109,11 +136,52 @@ export function AdaptiveTransparency({ profile, signals, calibration }: Adaptive
             <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">
               Latest calibration
             </p>
+            <div className="flex items-center gap-3 text-[11px] mb-1">
+              <span className="text-slate-400">
+                Base:{' '}
+                <span className="text-white font-bold">{calibration.baseScore.toFixed(2)}</span>
+              </span>
+              <span className="text-slate-600">→</span>
+              <span className="text-slate-400">
+                Calibrated:{' '}
+                <span className="text-white font-bold">
+                  {calibration.calibratedScore.toFixed(2)}
+                </span>
+              </span>
+            </div>
+            <div className="flex gap-3 text-[10px] text-slate-600 mb-1">
+              <span>Preference: {calibration.preferenceMultiplier.toFixed(2)}x</span>
+              <span>
+                Outcome reliability: {calibration.outcomeReliabilityMultiplier.toFixed(2)}x
+              </span>
+            </div>
+            {calibration.calibrationVersion && (
+              <p className="text-[10px] text-slate-600 mb-1">
+                Version: {calibration.calibrationVersion}
+              </p>
+            )}
             <p className="text-[11px] text-slate-400">{calibration.explanation}</p>
             {calibration.safetyFloorEnforced && (
               <p className="text-[10px] text-amber-400 mt-1">
                 Safety floor was enforced on this recommendation
               </p>
+            )}
+            {calibration.appliedSignals.length > 0 && (
+              <div className="mt-2">
+                <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">
+                  Applied signals ({calibration.appliedSignals.length})
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {calibration.appliedSignals.map((sig) => (
+                    <span
+                      key={sig.id}
+                      className="px-1.5 py-0.5 rounded text-[9px] bg-slate-800 text-slate-400"
+                    >
+                      {sig.category}: {sig.value.toFixed(2)}
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         )}
