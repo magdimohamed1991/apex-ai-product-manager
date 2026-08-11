@@ -38,7 +38,6 @@ import type {
   LLMProvider,
   RichRecommendation,
   Recommendation as ApiRecommendation,
-  Recommendation,
   AIProductReasoning,
   UserRecord,
   VerificationEvidence,
@@ -527,20 +526,42 @@ async function processWorkspaceActions() {
       }
       for (const action of pending) {
         try {
-          // H8-ACTION-1: Workspace-only lookup is intentional here — the
-          // background worker iterates all pending actions in a workspace.
-          // The action already belongs to this workspace; the recommendation
-          // lookup is for extracting the projectId to resolve the repository
-          // connection. The workspace scope is sufficient because the action
-          // was created from this workspace's recommendation pipeline.
-          const rec = await productRepository.getRecommendationByIdAndWorkspace(
+          // H8-ACTION-1: Determine project ownership before execution.
+          // The worker must NEVER execute against an ambiguous or wrong project.
+          if (!productRepository) {
+            logger.warn('Worker skipping action: productRepository not initialized')
+            continue
+          }
+          const projectIds = await productRepository.findProjectIdsForRecommendation(
             action.relatedRecommendationId,
             wsIdObj
           )
-          const projectId = (rec as (Recommendation & { projectId?: string }) | null)?.projectId
-          const conn = projectId
-            ? await productRepository.getRepositoryConnectionByProject(projectId, wsIdObj)
-            : null
+
+          // Case 0: No matching recommendation — cannot determine project
+          if (projectIds.length === 0) {
+            logger.warn('Worker skipping action: recommendation not found', {
+              actionId: action.id,
+              recommendationId: action.relatedRecommendationId,
+              workspaceId: wsId,
+            })
+            continue
+          }
+
+          // Case >1: Ambiguous — same recommendation ID in multiple projects
+          if (projectIds.length > 1) {
+            logger.error('Worker refusing action: ambiguous recommendation ownership', {
+              actionId: action.id,
+              recommendationId: action.relatedRecommendationId,
+              workspaceId: wsId,
+              projectCount: projectIds.length,
+              projectIds,
+            })
+            continue
+          }
+
+          // Case 1: Unique — safe to proceed
+          const projectId = projectIds[0]
+          const conn = await productRepository.getRepositoryConnectionByProject(projectId, wsIdObj)
           const context = {
             workspaceId: wsIdObj,
             credentials: {

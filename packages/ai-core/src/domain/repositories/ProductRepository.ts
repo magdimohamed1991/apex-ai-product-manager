@@ -59,6 +59,15 @@ export interface ProductRepository {
   ): Promise<Recommendation | null>
   saveRecommendation(rec: Recommendation, projectId: string): Promise<void>
   deleteRecommendationsByProject(projectId: string, workspaceId: WorkspaceId): Promise<void>
+  /**
+   * Returns all project IDs that contain a recommendation with the given ID
+   * in the specified workspace. Used by the background worker to detect
+   * cross-project ambiguity before execution.
+   */
+  findProjectIdsForRecommendation(
+    recommendationId: string,
+    workspaceId: WorkspaceId
+  ): Promise<string[]>
 
   // AI Product Reasoning operations
   /** Project-owned reasoning lookup. Use at authorization boundaries. */

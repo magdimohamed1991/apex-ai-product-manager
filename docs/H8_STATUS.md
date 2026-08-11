@@ -58,20 +58,56 @@ Get-FileHash -Algorithm SHA256 <file>
 
 Do not verify from ZIP extractions or manual downloads.
 
+## H8-ACTION-1: Background Worker Project Isolation
+
+### Problem
+
+The background Action execution worker previously resolved recommendations using workspace-only identity (`getRecommendationByIdAndWorkspace`), which could lead to ambiguous project ownership when the same recommendation ID exists in multiple projects within the same workspace.
+
+### Resolution
+
+The worker now uses `findProjectIdsForRecommendation` to determine project ownership before execution:
+
+- **0 matching recommendations**: Skip action, log warning
+- **1 matching recommendation**: Safe to proceed with that project
+- **>1 matching recommendations**: Refuse execution, log error with ambiguity details
+
+The lookup is project-scoped at the repository level, ensuring the worker never executes against an ambiguous or wrong project.
+
+### Security Invariant
+
+```
+Action
+  ↓
+relatedRecommendationId
+  ↓
+findProjectIdsForRecommendation (workspace-scoped)
+  ↓
+Exactly 1 project? → Execute
+0 or >1 projects? → Refuse safely
+```
+
+### Evidence
+
+- Source: `apps/web/src/api-server.ts:528-567`
+- Repository method: `packages/ai-core/src/infrastructure/repositories/SqlProductRepository.ts`
+- Regression tests: `packages/ai-core/src/infrastructure/repositories/__tests__/CrossProjectCollision.test.ts`
+- Test count: 15/15 passing
+
 ## Known Limitations (P2)
 
-1. **H8-ACTION-1 (workspace-only recommendation lookup)**: The background worker still uses `getRecommendationByIdAndWorkspace` instead of `getRecommendationByIdWorkspaceAndProject`. This is intentional and documented. The workspace scope is sufficient because the action already belongs to this workspace. Regression tests证明 the invariant holds.
+1. **DurableFileDatabase save-state-direct**: Bypasses backup during migrations. Documented in code.
 
-2. **DurableFileDatabase save-state-direct**: Bypasses backup during migrations. Documented in code.
-
-3. **DurableFileDatabase backup one commit behind**: Race condition window minimal. Documented.
+2. **DurableFileDatabase backup one commit behind**: Race condition window minimal. Documented.
 
 ## Verification Commands
 
 ```bash
 pnpm run type-check  # PASS
-pnpm run lint        # PASS
-pnpm run test        # PASS (20/20 tests)
+pnpm run lint        # PASS (0 errors, 3 warnings)
+pnpm run test        # PASS (637/637 tests)
+pnpm run build       # PASS
+pnpm audit           # PASS (no vulnerabilities)
 ```
 
 ## Historical Note

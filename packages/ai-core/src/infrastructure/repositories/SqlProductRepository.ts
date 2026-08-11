@@ -343,6 +343,16 @@ export class SqlProductRepository implements ProductRepository {
     }
   }
 
+  async findProjectIdsForRecommendation(
+    recommendationId: string,
+    workspaceId: WorkspaceId
+  ): Promise<string[]> {
+    const state = this.db.getActiveState()
+    const recs = (state.recommendations as StoredRecommendation[] | undefined) ?? []
+    const matching = recs.filter((r) => r.id === recommendationId && r.workspaceId === workspaceId)
+    return [...new Set(matching.map((r) => r.projectId))]
+  }
+
   async getAIProductReasoningByWorkspaceAndProject(
     recommendationId: string,
     workspaceId: WorkspaceId,
