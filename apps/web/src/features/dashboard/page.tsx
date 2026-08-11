@@ -206,7 +206,12 @@ export function DashboardPage() {
     }
   }
 
-  async function handleReviewDecision(recId: string, decision: string) {
+  async function handleReviewDecision(
+    recId: string,
+    decision: string,
+    _paId?: string,
+    pmSelectedPriority?: number
+  ) {
     if (!selectedWorkspace || !selectedProject) return
     const now = new Date().toISOString()
     await apiClient.recordDecision(selectedWorkspace.id, selectedProject.id, {
@@ -215,6 +220,7 @@ export function DashboardPage() {
       decisionStartedAt: now,
       decisionCompletedAt: now,
       recommendationPresentedAt: now,
+      pmSelectedPriority,
     })
     if (decision === 'ACCEPT' || decision === 'ACCEPT_EXECUTE') {
       await data.approveAction(recId, reviewingRecommendation?.proposedActions?.[0]?.id || '')

@@ -8,7 +8,12 @@ interface RecommendationReviewProps {
   calibration: PriorityCalibration | null
   isReasoningLoading: boolean
   onFetchReasoning: (recId: string) => Promise<void>
-  onDecision: (recId: string, decision: string, paId?: string) => Promise<void>
+  onDecision: (
+    recId: string,
+    decision: string,
+    paId?: string,
+    pmSelectedPriority?: number
+  ) => Promise<void>
   onBack: () => void
 }
 
@@ -26,6 +31,23 @@ export function RecommendationReview({
   const [overridePriority, setOverridePriority] = useState('')
   const [showOverride, setShowOverride] = useState(false)
 
+  function confidenceLabel(c: number): string {
+    if (c >= 0.8) return 'Strong — multiple sources confirm this finding'
+    if (c >= 0.6) return 'Moderate — consistent signals but limited data points'
+    if (c >= 0.4) return 'Weak — early signals, needs more data to confirm'
+    return 'Insufficient — preliminary assessment only'
+  }
+
+  function riskLabel(rec: Recommendation): string {
+    const parts: string[] = []
+    if (rec.effort === 'high') parts.push('High implementation effort')
+    if (rec.confidence < 0.5) parts.push('Low confidence — evidence is preliminary')
+    if (rec.priorityScore !== undefined && rec.priorityScore < 4)
+      parts.push('Low priority score — may not justify the investment')
+    if (parts.length === 0) parts.push('Standard risk — moderate effort with reasonable confidence')
+    return parts.join('; ')
+  }
+
   const relatedFindings = findings.filter((f) => rec.findingIds?.includes(f.id))
 
   async function handleDecision(decision: string) {
@@ -38,10 +60,11 @@ export function RecommendationReview({
   }
 
   async function handleOverride() {
-    if (!overridePriority) return
+    const value = Number(overridePriority)
+    if (!Number.isFinite(value) || value < 0 || value > 10) return
     setDecisionPending(true)
     try {
-      await onDecision(rec.id, 'OVERRIDE')
+      await onDecision(rec.id, 'OVERRIDE', undefined, Math.round(value * 10) / 10)
     } finally {
       setDecisionPending(false)
     }
@@ -79,7 +102,7 @@ export function RecommendationReview({
                 </span>
               )}
               <span className="text-[10px] text-slate-500">
-                Confidence: {Math.round(rec.confidence * 100)}%
+                Confidence: {Math.round(rec.confidence * 100)}% — {confidenceLabel(rec.confidence)}
               </span>
             </div>
             <h2 className="text-xl font-extrabold text-white">{rec.title}</h2>
@@ -137,14 +160,38 @@ export function RecommendationReview({
               </Section>
             )}
 
+            <Section title="Why This Priority">
+              <div className="text-xs text-slate-400 space-y-1">
+                {rec.priorityScore !== undefined && (
+                  <p>
+                    H3 deterministic score:{' '}
+                    <span className="text-white font-bold">{rec.priorityScore.toFixed(1)}</span>
+                  </p>
+                )}
+                {relatedFindings.length > 0 && (
+                  <p>
+                    Backed by <span className="text-white font-bold">{relatedFindings.length}</span>{' '}
+                    linked finding{relatedFindings.length !== 1 ? 's' : ''}
+                  </p>
+                )}
+                <p>
+                  Confidence:{' '}
+                  <span className="text-white font-bold">{Math.round(rec.confidence * 100)}%</span>
+                </p>
+                {calibration && (
+                  <p>
+                    Post-calibration adjustment:{' '}
+                    <span className="text-white font-bold">
+                      {calibration.calibratedScore > calibration.baseScore ? '+' : ''}
+                      {(calibration.calibratedScore - calibration.baseScore).toFixed(2)}
+                    </span>
+                  </p>
+                )}
+              </div>
+            </Section>
+
             <Section title="Risk">
-              <p className="text-sm text-slate-300">
-                {rec.effort === 'high'
-                  ? 'High effort — significant time investment required'
-                  : rec.effort === 'medium'
-                    ? 'Moderate effort — manageable with planning'
-                    : 'Low effort — quick implementation'}
-              </p>
+              <p className="text-sm text-slate-300">{riskLabel(rec)}</p>
             </Section>
           </div>
         </div>
@@ -164,36 +211,99 @@ export function RecommendationReview({
         </div>
 
         {reasoning && !reasoning.unavailable ? (
-          <div className="flex flex-col gap-3">
-            <p className="text-sm text-slate-300">{reasoning.rationale}</p>
+          <div className="flex flex-col gap-4">
+            <div>
+              <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-1">
+                Strategic Rationale
+              </p>
+              <p className="text-sm text-slate-300 italic">&ldquo;{reasoning.rationale}&rdquo;</p>
+            </div>
+
+            {reasoning.impactExplanation && (
+              <div>
+                <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Impact</p>
+                <p className="text-xs text-slate-400">{reasoning.impactExplanation}</p>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-500 uppercase">AI Confidence</span>
+              <span className="text-xs text-white font-bold">
+                {Math.round(reasoning.confidence * 100)}%
+              </span>
+              {reasoning.recommendedDecision && (
+                <>
+                  <span className="text-slate-600">·</span>
+                  <span className="text-[10px] text-slate-500">Recommended:</span>
+                  <span className="text-xs font-bold text-indigo-400">
+                    {reasoning.recommendedDecision}
+                  </span>
+                </>
+              )}
+            </div>
+
             {reasoning.tradeoffs.length > 0 && (
               <div>
                 <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Trade-offs</p>
-                {reasoning.tradeoffs.map((t, i) => (
-                  <p key={i} className="text-xs text-slate-400">
-                    • {t}
-                  </p>
-                ))}
+                <ul className="list-disc list-inside text-xs text-slate-400 flex flex-col gap-1">
+                  {reasoning.tradeoffs.map((t, i) => (
+                    <li key={i}>{t}</li>
+                  ))}
+                </ul>
               </div>
             )}
+
+            {reasoning.alternatives.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">
+                  Alternatives Considered
+                </p>
+                <div className="flex flex-col gap-2">
+                  {reasoning.alternatives.map((alt, i) => (
+                    <div key={i} className="rounded-lg bg-slate-800/50 p-3">
+                      <div className="flex justify-between items-center text-xs mb-1">
+                        <span className="font-bold text-white">{alt.label}</span>
+                        <span className="text-[10px] text-slate-500">
+                          Effort: {alt.effort} · Impact: {alt.impact}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">{alt.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {reasoning.knowns.length > 0 && (
               <div>
                 <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Knowns</p>
-                {reasoning.knowns.map((k, i) => (
-                  <p key={i} className="text-xs text-slate-400">
-                    • {k}
-                  </p>
-                ))}
+                <ul className="list-disc list-inside text-xs text-slate-400 flex flex-col gap-1">
+                  {reasoning.knowns.map((k, i) => (
+                    <li key={i}>{k}</li>
+                  ))}
+                </ul>
               </div>
             )}
+
+            {reasoning.inferences.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-indigo-400 uppercase mb-1">Inferences</p>
+                <ul className="list-disc list-inside text-xs text-slate-400 flex flex-col gap-1">
+                  {reasoning.inferences.map((inf, i) => (
+                    <li key={i}>{inf}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {reasoning.unknowns.length > 0 && (
               <div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Unknowns</p>
-                {reasoning.unknowns.map((u, i) => (
-                  <p key={i} className="text-xs text-slate-400">
-                    • {u}
-                  </p>
-                ))}
+                <p className="text-[10px] font-bold text-amber-500 uppercase mb-1">Unknowns</p>
+                <ul className="list-disc list-inside text-xs text-slate-400 flex flex-col gap-1">
+                  {reasoning.unknowns.map((u, i) => (
+                    <li key={i}>{u}</li>
+                  ))}
+                </ul>
               </div>
             )}
           </div>
@@ -248,26 +358,32 @@ export function RecommendationReview({
         </div>
 
         {showOverride && (
-          <div className="mt-4 flex items-center gap-3">
-            <label className="text-xs text-slate-400">Override priority:</label>
-            <select
-              value={overridePriority}
-              onChange={(e) => setOverridePriority(e.target.value)}
-              className="rounded-lg border border-slate-700 bg-slate-800 text-white text-xs px-3 py-1.5"
-            >
-              <option value="">Select priority</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-            <button
-              onClick={handleOverride}
-              disabled={!overridePriority || decisionPending}
-              className="rounded-lg bg-purple-600 text-white text-xs font-bold px-4 py-1.5 disabled:opacity-50"
-            >
-              Confirm Override
-            </button>
+          <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4 flex flex-col gap-3">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              Override — PM numeric priority (0–10)
+            </span>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={0.1}
+                value={overridePriority}
+                onChange={(e) => setOverridePriority(e.target.value)}
+                placeholder={`APEX H6: ${rec.priorityScore?.toFixed(1) ?? '—'}`}
+                className="flex-1 min-w-0 rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-purple-500"
+              />
+              <button
+                onClick={handleOverride}
+                disabled={!overridePriority || decisionPending}
+                className="rounded-lg bg-purple-600 hover:bg-purple-500 px-4 py-2 text-xs font-bold text-white transition-colors disabled:opacity-50"
+              >
+                {decisionPending ? 'Recording...' : 'Record Override'}
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500">
+              The recorded delta is |H6 calibrated score − PM priority|, computed server-side.
+            </p>
           </div>
         )}
       </div>
