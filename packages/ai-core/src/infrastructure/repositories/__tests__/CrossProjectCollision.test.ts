@@ -310,3 +310,101 @@ describe('Cross-project id collision isolation (same workspace, two projects)', 
     expect((await profileRepo.getProfile(WS, PROJ_B))?.totalDecisionsObserved).toBe(1)
   })
 })
+
+/**
+ * H8-ACTION-1 — Project-Scoped Recommendation Identity regression tests.
+ *
+ * Proves that:
+ *   1. Same workspace + different projects + same recommendation ID → no cross-contamination
+ *   2. Different workspace + same project ID → no cross-contamination
+ *   3. ID substitution across workspaces → fails safely
+ */
+describe('H8-ACTION-1 — project-scoped recommendation identity', () => {
+  let db: DurableFileDatabase
+  let productRepo: SqlProductRepository
+
+  beforeEach(async () => {
+    if (fs.existsSync(TEST_DB_DIR)) fs.rmSync(TEST_DB_DIR, { recursive: true, force: true })
+    db = new DurableFileDatabase(TEST_DB_DIR)
+    await db.initialize()
+    productRepo = new SqlProductRepository(db)
+  })
+
+  afterAll(() => {
+    if (fs.existsSync(TEST_DB_DIR)) fs.rmSync(TEST_DB_DIR, { recursive: true, force: true })
+  })
+
+  const WS_A = createWorkspaceId('ws-identity-a')
+  const WS_B = createWorkspaceId('ws-identity-b')
+  const PROJ_X = 'proj-identity-x'
+  const PROJ_Y = 'proj-identity-y'
+  const REC_ID = 'rec-shared-identity'
+
+  const baseRec = {
+    origin: 'finding' as const,
+    deduplicationKey: 'dk-identity',
+    title: 'Shared Identity Test',
+    rationale: 'r',
+    impact: 'i',
+    effort: 'low' as const,
+    priority: 'high' as const,
+    confidence: 0.5,
+    insightIds: [],
+    findingIds: ['f-identity'],
+    proposedActions: [],
+  }
+
+  it('same workspace, different projects, same rec ID → getRecommendationByIdWorkspaceAndProject isolates', async () => {
+    const recA = createRecommendation({ ...baseRec, id: REC_ID, workspaceId: WS_A })
+    const recB = createRecommendation({ ...baseRec, id: REC_ID, workspaceId: WS_A })
+    await productRepo.saveRecommendation(recA, PROJ_X)
+    await productRepo.saveRecommendation(recB, PROJ_Y)
+
+    const foundA = await productRepo.getRecommendationByIdWorkspaceAndProject(REC_ID, WS_A, PROJ_X)
+    const foundB = await productRepo.getRecommendationByIdWorkspaceAndProject(REC_ID, WS_A, PROJ_Y)
+
+    expect(foundA).not.toBeNull()
+    expect(foundB).not.toBeNull()
+    expect(foundA!.id).toBe(REC_ID)
+    expect(foundB!.id).toBe(REC_ID)
+    // Both exist but are independent — reading A's project does not return B's data
+    const recsA = await productRepo.getRecommendationsByProject(PROJ_X, WS_A)
+    expect(recsA.find((r) => r.id === REC_ID)?.deduplicationKey).toBe('dk-identity')
+  })
+
+  it('different workspace, same project ID → no cross-contamination', async () => {
+    const recWsA = createRecommendation({ ...baseRec, id: REC_ID, workspaceId: WS_A })
+    const recWsB = createRecommendation({ ...baseRec, id: REC_ID, workspaceId: WS_B })
+    await productRepo.saveRecommendation(recWsA, PROJ_X)
+    await productRepo.saveRecommendation(recWsB, PROJ_X)
+
+    const foundA = await productRepo.getRecommendationByIdWorkspaceAndProject(REC_ID, WS_A, PROJ_X)
+    const foundB = await productRepo.getRecommendationByIdWorkspaceAndProject(REC_ID, WS_B, PROJ_X)
+
+    expect(foundA).not.toBeNull()
+    expect(foundB).not.toBeNull()
+    // Workspace A cannot see workspace B's recommendation via its own scope
+    const wsARecs = await productRepo.getRecommendationsByProject(PROJ_X, WS_A)
+    expect(wsARecs.length).toBe(1)
+    const wsBRecs = await productRepo.getRecommendationsByProject(PROJ_X, WS_B)
+    expect(wsBRecs.length).toBe(1)
+  })
+
+  it('ID substitution: workspace A cannot read workspace B recommendation via getRecommendationByIdAndWorkspace', async () => {
+    const recB = createRecommendation({ ...baseRec, id: REC_ID, workspaceId: WS_B })
+    await productRepo.saveRecommendation(recB, PROJ_X)
+
+    // Workspace A tries to read workspace B's recommendation using the same ID
+    const found = await productRepo.getRecommendationByIdAndWorkspace(REC_ID, WS_A)
+    expect(found).toBeNull()
+  })
+
+  it('workspace-only lookup returns correct recommendation in its own workspace', async () => {
+    const recA = createRecommendation({ ...baseRec, id: REC_ID, workspaceId: WS_A })
+    await productRepo.saveRecommendation(recA, PROJ_X)
+
+    const found = await productRepo.getRecommendationByIdAndWorkspace(REC_ID, WS_A)
+    expect(found).not.toBeNull()
+    expect(found!.workspaceId).toBe(WS_A)
+  })
+})

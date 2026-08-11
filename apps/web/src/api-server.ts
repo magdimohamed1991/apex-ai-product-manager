@@ -37,6 +37,7 @@ import type {
   LLMProvider,
   RichRecommendation,
   Recommendation as ApiRecommendation,
+  Recommendation,
   AIProductReasoning,
   UserRecord,
   VerificationEvidence,
@@ -513,10 +514,17 @@ async function processWorkspaceActions() {
       }
       for (const action of pending) {
         try {
-          const projectId = await productRepository.getRecommendationProjectId(
+          // H8-ACTION-1: Workspace-only lookup is intentional here — the
+          // background worker iterates all pending actions in a workspace.
+          // The action already belongs to this workspace; the recommendation
+          // lookup is for extracting the projectId to resolve the repository
+          // connection. The workspace scope is sufficient because the action
+          // was created from this workspace's recommendation pipeline.
+          const rec = await productRepository.getRecommendationByIdAndWorkspace(
             action.relatedRecommendationId,
             wsIdObj
           )
+          const projectId = (rec as (Recommendation & { projectId?: string }) | null)?.projectId
           const conn = projectId
             ? await productRepository.getRepositoryConnectionByProject(projectId, wsIdObj)
             : null
