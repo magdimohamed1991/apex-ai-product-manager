@@ -48,11 +48,18 @@ export function ProjectDashboard({ stats, loading, error }: ProjectDashboardProp
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-extrabold text-white">{stats.project.name}</h2>
+          <p className="text-[11px] text-slate-500">Status: {stats.project.status}</p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Recommendations"
           value={stats.recommendations.total}
-          detail={`${stats.recommendations.byPriority.critical} critical, ${stats.recommendations.byPriority.high} high`}
+          detail={`${stats.recommendations.byPriority.critical} critical, ${stats.recommendations.byPriority.high} high, ${stats.recommendations.byPriority.medium} med, ${stats.recommendations.byPriority.low} low`}
           color="indigo"
         />
         <StatCard
