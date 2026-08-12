@@ -35,6 +35,14 @@ import {
   transitionAction,
   createActionTransitionRecord,
   createExecution,
+  SqlCompetitorRepository,
+  SqlUXRepository,
+  SqlBrowserIntelligenceRepository,
+  SqlExecutiveRepository,
+  CompetitorIntelligenceService,
+  UXIntelligenceService,
+  BrowserIntelligenceService,
+  ExecutiveIntelligenceService,
 } from '@apex/ai-core'
 
 import type {
@@ -47,6 +55,9 @@ import type {
   PMDecisionKind,
   RecommendationOutcome,
   LearningSignal,
+  CrawlJobTarget,
+  ReportPeriod,
+  ReportFormat,
 } from '@apex/ai-core'
 import {
   OpenAIResponsesProvider,
@@ -175,6 +186,10 @@ let database: DurableFileDatabase | null = null
 let authService: AuthService | null = null
 let llmProvider: LLMProvider | null = null
 let workerInterval: NodeJS.Timeout | null = null
+let competitorService: CompetitorIntelligenceService | null = null
+let uxIntelligenceService: UXIntelligenceService | null = null
+let browserIntelligenceService: BrowserIntelligenceService | null = null
+let executiveIntelligenceService: ExecutiveIntelligenceService | null = null
 
 const logger = new Logger('api.server')
 const authRateLimiter = new AuthRateLimiter(5, 15 * 60 * 1000)
@@ -357,6 +372,34 @@ export async function initApiServer() {
   )
   const telemetryService = new PMDecisionTelemetryService(productRepository)
 
+  // H9–H12 intelligence composition root
+  const competitorRepository = new SqlCompetitorRepository(database)
+  const uxRepository = new SqlUXRepository(database)
+  const browserIntelligenceRepository = new SqlBrowserIntelligenceRepository(database)
+  const executiveRepository = new SqlExecutiveRepository(database)
+  competitorService = new CompetitorIntelligenceService(competitorRepository, productRepository)
+  uxIntelligenceService = new UXIntelligenceService(
+    uxRepository,
+    productRepository,
+    browserIntelligenceRepository
+  )
+  browserIntelligenceService = new BrowserIntelligenceService(
+    browserIntelligenceRepository,
+    productRepository
+  )
+  // The product repository is the H7 telemetry store (it implements
+  // PMDecisionTelemetryStore); the telemetry SERVICE validates decision
+  // recording and is not itself a store.
+  executiveIntelligenceService = new ExecutiveIntelligenceService(
+    executiveRepository,
+    productRepository,
+    actionRepository,
+    outcomeRepository,
+    competitorRepository,
+    uxRepository,
+    productRepository
+  )
+
   productService = new APEXProductService(
     productRepository,
     actionRepository,
@@ -493,6 +536,10 @@ export function shutdownApiServer(): void {
   database = null
   authService = null
   llmProvider = null
+  competitorService = null
+  uxIntelligenceService = null
+  browserIntelligenceService = null
+  executiveIntelligenceService = null
 }
 
 /**
@@ -1564,6 +1611,454 @@ export async function handleApiRequest(
 
       const telemetry = await productRepository.getPMDecisionTelemetryByProject(projectId, wsId)
       sendJson(res, telemetry)
+      return true
+    }
+
+    // -- H9 Competitor Intelligence --
+
+    const competitorAnalysisMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/competitor-analysis$/
+    )
+    if (competitorAnalysisMatch && method === 'POST') {
+      const projectId = competitorAnalysisMatch[1]
+      const body = await getBody(req)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'competitor-analysis')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await competitorService!.runCompetitorAnalysis(wsId, projectId))
+      return true
+    }
+    if (competitorAnalysisMatch && method === 'GET') {
+      const projectId = competitorAnalysisMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'competitor-analysis')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await competitorService!.getAnalysis(wsId, projectId))
+      return true
+    }
+
+    const competitorsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/competitors$/)
+    if (competitorsMatch && method === 'POST') {
+      const projectId = competitorsMatch[1]
+      const body = await getBody(req)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'competitors')) return true
+      const name = String(body?.name || '').trim()
+      const slug = String(body?.slug || '').trim()
+      const tier = String(body?.tier || '').trim()
+      const websiteUrl = String(body?.websiteUrl || '').trim()
+      if (!name || !slug || !tier || !websiteUrl) {
+        sendError(
+          res,
+          new ValidationError('Missing required fields (name, slug, tier, websiteUrl)')
+        )
+        return true
+      }
+      const validTiers = ['direct', 'indirect', 'aspirational', 'emerging']
+      if (!validTiers.includes(tier)) {
+        sendError(
+          res,
+          new ValidationError('Invalid tier — expected direct|indirect|aspirational|emerging')
+        )
+        return true
+      }
+      const wsId = createWorkspaceId(auth.workspaceId)
+      const competitor = await competitorService!.addCompetitor(wsId, projectId, {
+        name,
+        slug,
+        tier: tier as 'direct' | 'indirect' | 'aspirational' | 'emerging',
+        websiteUrl,
+        description: body?.description ? String(body.description) : null,
+      })
+      sendJson(res, competitor)
+      return true
+    }
+    if (competitorsMatch && method === 'GET') {
+      const projectId = competitorsMatch[1]
+      if (!/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) {
+        sendError(res, new ValidationError('Invalid project ID format'))
+        return true
+      }
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'competitors')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await competitorService!.getCompetitors(wsId, projectId))
+      return true
+    }
+
+    const featureMatrixMatch = pathname.match(/^\/api\/projects\/([^/]+)\/feature-matrix$/)
+    if (featureMatrixMatch && method === 'GET') {
+      const projectId = featureMatrixMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'feature-matrix')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await competitorService!.getFeatureMatrix(wsId, projectId))
+      return true
+    }
+
+    const positioningMatrixMatch = pathname.match(/^\/api\/projects\/([^/]+)\/positioning-matrix$/)
+    if (positioningMatrixMatch && method === 'GET') {
+      const projectId = positioningMatrixMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'positioning-matrix')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await competitorService!.getPositioningMatrix(wsId, projectId))
+      return true
+    }
+
+    const differentiationMatch = pathname.match(/^\/api\/projects\/([^/]+)\/differentiation$/)
+    if (differentiationMatch && method === 'GET') {
+      const projectId = differentiationMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'differentiation')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await competitorService!.getDifferentiationAnalysis(wsId, projectId))
+      return true
+    }
+
+    const marketOpportunitiesMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/market-opportunities$/
+    )
+    if (marketOpportunitiesMatch && method === 'GET') {
+      const projectId = marketOpportunitiesMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'market-opportunities')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await competitorService!.getMarketOpportunities(wsId, projectId))
+      return true
+    }
+
+    const competitorRecommendationsMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/competitor-recommendations$/
+    )
+    if (competitorRecommendationsMatch && method === 'GET') {
+      const projectId = competitorRecommendationsMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'competitor-recommendations')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await competitorService!.getCompetitorRecommendations(wsId, projectId))
+      return true
+    }
+
+    // -- H10 UX Intelligence --
+
+    const uxAnalysisMatch = pathname.match(/^\/api\/projects\/([^/]+)\/ux-analysis$/)
+    if (uxAnalysisMatch && method === 'POST') {
+      const projectId = uxAnalysisMatch[1]
+      const body = await getBody(req)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'ux-analysis')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await uxIntelligenceService!.runUXAnalysis(wsId, projectId))
+      return true
+    }
+    if (uxAnalysisMatch && method === 'GET') {
+      const projectId = uxAnalysisMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'ux-analysis')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await uxIntelligenceService!.getUXAnalysis(wsId, projectId))
+      return true
+    }
+
+    const userJourneysMatch = pathname.match(/^\/api\/projects\/([^/]+)\/user-journeys$/)
+    if (userJourneysMatch && method === 'POST') {
+      const projectId = userJourneysMatch[1]
+      const body = await getBody(req)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'user-journeys')) return true
+      const name = String(body?.name || '').trim()
+      const description = String(body?.description || '').trim()
+      if (!name || !description) {
+        sendError(res, new ValidationError('Missing required fields (name, description)'))
+        return true
+      }
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(
+        res,
+        await uxIntelligenceService!.addUserJourney(wsId, projectId, {
+          name,
+          description,
+          completionRate: typeof body?.completionRate === 'number' ? body.completionRate : null,
+        })
+      )
+      return true
+    }
+    if (userJourneysMatch && method === 'GET') {
+      const projectId = userJourneysMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'user-journeys')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await uxIntelligenceService!.getJourneys(wsId, projectId))
+      return true
+    }
+
+    const frictionPointsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/friction-points$/)
+    if (frictionPointsMatch && method === 'POST') {
+      const projectId = frictionPointsMatch[1]
+      const body = await getBody(req)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'friction-points')) return true
+      const title = String(body?.title || '').trim()
+      const description = String(body?.description || '').trim()
+      const severity = String(body?.severity || '').trim()
+      const category = String(body?.category || '').trim()
+      const estimatedImpact = String(body?.estimatedImpact || 'medium').trim()
+      if (!title || !description || !severity || !category) {
+        sendError(
+          res,
+          new ValidationError('Missing required fields (title, description, severity, category)')
+        )
+        return true
+      }
+      if (!['critical', 'high', 'medium', 'low'].includes(severity)) {
+        sendError(res, new ValidationError('Invalid severity — expected critical|high|medium|low'))
+        return true
+      }
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(
+        res,
+        await uxIntelligenceService!.addFrictionPoint(wsId, projectId, {
+          title,
+          description,
+          severity: severity as 'critical' | 'high' | 'medium' | 'low',
+          category,
+          estimatedImpact: (estimatedImpact as 'low' | 'medium' | 'high') || 'medium',
+          suggestedFix: body?.suggestedFix ? String(body.suggestedFix) : null,
+        })
+      )
+      return true
+    }
+    if (frictionPointsMatch && method === 'GET') {
+      const projectId = frictionPointsMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'friction-points')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await uxIntelligenceService!.getFrictionPoints(wsId, projectId))
+      return true
+    }
+
+    const uxRecommendationsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/ux-recommendations$/)
+    if (uxRecommendationsMatch && method === 'GET') {
+      const projectId = uxRecommendationsMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'ux-recommendations')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await uxIntelligenceService!.getUXRecommendations(wsId, projectId))
+      return true
+    }
+
+    // -- H11 Browser Intelligence --
+
+    const crawlMatch = pathname.match(/^\/api\/projects\/([^/]+)\/crawl$/)
+    if (crawlMatch && method === 'POST') {
+      const projectId = crawlMatch[1]
+      const body = await getBody(req)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'crawl')) return true
+      const rawTargets: unknown = body?.targets
+      if (!Array.isArray(rawTargets) || rawTargets.length === 0) {
+        sendError(res, new ValidationError('Missing required field: targets (non-empty array)'))
+        return true
+      }
+      const targets: CrawlJobTarget[] = rawTargets.map((t: Record<string, unknown>) => {
+        const url = String(t?.url || '')
+        const pageType = String(t?.pageType || 'other')
+        if (!url) throw new ValidationError('Each crawl target requires a url')
+        return {
+          url,
+          pageType: pageType as CrawlJobTarget['pageType'],
+          followLinks: t?.followLinks === true,
+          maxDepth: typeof t?.maxDepth === 'number' ? t.maxDepth : 1,
+        }
+      })
+      const origin = String(body?.origin || 'user')
+      const validOrigins = ['user', 'scheduled', 'competitor_analysis', 'ux_analysis']
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(
+        res,
+        await browserIntelligenceService!.startCrawl(
+          wsId,
+          projectId,
+          targets,
+          (validOrigins.includes(origin) ? origin : 'user') as
+            'user' | 'scheduled' | 'competitor_analysis' | 'ux_analysis'
+        )
+      )
+      return true
+    }
+
+    const crawlJobsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/crawl-jobs$/)
+    if (crawlJobsMatch && method === 'GET') {
+      const projectId = crawlJobsMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'crawl-jobs')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await browserIntelligenceService!.getCrawlJobs(wsId, projectId))
+      return true
+    }
+
+    const crawledPagesMatch = pathname.match(/^\/api\/projects\/([^/]+)\/crawled-pages$/)
+    if (crawledPagesMatch && method === 'GET') {
+      const projectId = crawledPagesMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'crawled-pages')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await browserIntelligenceService!.getCrawledPages(wsId, projectId))
+      return true
+    }
+
+    const browserSessionMatch = pathname.match(/^\/api\/projects\/([^/]+)\/browser-session$/)
+    if (browserSessionMatch && method === 'GET') {
+      const projectId = browserSessionMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'browser-session')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await browserIntelligenceService!.getSession(wsId, projectId))
+      return true
+    }
+
+    // -- H12 Executive Intelligence --
+
+    const executiveDashboardMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/executive-dashboard$/
+    )
+    if (executiveDashboardMatch && method === 'POST') {
+      const projectId = executiveDashboardMatch[1]
+      const body = await getBody(req)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'executive-dashboard')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await executiveIntelligenceService!.generateDashboard(wsId, projectId))
+      return true
+    }
+    if (executiveDashboardMatch && method === 'GET') {
+      const projectId = executiveDashboardMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'executive-dashboard')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      const dashboard = await executiveIntelligenceService!.getDashboard(wsId, projectId)
+      const snapshot = await executiveIntelligenceService!.getLatestSnapshot(wsId, projectId)
+      sendJson(res, { dashboard, snapshot })
+      return true
+    }
+
+    const executiveReportsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/executive-reports$/)
+    if (executiveReportsMatch && method === 'POST') {
+      const projectId = executiveReportsMatch[1]
+      const body = await getBody(req)
+      const workspaceId = String(body?.workspaceId || '')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'executive-reports')) return true
+      const period = String(body?.period || '').trim()
+      if (!['weekly', 'monthly', 'quarterly'].includes(period)) {
+        sendError(res, new ValidationError('Invalid period — expected weekly|monthly|quarterly'))
+        return true
+      }
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(
+        res,
+        await executiveIntelligenceService!.generateReport(wsId, projectId, period as ReportPeriod)
+      )
+      return true
+    }
+    if (executiveReportsMatch && method === 'GET') {
+      const projectId = executiveReportsMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'executive-reports')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await executiveIntelligenceService!.getReports(wsId, projectId))
+      return true
+    }
+
+    const executiveReportExportMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/executive-reports\/([^/]+)\/export$/
+    )
+    if (executiveReportExportMatch && method === 'GET') {
+      const projectId = executiveReportExportMatch[1]
+      const reportId = executiveReportExportMatch[2]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const format = getQueryParam(url, 'format') ?? ''
+      if (!['markdown', 'json', 'pdf'].includes(format)) {
+        sendError(res, new ValidationError('Invalid format — expected markdown|json|pdf'))
+        return true
+      }
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'executive-reports')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(
+        res,
+        await executiveIntelligenceService!.exportReport(
+          wsId,
+          projectId,
+          reportId,
+          format as ReportFormat
+        )
+      )
+      return true
+    }
+
+    const trendsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/trends$/)
+    if (trendsMatch && method === 'GET') {
+      const projectId = trendsMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'trends')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await executiveIntelligenceService!.getTrends(wsId, projectId))
       return true
     }
 

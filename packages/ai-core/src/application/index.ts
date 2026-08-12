@@ -33,3 +33,12 @@ export type {
   RecordDecisionInput,
   PMDecisionTelemetryStore,
 } from './services/PMDecisionTelemetryService'
+
+// H9–H12 intelligence application services
+export { CompetitorIntelligenceService } from './services/CompetitorIntelligenceService'
+export type { AddCompetitorInput } from './services/CompetitorIntelligenceService'
+export { UXIntelligenceService } from './services/UXIntelligenceService'
+export type { AddUserJourneyInput, AddFrictionPointInput } from './services/UXIntelligenceService'
+export { BrowserIntelligenceService } from './services/BrowserIntelligenceService'
+export { ExecutiveIntelligenceService } from './services/ExecutiveIntelligenceService'
+export type { ExportResult } from './services/ExecutiveIntelligenceService'

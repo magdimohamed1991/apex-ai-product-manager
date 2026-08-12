@@ -21,6 +21,12 @@ export { SqlProductRepository } from './infrastructure/repositories/SqlProductRe
 export { SqlRecommendationOutcomeRepository } from './infrastructure/repositories/SqlRecommendationOutcomeRepository'
 export { SqlAdaptiveLearningProfileRepository } from './infrastructure/repositories/SqlAdaptiveLearningProfileRepository'
 
+// H9–H12 intelligence persistence adapters
+export { SqlCompetitorRepository } from './infrastructure/repositories/SqlCompetitorRepository'
+export { SqlUXRepository } from './infrastructure/repositories/SqlUXRepository'
+export { SqlBrowserIntelligenceRepository } from './infrastructure/repositories/SqlBrowserIntelligenceRepository'
+export { SqlExecutiveRepository } from './infrastructure/repositories/SqlExecutiveRepository'
+
 // Security primitives
 export { ScryptPasswordHasher } from './security/PasswordHasher'
 export type { PasswordHasher } from './security/PasswordHasher'

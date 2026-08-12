@@ -6,4 +6,8 @@ export type { ProductRepository } from './ProductRepository'
 export type { RecommendationOutcomeRepository } from './RecommendationOutcomeRepository'
 export type { AdaptiveLearningProfileRepository } from './AdaptiveLearningProfileRepository'
 
-
+// H9–H12 intelligence domain repository contracts
+export type { CompetitorRepository } from './CompetitorRepository'
+export type { UXRepository } from './UXRepository'
+export type { BrowserIntelligenceRepository } from './BrowserIntelligenceRepository'
+export type { ExecutiveRepository } from './ExecutiveRepository'

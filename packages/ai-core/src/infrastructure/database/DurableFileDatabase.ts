@@ -22,6 +22,32 @@ import {
   validateExecution,
   validateActionTransitionRecord,
 } from '../../domain/entities'
+import type {
+  Competitor,
+  CompetitorAnalysis,
+  FeatureMatrix,
+  PositioningMatrix,
+  DifferentiationAnalysis,
+  MarketOpportunity,
+  CompetitorRecommendation,
+} from '../../domain/entities/CompetitorIntelligence'
+import type {
+  UserJourney,
+  FrictionPoint,
+  UXAnalysis,
+  UXRecommendation,
+} from '../../domain/entities/UXIntelligence'
+import type {
+  CrawlJob,
+  CrawledPage,
+  BrowserIntelligenceSession,
+} from '../../domain/entities/BrowserIntelligence'
+import type {
+  ExecutiveDashboard,
+  ExecutiveReport,
+  ProductHealthSnapshot,
+  TrendDetection,
+} from '../../domain/entities/ExecutiveIntelligence'
 
 const log = new Logger('database')
 
@@ -155,6 +181,28 @@ export class DurableFileDatabase {
       users: [],
       sessions: [],
       memberships: [],
+      // H9
+      competitors: [],
+      competitorAnalyses: [],
+      featureMatrices: [],
+      positioningMatrices: [],
+      differentiationAnalyses: [],
+      marketOpportunities: [],
+      competitorRecommendations: [],
+      // H10
+      userJourneys: [],
+      frictionPoints: [],
+      uxAnalyses: [],
+      uxRecommendations: [],
+      // H11
+      crawlJobs: [],
+      crawledPages: [],
+      browserSessions: [],
+      // H12
+      executiveDashboards: [],
+      executiveReports: [],
+      productHealthSnapshots: [],
+      trendDetections: [],
     }
   }
 
@@ -189,6 +237,52 @@ export class DurableFileDatabase {
       users: Array.isArray(raw.users) ? raw.users : base.users,
       sessions: Array.isArray(raw.sessions) ? raw.sessions : base.sessions,
       memberships: Array.isArray(raw.memberships) ? raw.memberships : base.memberships,
+      // H9
+      competitors: Array.isArray(raw.competitors) ? raw.competitors : base.competitors,
+      competitorAnalyses: Array.isArray(raw.competitorAnalyses)
+        ? raw.competitorAnalyses
+        : base.competitorAnalyses,
+      featureMatrices: Array.isArray(raw.featureMatrices)
+        ? raw.featureMatrices
+        : base.featureMatrices,
+      positioningMatrices: Array.isArray(raw.positioningMatrices)
+        ? raw.positioningMatrices
+        : base.positioningMatrices,
+      differentiationAnalyses: Array.isArray(raw.differentiationAnalyses)
+        ? raw.differentiationAnalyses
+        : base.differentiationAnalyses,
+      marketOpportunities: Array.isArray(raw.marketOpportunities)
+        ? raw.marketOpportunities
+        : base.marketOpportunities,
+      competitorRecommendations: Array.isArray(raw.competitorRecommendations)
+        ? raw.competitorRecommendations
+        : base.competitorRecommendations,
+      // H10
+      userJourneys: Array.isArray(raw.userJourneys) ? raw.userJourneys : base.userJourneys,
+      frictionPoints: Array.isArray(raw.frictionPoints) ? raw.frictionPoints : base.frictionPoints,
+      uxAnalyses: Array.isArray(raw.uxAnalyses) ? raw.uxAnalyses : base.uxAnalyses,
+      uxRecommendations: Array.isArray(raw.uxRecommendations)
+        ? raw.uxRecommendations
+        : base.uxRecommendations,
+      // H11
+      crawlJobs: Array.isArray(raw.crawlJobs) ? raw.crawlJobs : base.crawlJobs,
+      crawledPages: Array.isArray(raw.crawledPages) ? raw.crawledPages : base.crawledPages,
+      browserSessions: Array.isArray(raw.browserSessions)
+        ? raw.browserSessions
+        : base.browserSessions,
+      // H12
+      executiveDashboards: Array.isArray(raw.executiveDashboards)
+        ? raw.executiveDashboards
+        : base.executiveDashboards,
+      executiveReports: Array.isArray(raw.executiveReports)
+        ? raw.executiveReports
+        : base.executiveReports,
+      productHealthSnapshots: Array.isArray(raw.productHealthSnapshots)
+        ? raw.productHealthSnapshots
+        : base.productHealthSnapshots,
+      trendDetections: Array.isArray(raw.trendDetections)
+        ? raw.trendDetections
+        : base.trendDetections,
     }
     return merged
   }
@@ -567,9 +661,31 @@ export interface DatabaseState {
   users: UserRecord[]
   sessions: SessionRecord[]
   memberships: WorkspaceMembership[]
+  // H9 — Competitor Intelligence
+  competitors: Competitor[]
+  competitorAnalyses: CompetitorAnalysis[]
+  featureMatrices: FeatureMatrix[]
+  positioningMatrices: PositioningMatrix[]
+  differentiationAnalyses: DifferentiationAnalysis[]
+  marketOpportunities: MarketOpportunity[]
+  competitorRecommendations: CompetitorRecommendation[]
+  // H10 — UX Intelligence
+  userJourneys: UserJourney[]
+  frictionPoints: FrictionPoint[]
+  uxAnalyses: UXAnalysis[]
+  uxRecommendations: UXRecommendation[]
+  // H11 — Browser Intelligence
+  crawlJobs: CrawlJob[]
+  crawledPages: CrawledPage[]
+  browserSessions: BrowserIntelligenceSession[]
+  // H12 — Executive Intelligence
+  executiveDashboards: ExecutiveDashboard[]
+  executiveReports: ExecutiveReport[]
+  productHealthSnapshots: ProductHealthSnapshot[]
+  trendDetections: TrendDetection[]
 }
 
-const CURRENT_VERSION = 1
+const CURRENT_VERSION = 2
 
 const MIGRATIONS: Record<number, (state: DatabaseState) => void> = {
   1: (state) => {
@@ -581,5 +697,26 @@ const MIGRATIONS: Record<number, (state: DatabaseState) => void> = {
     if (!state.users) state.users = []
     if (!state.sessions) state.sessions = []
     if (!state.memberships) state.memberships = []
+  },
+  2: (state) => {
+    // H9–H12 schema additions.
+    if (!state.competitors) state.competitors = []
+    if (!state.competitorAnalyses) state.competitorAnalyses = []
+    if (!state.featureMatrices) state.featureMatrices = []
+    if (!state.positioningMatrices) state.positioningMatrices = []
+    if (!state.differentiationAnalyses) state.differentiationAnalyses = []
+    if (!state.marketOpportunities) state.marketOpportunities = []
+    if (!state.competitorRecommendations) state.competitorRecommendations = []
+    if (!state.userJourneys) state.userJourneys = []
+    if (!state.frictionPoints) state.frictionPoints = []
+    if (!state.uxAnalyses) state.uxAnalyses = []
+    if (!state.uxRecommendations) state.uxRecommendations = []
+    if (!state.crawlJobs) state.crawlJobs = []
+    if (!state.crawledPages) state.crawledPages = []
+    if (!state.browserSessions) state.browserSessions = []
+    if (!state.executiveDashboards) state.executiveDashboards = []
+    if (!state.executiveReports) state.executiveReports = []
+    if (!state.productHealthSnapshots) state.productHealthSnapshots = []
+    if (!state.trendDetections) state.trendDetections = []
   },
 }

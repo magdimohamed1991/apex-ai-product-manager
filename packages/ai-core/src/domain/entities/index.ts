@@ -45,3 +45,9 @@ export * from './ProductReasoning'
 export * from './RecommendationOutcome'
 export * from './ProductAdaptive'
 export * from './PMDecisionTelemetry'
+
+// H9–H12 intelligence domains
+export * from './CompetitorIntelligence'
+export * from './UXIntelligence'
+export * from './BrowserIntelligence'
+export * from './ExecutiveIntelligence'

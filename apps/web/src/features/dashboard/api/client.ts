@@ -28,6 +28,27 @@ import type {
   PriorityCalibration,
   ProductValidationMetrics,
   ProjectStats,
+  Competitor,
+  CompetitorAnalysis,
+  CompetitorRecommendation,
+  FeatureMatrix,
+  PositioningMatrix,
+  DifferentiationAnalysis,
+  MarketOpportunity,
+  UserJourney,
+  FrictionPoint,
+  UXAnalysis,
+  UXRecommendation,
+  CrawlJob,
+  CrawlJobTarget,
+  CrawledPage,
+  BrowserIntelligenceSession,
+  ExecutiveDashboard,
+  ExecutiveReport,
+  ProductHealthSnapshot,
+  TrendDetection,
+  ReportPeriod,
+  ReportFormat,
 } from '../types'
 
 const DEFAULT_TIMEOUT_MS = 30000
@@ -181,4 +202,131 @@ export const apiClient = {
     apiClient.get<ProjectStats>(`/api/projects/${pId}/stats?workspaceId=${wsId}`),
   getDecisionTelemetry: (wsId: string, pId: string) =>
     apiClient.get<DecisionTelemetryRecord[]>(`/api/projects/${pId}/telemetry?workspaceId=${wsId}`),
+
+  // ------------------------------------------------------------------
+  // H9 Competitor Intelligence
+  // ------------------------------------------------------------------
+  runCompetitorAnalysis: (wsId: string, pId: string) =>
+    apiClient.post<CompetitorAnalysis>(`/api/projects/${pId}/competitor-analysis`, {
+      workspaceId: wsId,
+    }),
+  getCompetitorAnalysis: (wsId: string, pId: string) =>
+    apiClient.get<CompetitorAnalysis | null>(
+      `/api/projects/${pId}/competitor-analysis?workspaceId=${wsId}`
+    ),
+  addCompetitor: (
+    wsId: string,
+    pId: string,
+    body: {
+      name: string
+      slug: string
+      tier: 'direct' | 'indirect' | 'aspirational' | 'emerging'
+      websiteUrl: string
+      description?: string | null
+    }
+  ) =>
+    apiClient.post<Competitor>(`/api/projects/${pId}/competitors`, { workspaceId: wsId, ...body }),
+  listCompetitors: (wsId: string, pId: string) =>
+    apiClient.get<Competitor[]>(`/api/projects/${pId}/competitors?workspaceId=${wsId}`),
+  getFeatureMatrix: (wsId: string, pId: string) =>
+    apiClient.get<FeatureMatrix | null>(`/api/projects/${pId}/feature-matrix?workspaceId=${wsId}`),
+  getPositioningMatrix: (wsId: string, pId: string) =>
+    apiClient.get<PositioningMatrix | null>(
+      `/api/projects/${pId}/positioning-matrix?workspaceId=${wsId}`
+    ),
+  getDifferentiation: (wsId: string, pId: string) =>
+    apiClient.get<DifferentiationAnalysis | null>(
+      `/api/projects/${pId}/differentiation?workspaceId=${wsId}`
+    ),
+  getMarketOpportunities: (wsId: string, pId: string) =>
+    apiClient.get<MarketOpportunity[]>(
+      `/api/projects/${pId}/market-opportunities?workspaceId=${wsId}`
+    ),
+  getCompetitorRecommendations: (wsId: string, pId: string) =>
+    apiClient.get<CompetitorRecommendation[]>(
+      `/api/projects/${pId}/competitor-recommendations?workspaceId=${wsId}`
+    ),
+
+  // ------------------------------------------------------------------
+  // H10 UX Intelligence
+  // ------------------------------------------------------------------
+  runUXAnalysis: (wsId: string, pId: string) =>
+    apiClient.post<UXAnalysis>(`/api/projects/${pId}/ux-analysis`, { workspaceId: wsId }),
+  getUXAnalysis: (wsId: string, pId: string) =>
+    apiClient.get<UXAnalysis | null>(`/api/projects/${pId}/ux-analysis?workspaceId=${wsId}`),
+  addUserJourney: (
+    wsId: string,
+    pId: string,
+    body: { name: string; description: string; completionRate?: number | null }
+  ) =>
+    apiClient.post<UserJourney>(`/api/projects/${pId}/user-journeys`, {
+      workspaceId: wsId,
+      ...body,
+    }),
+  listUserJourneys: (wsId: string, pId: string) =>
+    apiClient.get<UserJourney[]>(`/api/projects/${pId}/user-journeys?workspaceId=${wsId}`),
+  addFrictionPoint: (
+    wsId: string,
+    pId: string,
+    body: {
+      title: string
+      description: string
+      severity: 'critical' | 'high' | 'medium' | 'low'
+      category: string
+      suggestedFix?: string | null
+      estimatedImpact?: 'low' | 'medium' | 'high'
+    }
+  ) =>
+    apiClient.post<FrictionPoint>(`/api/projects/${pId}/friction-points`, {
+      workspaceId: wsId,
+      ...body,
+    }),
+  listFrictionPoints: (wsId: string, pId: string) =>
+    apiClient.get<FrictionPoint[]>(`/api/projects/${pId}/friction-points?workspaceId=${wsId}`),
+  getUXRecommendations: (wsId: string, pId: string) =>
+    apiClient.get<UXRecommendation[]>(
+      `/api/projects/${pId}/ux-recommendations?workspaceId=${wsId}`
+    ),
+
+  // ------------------------------------------------------------------
+  // H11 Browser Intelligence
+  // ------------------------------------------------------------------
+  startCrawl: (
+    wsId: string,
+    pId: string,
+    body: { targets: Pick<CrawlJobTarget, 'url' | 'pageType'>[]; origin?: string }
+  ) => apiClient.post<CrawlJob>(`/api/projects/${pId}/crawl`, { workspaceId: wsId, ...body }),
+  listCrawlJobs: (wsId: string, pId: string) =>
+    apiClient.get<CrawlJob[]>(`/api/projects/${pId}/crawl-jobs?workspaceId=${wsId}`),
+  listCrawledPages: (wsId: string, pId: string) =>
+    apiClient.get<CrawledPage[]>(`/api/projects/${pId}/crawled-pages?workspaceId=${wsId}`),
+  getBrowserSession: (wsId: string, pId: string) =>
+    apiClient.get<BrowserIntelligenceSession | null>(
+      `/api/projects/${pId}/browser-session?workspaceId=${wsId}`
+    ),
+
+  // ------------------------------------------------------------------
+  // H12 Executive Intelligence
+  // ------------------------------------------------------------------
+  generateExecutiveDashboard: (wsId: string, pId: string) =>
+    apiClient.post<ExecutiveDashboard>(`/api/projects/${pId}/executive-dashboard`, {
+      workspaceId: wsId,
+    }),
+  getExecutiveDashboard: (wsId: string, pId: string) =>
+    apiClient.get<{ dashboard: ExecutiveDashboard | null; snapshot: ProductHealthSnapshot | null }>(
+      `/api/projects/${pId}/executive-dashboard?workspaceId=${wsId}`
+    ),
+  generateExecutiveReport: (wsId: string, pId: string, period: ReportPeriod) =>
+    apiClient.post<ExecutiveReport>(`/api/projects/${pId}/executive-reports`, {
+      workspaceId: wsId,
+      period,
+    }),
+  listExecutiveReports: (wsId: string, pId: string) =>
+    apiClient.get<ExecutiveReport[]>(`/api/projects/${pId}/executive-reports?workspaceId=${wsId}`),
+  exportExecutiveReport: (wsId: string, pId: string, reportId: string, format: ReportFormat) =>
+    apiClient.get<{ format: ReportFormat; content: string | null; note?: string }>(
+      `/api/projects/${pId}/executive-reports/${reportId}/export?workspaceId=${wsId}&format=${format}`
+    ),
+  listTrends: (wsId: string, pId: string) =>
+    apiClient.get<TrendDetection[]>(`/api/projects/${pId}/trends?workspaceId=${wsId}`),
 }

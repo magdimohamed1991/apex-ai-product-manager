@@ -32,6 +32,10 @@ import { ActivityTimeline } from './components/ActivityTimeline'
 import { ProjectDashboard } from './components/ProjectDashboard'
 import { OutcomesCenter } from './components/OutcomesCenter'
 import { AdaptiveTransparency } from './components/AdaptiveTransparency'
+import { CompetitorIntelligencePanel } from './components/CompetitorIntelligencePanel'
+import { UXIntelligencePanel } from './components/UXIntelligencePanel'
+import { BrowserIntelligencePanel } from './components/BrowserIntelligencePanel'
+import { ExecutiveIntelligencePanel } from './components/ExecutiveIntelligencePanel'
 import { useDashboardData } from './hooks/useDashboardData'
 import type {
   Workspace,
@@ -41,6 +45,27 @@ import type {
   Action,
   AIProductReasoning,
   PriorityCalibration,
+  Competitor,
+  CompetitorAnalysis,
+  FeatureMatrix,
+  PositioningMatrix,
+  DifferentiationAnalysis,
+  MarketOpportunity,
+  CompetitorRecommendation,
+  UserJourney,
+  FrictionPoint,
+  UXAnalysis,
+  UXRecommendation,
+  CrawlJob,
+  CrawlPageType,
+  CrawledPage,
+  BrowserIntelligenceSession,
+  ExecutiveDashboard,
+  ExecutiveReport,
+  ProductHealthSnapshot,
+  TrendDetection,
+  ReportPeriod,
+  ReportFormat,
 } from './types'
 
 type TabName =
@@ -51,6 +76,10 @@ type TabName =
   | 'executions'
   | 'outcomes'
   | 'validation'
+  | 'competitor'
+  | 'ux'
+  | 'browser'
+  | 'executive'
 
 export function DashboardPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -70,6 +99,42 @@ export function DashboardPage() {
   const [reviewReasoning, setReviewReasoning] = useState<AIProductReasoning | null>(null)
   const [reviewCalibration, setReviewCalibration] = useState<PriorityCalibration | null>(null)
   const [loadingReview, setLoadingReview] = useState(false)
+
+  // H9–H12 intelligence data (lazy-loaded per active tab)
+  const [competitorData, setCompetitorData] = useState<{
+    competitors: Competitor[]
+    analysis: CompetitorAnalysis | null
+    featureMatrix: FeatureMatrix | null
+    positioningMatrix: PositioningMatrix | null
+    differentiation: DifferentiationAnalysis | null
+    opportunities: MarketOpportunity[]
+    recommendations: CompetitorRecommendation[]
+  }>({
+    competitors: [],
+    analysis: null,
+    featureMatrix: null,
+    positioningMatrix: null,
+    differentiation: null,
+    opportunities: [],
+    recommendations: [],
+  })
+  const [uxData, setUxData] = useState<{
+    journeys: UserJourney[]
+    frictionPoints: FrictionPoint[]
+    analysis: UXAnalysis | null
+    recommendations: UXRecommendation[]
+  }>({ journeys: [], frictionPoints: [], analysis: null, recommendations: [] })
+  const [browserData, setBrowserData] = useState<{
+    jobs: CrawlJob[]
+    pages: CrawledPage[]
+    session: BrowserIntelligenceSession | null
+  }>({ jobs: [], pages: [], session: null })
+  const [executiveData, setExecutiveData] = useState<{
+    dashboard: ExecutiveDashboard | null
+    snapshot: ProductHealthSnapshot | null
+    reports: ExecutiveReport[]
+    trends: TrendDetection[]
+  }>({ dashboard: null, snapshot: null, reports: [], trends: [] })
 
   const data = useDashboardData(selectedWorkspace, selectedProject, setGlobalError)
 
@@ -164,6 +229,190 @@ export function DashboardPage() {
       setSelectedWorkspace(ws)
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Failed to create workspace'
+      setGlobalError(message)
+    }
+  }
+
+  // Load H9–H12 data when the corresponding tab becomes active
+  useEffect(() => {
+    if (!selectedWorkspace || !selectedProject) {
+      // Selection reset: a deselected workspace/project must never leave a
+      // previous project's intelligence data on screen. Scoped suppression.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCompetitorData((p) => ({ ...p, competitors: [], analysis: null }))
+      setUxData((p) => ({ ...p, journeys: [], frictionPoints: [], analysis: null }))
+      setBrowserData((p) => ({ ...p, jobs: [], pages: [], session: null }))
+      setExecutiveData((p) => ({ ...p, dashboard: null, snapshot: null }))
+      return
+    }
+    let active = true
+    const ws = selectedWorkspace.id
+    const pid = selectedProject.id
+
+    if (activeTab === 'competitor') {
+      Promise.all([
+        apiClient.listCompetitors(ws, pid).catch(() => [] as Competitor[]),
+        apiClient.getCompetitorAnalysis(ws, pid).catch(() => null),
+        apiClient.getFeatureMatrix(ws, pid).catch(() => null),
+        apiClient.getPositioningMatrix(ws, pid).catch(() => null),
+        apiClient.getDifferentiation(ws, pid).catch(() => null),
+        apiClient.getMarketOpportunities(ws, pid).catch(() => [] as MarketOpportunity[]),
+        apiClient
+          .getCompetitorRecommendations(ws, pid)
+          .catch(() => [] as CompetitorRecommendation[]),
+      ]).then(
+        ([
+          competitors,
+          analysis,
+          featureMatrix,
+          positioningMatrix,
+          differentiation,
+          opportunities,
+          recommendations,
+        ]) => {
+          if (!active) return
+          setCompetitorData({
+            competitors,
+            analysis,
+            featureMatrix,
+            positioningMatrix,
+            differentiation,
+            opportunities,
+            recommendations,
+          })
+        }
+      )
+    } else if (activeTab === 'ux') {
+      Promise.all([
+        apiClient.listUserJourneys(ws, pid).catch(() => [] as UserJourney[]),
+        apiClient.listFrictionPoints(ws, pid).catch(() => [] as FrictionPoint[]),
+        apiClient.getUXAnalysis(ws, pid).catch(() => null),
+        apiClient.getUXRecommendations(ws, pid).catch(() => [] as UXRecommendation[]),
+      ]).then(([journeys, frictionPoints, analysis, recommendations]) => {
+        if (!active) return
+        setUxData({ journeys, frictionPoints, analysis, recommendations })
+      })
+    } else if (activeTab === 'browser') {
+      Promise.all([
+        apiClient.listCrawlJobs(ws, pid).catch(() => [] as CrawlJob[]),
+        apiClient.listCrawledPages(ws, pid).catch(() => [] as CrawledPage[]),
+        apiClient.getBrowserSession(ws, pid).catch(() => null),
+      ]).then(([jobs, pages, session]) => {
+        if (!active) return
+        setBrowserData({ jobs, pages, session })
+      })
+    } else if (activeTab === 'executive') {
+      Promise.all([
+        apiClient.getExecutiveDashboard(ws, pid).catch(() => ({
+          dashboard: null,
+          snapshot: null,
+        })),
+        apiClient.listExecutiveReports(ws, pid).catch(() => [] as ExecutiveReport[]),
+        apiClient.listTrends(ws, pid).catch(() => [] as TrendDetection[]),
+      ]).then(([{ dashboard, snapshot }, reports, trends]) => {
+        if (!active) return
+        setExecutiveData({ dashboard, snapshot, reports, trends })
+      })
+    }
+    return () => {
+      active = false
+    }
+  }, [selectedWorkspace, selectedProject, activeTab])
+
+  async function loadCompetitorTab() {
+    if (!selectedWorkspace || !selectedProject) return
+    const ws = selectedWorkspace.id
+    const pid = selectedProject.id
+    const [
+      competitors,
+      analysis,
+      featureMatrix,
+      positioningMatrix,
+      differentiation,
+      opportunities,
+      recommendations,
+    ] = await Promise.all([
+      apiClient.listCompetitors(ws, pid).catch(() => [] as Competitor[]),
+      apiClient.getCompetitorAnalysis(ws, pid).catch(() => null),
+      apiClient.getFeatureMatrix(ws, pid).catch(() => null),
+      apiClient.getPositioningMatrix(ws, pid).catch(() => null),
+      apiClient.getDifferentiation(ws, pid).catch(() => null),
+      apiClient.getMarketOpportunities(ws, pid).catch(() => [] as MarketOpportunity[]),
+      apiClient.getCompetitorRecommendations(ws, pid).catch(() => [] as CompetitorRecommendation[]),
+    ])
+    setCompetitorData({
+      competitors,
+      analysis,
+      featureMatrix,
+      positioningMatrix,
+      differentiation,
+      opportunities,
+      recommendations,
+    })
+  }
+
+  async function loadUXTab() {
+    if (!selectedWorkspace || !selectedProject) return
+    const ws = selectedWorkspace.id
+    const pid = selectedProject.id
+    const [journeys, frictionPoints, analysis, recommendations] = await Promise.all([
+      apiClient.listUserJourneys(ws, pid).catch(() => [] as UserJourney[]),
+      apiClient.listFrictionPoints(ws, pid).catch(() => [] as FrictionPoint[]),
+      apiClient.getUXAnalysis(ws, pid).catch(() => null),
+      apiClient.getUXRecommendations(ws, pid).catch(() => [] as UXRecommendation[]),
+    ])
+    setUxData({ journeys, frictionPoints, analysis, recommendations })
+  }
+
+  async function loadBrowserTab() {
+    if (!selectedWorkspace || !selectedProject) return
+    const ws = selectedWorkspace.id
+    const pid = selectedProject.id
+    const [jobs, pages, session] = await Promise.all([
+      apiClient.listCrawlJobs(ws, pid).catch(() => [] as CrawlJob[]),
+      apiClient.listCrawledPages(ws, pid).catch(() => [] as CrawledPage[]),
+      apiClient.getBrowserSession(ws, pid).catch(() => null),
+    ])
+    setBrowserData({ jobs, pages, session })
+  }
+
+  async function loadExecutiveTab() {
+    if (!selectedWorkspace || !selectedProject) return
+    const ws = selectedWorkspace.id
+    const pid = selectedProject.id
+    const [{ dashboard, snapshot }, reports, trends] = await Promise.all([
+      apiClient.getExecutiveDashboard(ws, pid).catch(() => ({ dashboard: null, snapshot: null })),
+      apiClient.listExecutiveReports(ws, pid).catch(() => [] as ExecutiveReport[]),
+      apiClient.listTrends(ws, pid).catch(() => [] as TrendDetection[]),
+    ])
+    setExecutiveData({ dashboard, snapshot, reports, trends })
+  }
+
+  async function handleExportReport(reportId: string, format: ReportFormat) {
+    if (!selectedWorkspace || !selectedProject) return
+    try {
+      const result = await apiClient.exportExecutiveReport(
+        selectedWorkspace.id,
+        selectedProject.id,
+        reportId,
+        format
+      )
+      if (result.content) {
+        const ext = format === 'json' ? 'json' : 'md'
+        const blob = new Blob([result.content], {
+          type: format === 'json' ? 'application/json' : 'text/markdown',
+        })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `executive-report-${reportId.slice(0, 8)}.${ext}`
+        a.click()
+        URL.revokeObjectURL(url)
+      } else if (result.note) {
+        setGlobalError(result.note)
+      }
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Failed to export report'
       setGlobalError(message)
     }
   }
@@ -325,6 +574,33 @@ export function DashboardPage() {
               icon="📈"
               label="Product Leverage"
             />
+            <span className="text-[10px] text-slate-600 uppercase tracking-widest font-bold mt-4 mb-1.5 block">
+              Intelligence (H9–H12)
+            </span>
+            <NavTab
+              active={activeTab === 'competitor'}
+              onClick={() => setActiveTab('competitor')}
+              icon="🛰️"
+              label="Competitors"
+            />
+            <NavTab
+              active={activeTab === 'ux'}
+              onClick={() => setActiveTab('ux')}
+              icon="🧭"
+              label="UX Intelligence"
+            />
+            <NavTab
+              active={activeTab === 'browser'}
+              onClick={() => setActiveTab('browser')}
+              icon="🕷️"
+              label="Browser Intel"
+            />
+            <NavTab
+              active={activeTab === 'executive'}
+              onClick={() => setActiveTab('executive')}
+              icon="🏛️"
+              label="Executive"
+            />
           </nav>
         )}
 
@@ -471,6 +747,88 @@ export function DashboardPage() {
                 profile={data.learningProfile}
                 signals={data.learningSignals}
                 onCompileProfile={data.compileProfile}
+              />
+            )}
+            {activeTab === 'competitor' && (
+              <CompetitorIntelligencePanel
+                competitors={competitorData.competitors}
+                analysis={competitorData.analysis}
+                featureMatrix={competitorData.featureMatrix}
+                positioningMatrix={competitorData.positioningMatrix}
+                differentiation={competitorData.differentiation}
+                opportunities={competitorData.opportunities}
+                recommendations={competitorData.recommendations}
+                onRunAnalysis={async () => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.runCompetitorAnalysis(selectedWorkspace.id, selectedProject.id)
+                  await loadCompetitorTab()
+                }}
+                onAddCompetitor={async (input) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.addCompetitor(selectedWorkspace.id, selectedProject.id, input)
+                  await loadCompetitorTab()
+                }}
+              />
+            )}
+            {activeTab === 'ux' && (
+              <UXIntelligencePanel
+                journeys={uxData.journeys}
+                frictionPoints={uxData.frictionPoints}
+                analysis={uxData.analysis}
+                recommendations={uxData.recommendations}
+                onRunAnalysis={async () => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.runUXAnalysis(selectedWorkspace.id, selectedProject.id)
+                  await loadUXTab()
+                }}
+                onAddJourney={async (input) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.addUserJourney(selectedWorkspace.id, selectedProject.id, input)
+                  await loadUXTab()
+                }}
+                onAddFrictionPoint={async (input) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.addFrictionPoint(selectedWorkspace.id, selectedProject.id, input)
+                  await loadUXTab()
+                }}
+              />
+            )}
+            {activeTab === 'browser' && (
+              <BrowserIntelligencePanel
+                jobs={browserData.jobs}
+                pages={browserData.pages}
+                session={browserData.session}
+                onStartCrawl={async (targets: { url: string; pageType: CrawlPageType }[]) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.startCrawl(selectedWorkspace.id, selectedProject.id, { targets })
+                  await loadBrowserTab()
+                }}
+              />
+            )}
+            {activeTab === 'executive' && (
+              <ExecutiveIntelligencePanel
+                dashboard={executiveData.dashboard}
+                snapshot={executiveData.snapshot}
+                reports={executiveData.reports}
+                trends={executiveData.trends}
+                onGenerateDashboard={async () => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.generateExecutiveDashboard(
+                    selectedWorkspace.id,
+                    selectedProject.id
+                  )
+                  await loadExecutiveTab()
+                }}
+                onGenerateReport={async (period: ReportPeriod) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.generateExecutiveReport(
+                    selectedWorkspace.id,
+                    selectedProject.id,
+                    period
+                  )
+                  await loadExecutiveTab()
+                }}
+                onExportReport={handleExportReport}
               />
             )}
 
