@@ -1,1 +1,85 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------
+   Executive report markdown preview (H12) — dark-theme element styles.
+   Scoped under .markdown-preview so it never leaks into the rest of
+   the dashboard.
+------------------------------------------------------------------ */
+.markdown-preview h1 {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-preview h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin-top: 1rem;
+  margin-bottom: 0.375rem;
+}
+
+.markdown-preview p {
+  margin: 0.375rem 0;
+  line-height: 1.5;
+}
+
+.markdown-preview ul {
+  list-style: disc;
+  padding-left: 1.25rem;
+  margin: 0.375rem 0;
+}
+
+.markdown-preview li {
+  margin: 0.25rem 0;
+}
+
+.markdown-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  font-size: 0.75rem;
+}
+
+.markdown-preview th {
+  text-align: left;
+  color: #94a3b8;
+  border-bottom: 1px solid #1e293b;
+  padding: 0.375rem 0.5rem;
+  font-weight: 700;
+}
+
+.markdown-preview td {
+  border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+  padding: 0.375rem 0.5rem;
+}
+
+.markdown-preview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: #a5b4fc;
+  background: rgba(30, 41, 59, 0.6);
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+}
+
+.markdown-preview strong {
+  color: #e2e8f0;
+}
+
+.markdown-preview em {
+  color: #94a3b8;
+}
+
+.markdown-preview blockquote {
+  border-left: 2px solid #334155;
+  padding-left: 0.75rem;
+  color: #94a3b8;
+  margin: 0.5rem 0;
+}
+
+.markdown-preview hr {
+  border-color: #1e293b;
+  margin: 0.75rem 0;
+}

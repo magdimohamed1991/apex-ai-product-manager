@@ -7,6 +7,7 @@
  * arrives via props and actions are delegated to page-provided callbacks.
  */
 import { useState } from 'react'
+import { MarkdownPreview } from './MarkdownPreview'
 import type {
   ExecutiveDashboard,
   ExecutiveReport,
@@ -51,6 +52,7 @@ export function ExecutiveIntelligencePanel({
 }: Props) {
   const [period, setPeriod] = useState<ReportPeriod>('weekly')
   const [busy, setBusy] = useState(false)
+  const [previewReportId, setPreviewReportId] = useState<string | null>(null)
 
   async function generateReport() {
     setBusy(true)
@@ -323,6 +325,18 @@ export function ExecutiveIntelligencePanel({
                   </div>
                   <div className="flex gap-1.5 shrink-0">
                     <button
+                      onClick={() =>
+                        setPreviewReportId((current) => (current === r.id ? null : r.id))
+                      }
+                      className={`rounded-md border px-2.5 py-1 text-[10px] font-bold transition-colors ${
+                        previewReportId === r.id
+                          ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/30'
+                          : 'border-slate-700 hover:bg-slate-800 text-slate-300'
+                      }`}
+                    >
+                      {previewReportId === r.id ? 'Close' : 'Preview'}
+                    </button>
+                    <button
                       onClick={() => onExportReport(r.id, 'markdown')}
                       className="rounded-md border border-slate-700 hover:bg-slate-800 px-2.5 py-1 text-[10px] font-bold text-slate-300"
                     >
@@ -343,6 +357,17 @@ export function ExecutiveIntelligencePanel({
                   </div>
                 </div>
                 <p className="text-[11px] text-slate-500 leading-relaxed">{r.executiveSummary}</p>
+                {previewReportId === r.id && (
+                  <div className="mt-2 rounded-xl border border-indigo-500/20 bg-slate-950/60 p-4 overflow-x-auto">
+                    {r.markdownExport ? (
+                      <MarkdownPreview content={r.markdownExport} />
+                    ) : (
+                      <p className="text-xs text-slate-500 italic">
+                        No markdown export on this report — regenerate it to preview.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
