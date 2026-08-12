@@ -122,7 +122,11 @@ export default function App() {
           setOnboardingStep(0)
         }
       } else {
-        setAuthError(data.error || 'Authentication failed. Please verify credentials.')
+        setAuthError(
+          typeof data.error === 'object' && data.error !== null
+            ? data.error.message || 'Authentication failed. Please verify credentials.'
+            : data.error || 'Authentication failed. Please verify credentials.'
+        )
       }
     } catch {
       setAuthError('Connection failure. Verify the API server status.')
