@@ -39,10 +39,12 @@ import {
   SqlUXRepository,
   SqlBrowserIntelligenceRepository,
   SqlExecutiveRepository,
+  SqlScheduledJobRepository,
   CompetitorIntelligenceService,
   UXIntelligenceService,
   BrowserIntelligenceService,
   ExecutiveIntelligenceService,
+  ScheduledIntelligenceService,
 } from '@apex/ai-core'
 
 import type {
@@ -58,6 +60,7 @@ import type {
   CrawlJobTarget,
   ReportPeriod,
   ReportFormat,
+  JobType,
 } from '@apex/ai-core'
 import {
   OpenAIResponsesProvider,
@@ -190,6 +193,7 @@ let competitorService: CompetitorIntelligenceService | null = null
 let uxIntelligenceService: UXIntelligenceService | null = null
 let browserIntelligenceService: BrowserIntelligenceService | null = null
 let executiveIntelligenceService: ExecutiveIntelligenceService | null = null
+let scheduledIntelligenceService: ScheduledIntelligenceService | null = null
 
 const logger = new Logger('api.server')
 const authRateLimiter = new AuthRateLimiter(5, 15 * 60 * 1000)
@@ -400,6 +404,13 @@ export async function initApiServer() {
     productRepository
   )
 
+  // V2.1 — Continuous Intelligence
+  const scheduledJobRepository = new SqlScheduledJobRepository(database)
+  scheduledIntelligenceService = new ScheduledIntelligenceService(
+    scheduledJobRepository,
+    productRepository
+  )
+
   productService = new APEXProductService(
     productRepository,
     actionRepository,
@@ -540,6 +551,7 @@ export function shutdownApiServer(): void {
   uxIntelligenceService = null
   browserIntelligenceService = null
   executiveIntelligenceService = null
+  scheduledIntelligenceService = null
 }
 
 /**
@@ -2059,6 +2071,222 @@ export async function handleApiRequest(
       if (!checkApiRateLimit(res, auth.workspaceId, 'trends')) return true
       const wsId = createWorkspaceId(auth.workspaceId)
       sendJson(res, await executiveIntelligenceService!.getTrends(wsId, projectId))
+      return true
+    }
+
+    // -----------------------------------------------------------------------
+    // V2.1 — Continuous Intelligence Routes
+    // -----------------------------------------------------------------------
+
+    // POST /api/projects/:projectId/scheduled-jobs — create a scheduled job
+    const createScheduledJobMatch = pathname.match(/^\/api\/projects\/([^/]+)\/scheduled-jobs$/)
+    if (createScheduledJobMatch && method === 'POST') {
+      const projectId = createScheduledJobMatch[1]
+      const jobBody = await getBody(req)
+      const auth = await authenticateAndAuthorize(
+        req,
+        res,
+        jobBody.workspaceId as string | undefined
+      )
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'create-scheduled-job')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      const job = await scheduledIntelligenceService!.createJob(wsId, projectId, {
+        name: jobBody.name as string,
+        jobType: jobBody.jobType as JobType,
+        schedule: jobBody.schedule as {
+          cronExpression: string | null
+          intervalMs: number | null
+          oneTimeAt: string | null
+        },
+        retryPolicy: jobBody.retryPolicy as Record<string, unknown>,
+        maxConsecutiveFailures: jobBody.maxConsecutiveFailures as number | undefined,
+        config: jobBody.config as Record<string, unknown> | undefined,
+      })
+      sendJson(res, job, 201)
+      return true
+    }
+
+    // GET /api/projects/:projectId/scheduled-jobs — list all scheduled jobs
+    const listScheduledJobsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/scheduled-jobs$/)
+    if (listScheduledJobsMatch && method === 'GET') {
+      const projectId = listScheduledJobsMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'list-scheduled-jobs')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await scheduledIntelligenceService!.getJobsByProject(wsId, projectId))
+      return true
+    }
+
+    // GET /api/projects/:projectId/scheduled-jobs/due — jobs due for execution
+    const dueScheduledJobsMatch = pathname.match(/^\/api\/projects\/([^/]+)\/scheduled-jobs\/due$/)
+    if (dueScheduledJobsMatch && method === 'GET') {
+      const projectId = dueScheduledJobsMatch[1]
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'list-due-jobs')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await scheduledIntelligenceService!.getJobsDueForExecution(wsId, projectId))
+      return true
+    }
+
+    // GET /api/projects/:projectId/scheduled-jobs/:jobId — get a single job
+    const getScheduledJobMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/scheduled-jobs\/([^/]+)$/
+    )
+    if (getScheduledJobMatch && method === 'GET') {
+      const [, projectId, jobId] = getScheduledJobMatch
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'get-scheduled-job')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      const job = await scheduledIntelligenceService!.getJob(wsId, projectId, jobId)
+      if (!job) {
+        sendError(res, new NotFoundError(`Scheduled job "${jobId}" not found`))
+        return true
+      }
+      sendJson(res, job)
+      return true
+    }
+
+    // PATCH /api/projects/:projectId/scheduled-jobs/:jobId — update a job
+    const updateScheduledJobMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/scheduled-jobs\/([^/]+)$/
+    )
+    if (updateScheduledJobMatch && method === 'PATCH') {
+      const [, projectId, jobId] = updateScheduledJobMatch
+      const patchBody = await getBody(req)
+      const auth = await authenticateAndAuthorize(
+        req,
+        res,
+        patchBody.workspaceId as string | undefined
+      )
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'update-scheduled-job')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(
+        res,
+        await scheduledIntelligenceService!.updateJob(wsId, projectId, jobId, {
+          name: patchBody.name as string | undefined,
+          schedule: patchBody.schedule as
+            | { cronExpression: string | null; intervalMs: number | null; oneTimeAt: string | null }
+            | undefined,
+          retryPolicy: patchBody.retryPolicy as Record<string, unknown> | undefined,
+          maxConsecutiveFailures: patchBody.maxConsecutiveFailures as number | undefined,
+          config: patchBody.config as Record<string, unknown> | undefined,
+        })
+      )
+      return true
+    }
+
+    // DELETE /api/projects/:projectId/scheduled-jobs/:jobId — delete a job
+    const deleteScheduledJobMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/scheduled-jobs\/([^/]+)$/
+    )
+    if (deleteScheduledJobMatch && method === 'DELETE') {
+      const [, projectId, jobId] = deleteScheduledJobMatch
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'delete-scheduled-job')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      await scheduledIntelligenceService!.deleteJob(wsId, projectId, jobId)
+      sendJson(res, { deleted: true })
+      return true
+    }
+
+    // POST /api/projects/:projectId/scheduled-jobs/:jobId/trigger — manual trigger
+    const triggerScheduledJobMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/scheduled-jobs\/([^/]+)\/trigger$/
+    )
+    if (triggerScheduledJobMatch && method === 'POST') {
+      const [, projectId, jobId] = triggerScheduledJobMatch
+      const triggerBody = await getBody(req)
+      const auth = await authenticateAndAuthorize(
+        req,
+        res,
+        triggerBody.workspaceId as string | undefined
+      )
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'trigger-scheduled-job')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(
+        res,
+        await scheduledIntelligenceService!.triggerExecution(wsId, projectId, jobId, 'manual'),
+        201
+      )
+      return true
+    }
+
+    // POST /api/projects/:projectId/scheduled-jobs/:jobId/pause — pause a job
+    const pauseScheduledJobMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/scheduled-jobs\/([^/]+)\/pause$/
+    )
+    if (pauseScheduledJobMatch && method === 'POST') {
+      const [, projectId, jobId] = pauseScheduledJobMatch
+      const pauseBody = await getBody(req)
+      const auth = await authenticateAndAuthorize(
+        req,
+        res,
+        pauseBody.workspaceId as string | undefined
+      )
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'pause-scheduled-job')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await scheduledIntelligenceService!.pauseJob(wsId, projectId, jobId))
+      return true
+    }
+
+    // POST /api/projects/:projectId/scheduled-jobs/:jobId/resume — resume a job
+    const resumeScheduledJobMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/scheduled-jobs\/([^/]+)\/resume$/
+    )
+    if (resumeScheduledJobMatch && method === 'POST') {
+      const [, projectId, jobId] = resumeScheduledJobMatch
+      const resumeBody = await getBody(req)
+      const auth = await authenticateAndAuthorize(
+        req,
+        res,
+        resumeBody.workspaceId as string | undefined
+      )
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'resume-scheduled-job')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await scheduledIntelligenceService!.resumeJob(wsId, projectId, jobId))
+      return true
+    }
+
+    // GET /api/projects/:projectId/scheduled-jobs/:jobId/executions — list executions
+    const listScheduledExecMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/scheduled-jobs\/([^/]+)\/executions$/
+    )
+    if (listScheduledExecMatch && method === 'GET') {
+      const [, projectId, jobId] = listScheduledExecMatch
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'list-scheduled-executions')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await scheduledIntelligenceService!.getExecutions(wsId, projectId, jobId))
+      return true
+    }
+
+    // GET /api/projects/:projectId/scheduled-jobs/:jobId/metrics — get job metrics
+    const scheduledMetricsMatch = pathname.match(
+      /^\/api\/projects\/([^/]+)\/scheduled-jobs\/([^/]+)\/metrics$/
+    )
+    if (scheduledMetricsMatch && method === 'GET') {
+      const [, projectId, jobId] = scheduledMetricsMatch
+      const workspaceId = getQueryParam(url, 'workspaceId')
+      const auth = await authenticateAndAuthorize(req, res, workspaceId || undefined)
+      if (!auth) return true
+      if (!checkApiRateLimit(res, auth.workspaceId, 'get-scheduled-metrics')) return true
+      const wsId = createWorkspaceId(auth.workspaceId)
+      sendJson(res, await scheduledIntelligenceService!.getMetrics(wsId, projectId, jobId))
       return true
     }
 

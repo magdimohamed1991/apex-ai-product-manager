@@ -48,6 +48,11 @@ import type {
   ProductHealthSnapshot,
   TrendDetection,
 } from '../../domain/entities/ExecutiveIntelligence'
+import type {
+  ScheduledJob,
+  JobExecution,
+  JobMetrics,
+} from '../../domain/entities/ScheduledIntelligence'
 
 const log = new Logger('database')
 
@@ -203,6 +208,10 @@ export class DurableFileDatabase {
       executiveReports: [],
       productHealthSnapshots: [],
       trendDetections: [],
+      // V2.1
+      scheduledJobs: [],
+      jobExecutions: [],
+      jobMetrics: [],
     }
   }
 
@@ -283,6 +292,10 @@ export class DurableFileDatabase {
       trendDetections: Array.isArray(raw.trendDetections)
         ? raw.trendDetections
         : base.trendDetections,
+      // V2.1
+      scheduledJobs: Array.isArray(raw.scheduledJobs) ? raw.scheduledJobs : base.scheduledJobs,
+      jobExecutions: Array.isArray(raw.jobExecutions) ? raw.jobExecutions : base.jobExecutions,
+      jobMetrics: Array.isArray(raw.jobMetrics) ? raw.jobMetrics : base.jobMetrics,
     }
     return merged
   }
@@ -683,9 +696,13 @@ export interface DatabaseState {
   executiveReports: ExecutiveReport[]
   productHealthSnapshots: ProductHealthSnapshot[]
   trendDetections: TrendDetection[]
+  // V2.1 — Continuous Intelligence
+  scheduledJobs: ScheduledJob[]
+  jobExecutions: JobExecution[]
+  jobMetrics: JobMetrics[]
 }
 
-const CURRENT_VERSION = 2
+const CURRENT_VERSION = 3
 
 const MIGRATIONS: Record<number, (state: DatabaseState) => void> = {
   1: (state) => {
@@ -718,5 +735,11 @@ const MIGRATIONS: Record<number, (state: DatabaseState) => void> = {
     if (!state.executiveReports) state.executiveReports = []
     if (!state.productHealthSnapshots) state.productHealthSnapshots = []
     if (!state.trendDetections) state.trendDetections = []
+  },
+  3: (state) => {
+    // V2.1 — Continuous Intelligence schema additions.
+    if (!state.scheduledJobs) state.scheduledJobs = []
+    if (!state.jobExecutions) state.jobExecutions = []
+    if (!state.jobMetrics) state.jobMetrics = []
   },
 }

@@ -42,3 +42,8 @@ export type { AddUserJourneyInput, AddFrictionPointInput } from './services/UXIn
 export { BrowserIntelligenceService } from './services/BrowserIntelligenceService'
 export { ExecutiveIntelligenceService } from './services/ExecutiveIntelligenceService'
 export type { ExportResult } from './services/ExecutiveIntelligenceService'
+export { ScheduledIntelligenceService } from './services/ScheduledIntelligenceService'
+export type {
+  CreateScheduledJobInput,
+  UpdateScheduledJobInput,
+} from './services/ScheduledIntelligenceService'

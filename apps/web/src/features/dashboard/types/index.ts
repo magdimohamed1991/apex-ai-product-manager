@@ -853,3 +853,81 @@ export interface ExecutiveReport {
   generatedAt: string
   exportedAt: string | null
 }
+
+// ---------------------------------------------------------------------------
+// V2.1 — Continuous Intelligence Types
+// ---------------------------------------------------------------------------
+
+export type JobType =
+  'competitor_crawl' | 'ux_analysis' | 'documentation_scan' | 'pricing_scan' | 'changelog_scan'
+
+export type ScheduledJobStatus = 'active' | 'paused' | 'completed' | 'failed'
+
+export type JobExecutionStatus =
+  'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retry_pending'
+
+export type TriggerSource = 'cron' | 'manual' | 'retry'
+
+export interface ScheduleConfig {
+  cronExpression: string | null
+  intervalMs: number | null
+  oneTimeAt: string | null
+}
+
+export interface RetryPolicy {
+  maxRetries: number
+  initialBackoffMs: number
+  maxBackoffMs: number
+  backoffMultiplier: number
+}
+
+export interface ScheduledJob {
+  id: string
+  workspaceId: string
+  projectId: string
+  name: string
+  jobType: JobType
+  schedule: ScheduleConfig
+  retryPolicy: RetryPolicy
+  status: ScheduledJobStatus
+  totalExecutions: number
+  consecutiveFailures: number
+  maxConsecutiveFailures: number
+  lastExecutedAt: string | null
+  nextRunAt: string | null
+  createdAt: string
+  updatedAt: string
+  config: Record<string, unknown>
+}
+
+export interface JobExecution {
+  id: string
+  workspaceId: string
+  projectId: string
+  jobId: string
+  trigger: TriggerSource
+  status: JobExecutionStatus
+  startedAt: string
+  completedAt: string | null
+  durationMs: number | null
+  result: Record<string, unknown> | null
+  error: string | null
+  attemptNumber: number
+  createdAt: string
+}
+
+export interface JobMetrics {
+  id: string
+  workspaceId: string
+  projectId: string
+  jobId: string
+  totalExecutions: number
+  successfulExecutions: number
+  failedExecutions: number
+  cancelledExecutions: number
+  averageDurationMs: number
+  totalDurationMs: number
+  lastSuccessAt: string | null
+  lastFailureAt: string | null
+  updatedAt: string
+}

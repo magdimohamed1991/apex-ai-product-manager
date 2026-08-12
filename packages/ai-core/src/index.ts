@@ -26,6 +26,7 @@ export { SqlCompetitorRepository } from './infrastructure/repositories/SqlCompet
 export { SqlUXRepository } from './infrastructure/repositories/SqlUXRepository'
 export { SqlBrowserIntelligenceRepository } from './infrastructure/repositories/SqlBrowserIntelligenceRepository'
 export { SqlExecutiveRepository } from './infrastructure/repositories/SqlExecutiveRepository'
+export { SqlScheduledJobRepository } from './infrastructure/repositories/SqlScheduledJobRepository'
 
 // Security primitives
 export { ScryptPasswordHasher } from './security/PasswordHasher'

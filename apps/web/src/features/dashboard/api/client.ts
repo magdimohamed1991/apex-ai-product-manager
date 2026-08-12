@@ -49,6 +49,9 @@ import type {
   TrendDetection,
   ReportPeriod,
   ReportFormat,
+  ScheduledJob,
+  JobExecution,
+  JobMetrics,
 } from '../types'
 
 const DEFAULT_TIMEOUT_MS = 30000
@@ -95,6 +98,12 @@ export const apiClient = {
   },
   post<T>(path: string, body: unknown) {
     return call<T>('POST', path, body)
+  },
+  patch<T>(path: string, body: unknown) {
+    return call<T>('PATCH', path, body)
+  },
+  delete<T>(path: string) {
+    return call<T>('DELETE', path)
   },
   // Domain helpers
   listWorkspaces: () => apiClient.get<Workspace[]>('/api/workspaces'),
@@ -329,4 +338,61 @@ export const apiClient = {
     ),
   listTrends: (wsId: string, pId: string) =>
     apiClient.get<TrendDetection[]>(`/api/projects/${pId}/trends?workspaceId=${wsId}`),
+
+  // V2.1 — Continuous Intelligence
+  createScheduledJob: (
+    wsId: string,
+    pId: string,
+    input: {
+      name: string
+      jobType: string
+      schedule: {
+        cronExpression: string | null
+        intervalMs: number | null
+        oneTimeAt: string | null
+      }
+      retryPolicy?: Record<string, unknown>
+      maxConsecutiveFailures?: number
+      config?: Record<string, unknown>
+    }
+  ) =>
+    apiClient.post<ScheduledJob>(`/api/projects/${pId}/scheduled-jobs`, {
+      workspaceId: wsId,
+      ...input,
+    }),
+  listScheduledJobs: (wsId: string, pId: string) =>
+    apiClient.get<ScheduledJob[]>(`/api/projects/${pId}/scheduled-jobs?workspaceId=${wsId}`),
+  getScheduledJob: (wsId: string, pId: string, jobId: string) =>
+    apiClient.get<ScheduledJob>(`/api/projects/${pId}/scheduled-jobs/${jobId}?workspaceId=${wsId}`),
+  updateScheduledJob: (wsId: string, pId: string, jobId: string, input: Partial<ScheduledJob>) =>
+    apiClient.patch<ScheduledJob>(`/api/projects/${pId}/scheduled-jobs/${jobId}`, {
+      workspaceId: wsId,
+      ...input,
+    }),
+  deleteScheduledJob: (wsId: string, pId: string, jobId: string) =>
+    apiClient.delete<{ deleted: boolean }>(
+      `/api/projects/${pId}/scheduled-jobs/${jobId}?workspaceId=${wsId}`
+    ),
+  triggerScheduledJob: (wsId: string, pId: string, jobId: string) =>
+    apiClient.post<JobExecution>(`/api/projects/${pId}/scheduled-jobs/${jobId}/trigger`, {
+      workspaceId: wsId,
+    }),
+  pauseScheduledJob: (wsId: string, pId: string, jobId: string) =>
+    apiClient.post<ScheduledJob>(`/api/projects/${pId}/scheduled-jobs/${jobId}/pause`, {
+      workspaceId: wsId,
+    }),
+  resumeScheduledJob: (wsId: string, pId: string, jobId: string) =>
+    apiClient.post<ScheduledJob>(`/api/projects/${pId}/scheduled-jobs/${jobId}/resume`, {
+      workspaceId: wsId,
+    }),
+  listScheduledExecutions: (wsId: string, pId: string, jobId: string) =>
+    apiClient.get<JobExecution[]>(
+      `/api/projects/${pId}/scheduled-jobs/${jobId}/executions?workspaceId=${wsId}`
+    ),
+  getScheduledJobMetrics: (wsId: string, pId: string, jobId: string) =>
+    apiClient.get<JobMetrics>(
+      `/api/projects/${pId}/scheduled-jobs/${jobId}/metrics?workspaceId=${wsId}`
+    ),
+  listDueScheduledJobs: (wsId: string, pId: string) =>
+    apiClient.get<ScheduledJob[]>(`/api/projects/${pId}/scheduled-jobs/due?workspaceId=${wsId}`),
 }

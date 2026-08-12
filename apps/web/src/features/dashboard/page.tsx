@@ -36,6 +36,7 @@ import { CompetitorIntelligencePanel } from './components/CompetitorIntelligence
 import { UXIntelligencePanel } from './components/UXIntelligencePanel'
 import { BrowserIntelligencePanel } from './components/BrowserIntelligencePanel'
 import { ExecutiveIntelligencePanel } from './components/ExecutiveIntelligencePanel'
+import { ScheduledIntelligencePanel } from './components/ScheduledIntelligencePanel'
 import { useDashboardData } from './hooks/useDashboardData'
 import type {
   Workspace,
@@ -66,6 +67,9 @@ import type {
   TrendDetection,
   ReportPeriod,
   ReportFormat,
+  ScheduledJob,
+  JobExecution,
+  JobMetrics,
 } from './types'
 
 type TabName =
@@ -80,6 +84,7 @@ type TabName =
   | 'ux'
   | 'browser'
   | 'executive'
+  | 'scheduled'
 
 export function DashboardPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -135,6 +140,12 @@ export function DashboardPage() {
     reports: ExecutiveReport[]
     trends: TrendDetection[]
   }>({ dashboard: null, snapshot: null, reports: [], trends: [] })
+  const [scheduledData, setScheduledData] = useState<{
+    jobs: ScheduledJob[]
+    executions: JobExecution[]
+    metrics: JobMetrics[]
+    selectedJobId: string | null
+  }>({ jobs: [], executions: [], metrics: [], selectedJobId: null })
 
   const data = useDashboardData(selectedWorkspace, selectedProject, setGlobalError)
 
@@ -313,6 +324,14 @@ export function DashboardPage() {
         if (!active) return
         setExecutiveData({ dashboard, snapshot, reports, trends })
       })
+    } else if (activeTab === 'scheduled') {
+      apiClient
+        .listScheduledJobs(ws, pid)
+        .catch(() => [] as ScheduledJob[])
+        .then((jobs) => {
+          if (!active) return
+          setScheduledData((p) => ({ ...p, jobs }))
+        })
     }
     return () => {
       active = false
@@ -601,6 +620,12 @@ export function DashboardPage() {
               icon="🏛️"
               label="Executive"
             />
+            <NavTab
+              active={activeTab === 'scheduled'}
+              onClick={() => setActiveTab('scheduled')}
+              icon="⏱️"
+              label="Scheduled"
+            />
           </nav>
         )}
 
@@ -829,6 +854,87 @@ export function DashboardPage() {
                   await loadExecutiveTab()
                 }}
                 onExportReport={handleExportReport}
+              />
+            )}
+            {activeTab === 'scheduled' && (
+              <ScheduledIntelligencePanel
+                jobs={scheduledData.jobs}
+                metrics={scheduledData.metrics}
+                executions={scheduledData.executions}
+                selectedJobId={scheduledData.selectedJobId}
+                onSelectJob={(jobId) => {
+                  setScheduledData((p) => ({ ...p, selectedJobId: jobId }))
+                }}
+                onCreateJob={async (input) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.createScheduledJob(
+                    selectedWorkspace.id,
+                    selectedProject.id,
+                    input
+                  )
+                  // Reload jobs list
+                  const jobs = await apiClient
+                    .listScheduledJobs(selectedWorkspace.id, selectedProject.id)
+                    .catch(() => [] as ScheduledJob[])
+                  setScheduledData((p) => ({ ...p, jobs }))
+                }}
+                onTriggerJob={async (jobId) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.triggerScheduledJob(
+                    selectedWorkspace.id,
+                    selectedProject.id,
+                    jobId
+                  )
+                }}
+                onPauseJob={async (jobId) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.pauseScheduledJob(selectedWorkspace.id, selectedProject.id, jobId)
+                  const jobs = await apiClient
+                    .listScheduledJobs(selectedWorkspace.id, selectedProject.id)
+                    .catch(() => [] as ScheduledJob[])
+                  setScheduledData((p) => ({ ...p, jobs }))
+                }}
+                onResumeJob={async (jobId) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.resumeScheduledJob(
+                    selectedWorkspace.id,
+                    selectedProject.id,
+                    jobId
+                  )
+                  const jobs = await apiClient
+                    .listScheduledJobs(selectedWorkspace.id, selectedProject.id)
+                    .catch(() => [] as ScheduledJob[])
+                  setScheduledData((p) => ({ ...p, jobs }))
+                }}
+                onDeleteJob={async (jobId) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  await apiClient.deleteScheduledJob(
+                    selectedWorkspace.id,
+                    selectedProject.id,
+                    jobId
+                  )
+                  const jobs = await apiClient
+                    .listScheduledJobs(selectedWorkspace.id, selectedProject.id)
+                    .catch(() => [] as ScheduledJob[])
+                  setScheduledData((p) => ({ ...p, jobs, selectedJobId: null }))
+                }}
+                onLoadExecutions={async (jobId) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  const execs = await apiClient
+                    .listScheduledExecutions(selectedWorkspace.id, selectedProject.id, jobId)
+                    .catch(() => [] as JobExecution[])
+                  setScheduledData((p) => ({ ...p, executions: execs }))
+                }}
+                onLoadMetrics={async (jobId) => {
+                  if (!selectedWorkspace || !selectedProject) return
+                  const m = await apiClient
+                    .getScheduledJobMetrics(selectedWorkspace.id, selectedProject.id, jobId)
+                    .catch(() => null)
+                  setScheduledData((p) => ({
+                    ...p,
+                    metrics: m ? [m] : p.metrics,
+                  }))
+                }}
               />
             )}
 
