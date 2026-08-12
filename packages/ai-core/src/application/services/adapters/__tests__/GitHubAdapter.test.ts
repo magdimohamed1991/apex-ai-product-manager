@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { GitHubAdapter } from '../GitHubAdapter'
 import type { Action } from '../../../../domain/entities'
 import { createWorkspaceId } from '../../../../domain/value-objects'
@@ -32,6 +32,10 @@ describe('GitHubAdapter (Milestone I - Production Hardening)', () => {
     GitHubAdapter.resetMockState()
   })
 
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   describe('Token detection', () => {
     it('rejects mock tokens in production (no silent fallback)', async () => {
       const prev = process.env.NODE_ENV
@@ -47,7 +51,18 @@ describe('GitHubAdapter (Milestone I - Production Hardening)', () => {
       }
     })
 
-    it('accepts a real GitHub PAT prefix for the live path', async () => {
+    it('accepts a real GitHub PAT prefix and maps a deterministic API failure (no live network)', async () => {
+      // @octokit/request resolves `requestOptions.request?.fetch || globalThis.fetch`
+      // at call time, so stubbing the global fetch intercepts the adapter's
+      // "real" Octokit path deterministically — no live GitHub traffic.
+      const fetchMock = vi.fn(async (_url: string) => {
+        return new Response(JSON.stringify({ message: 'Bad credentials' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
       const action = makeAction()
       const context = {
         workspaceId: action.workspaceId,
@@ -57,19 +72,17 @@ describe('GitHubAdapter (Milestone I - Production Hardening)', () => {
           repository: 'demo',
         },
       }
-      // We do NOT want a live HTTP call. The adapter should attempt the
-      // search and fail with a network/connection error — NOT a "SecurityError".
-      try {
-        await adapter.executeAction(action, context, action.idempotencyKey)
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        // Should NOT be the "Mock fallback" or "GitHub authentication failed" 401 errors
-        expect(msg).not.toMatch(/Mock fallback/)
-        // Either network error, auth failure, or 401 from real GitHub
-        expect(msg).toMatch(
-          /GitHub API error|GitHub authentication failed|GitHub authorization failed|ENOTFOUND|getaddrinfo|connect/
-        )
-      }
+
+      // A real GitHub token prefix must take the real execution path — NOT
+      // the mock fallback — and a canned 401 from the GitHub API must be
+      // mapped to the typed "GitHub authentication failed" error.
+      await expect(adapter.executeAction(action, context, action.idempotencyKey)).rejects.toThrow(
+        /GitHub authentication failed/
+      )
+
+      expect(fetchMock).toHaveBeenCalled()
+      const requestedUrl = String(fetchMock.mock.calls[0][0])
+      expect(requestedUrl).toContain('api.github.com')
     })
   })
 
