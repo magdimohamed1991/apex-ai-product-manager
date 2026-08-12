@@ -12,6 +12,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as fs from 'fs'
 import * as path from 'path'
+import {
+  DurableFileDatabase,
+  SqlActionRepository,
+  SqlProductRepository,
+  createAction,
+  createRecommendation,
+  createWorkspaceId,
+} from '@apex/ai-core'
+import { failActionDueToOwnership } from './api-server'
 
 const TEST_DB_DIR = path.join(process.cwd(), 'database-api-server-test')
 
@@ -1019,5 +1028,189 @@ describe('API server — composition root & route security', () => {
       headers: { Authorization: `Bearer ${token}` },
     })
     expect(after.status).toBe(401)
+  })
+})
+
+/**
+ * H8-ACTION-1 — Ownership-failure lifecycle regression tests.
+ *
+ * Proves that:
+ *   1. Missing recommendation → action transitions to failed (terminal)
+ *   2. Ambiguous recommendation → action transitions to failed (terminal)
+ *   3. No retry after failure (poisoned-message problem is gone)
+ */
+describe('H8-ACTION-1 — ownership-failure lifecycle', () => {
+  const LIFECYCLE_DB_DIR = path.join(process.cwd(), 'database-lifecycle-test')
+  let db: DurableFileDatabase
+  let actionRepo: SqlActionRepository
+  let productRepo: SqlProductRepository
+
+  const WS = createWorkspaceId('ws-lifecycle')
+  const PROJ_A = 'proj-lifecycle-a'
+  const PROJ_B = 'proj-lifecycle-b'
+  const REC_ID = 'rec-lifecycle'
+
+  beforeEach(async () => {
+    if (fs.existsSync(LIFECYCLE_DB_DIR))
+      fs.rmSync(LIFECYCLE_DB_DIR, { recursive: true, force: true })
+    db = new DurableFileDatabase(LIFECYCLE_DB_DIR)
+    await db.initialize()
+    actionRepo = new SqlActionRepository(db)
+    productRepo = new SqlProductRepository(db)
+  })
+
+  afterEach(() => {
+    if (fs.existsSync(LIFECYCLE_DB_DIR))
+      fs.rmSync(LIFECYCLE_DB_DIR, { recursive: true, force: true })
+  })
+
+  it('Test A — missing recommendation: queued action → failed with retryable=false', async () => {
+    // Arrange: Create a queued action referencing a recommendation that doesn't exist
+    const action = createAction({
+      workspaceId: WS,
+      title: 'Test Action',
+      description: 'Missing recommendation',
+      target: 'github',
+      status: 'queued',
+      relatedRecommendationId: REC_ID,
+      relatedProposedActionId: 'pa-lifecycle',
+      externalId: null,
+    })
+    await actionRepo.save(action)
+
+    // Act: Call failActionDueToOwnership (simulating worker discovering missing recommendation)
+    await failActionDueToOwnership(action.id, WS, 'Recommendation not found', actionRepo)
+
+    // Assert: Action is in failed state
+    const failedAction = await actionRepo.getByIdAndWorkspace(action.id, WS)
+    expect(failedAction).not.toBeNull()
+    expect(failedAction!.status).toBe('failed')
+
+    // Assert: Execution exists with failed status and retryable=false
+    const executions = await actionRepo.getExecutionsByAction(action.id, WS)
+    expect(executions.length).toBe(1)
+    expect(executions[0].status).toBe('failed')
+    expect(executions[0].error).not.toBeNull()
+    expect(executions[0].error!.retryable).toBe(false)
+    expect(executions[0].error!.code).toBe('not_found')
+
+    // Assert: Transition record exists (queued → failed)
+    const transitions = await actionRepo.getTransitionsByAction(action.id, WS)
+    expect(transitions.length).toBe(1)
+    expect(transitions[0].fromStatus).toBe('queued')
+    expect(transitions[0].toStatus).toBe('failed')
+  })
+
+  it('Test B — ambiguous recommendation: queued action → failed with retryable=false', async () => {
+    // Arrange: Same recommendation ID exists in two projects
+    const recA = createRecommendation({
+      id: REC_ID,
+      workspaceId: WS,
+      origin: 'finding',
+      deduplicationKey: 'dk-a',
+      title: 'Recommendation A',
+      rationale: 'r',
+      impact: 'i',
+      effort: 'low',
+      priority: 'high',
+      confidence: 0.5,
+      insightIds: [],
+      findingIds: ['f-a'],
+      proposedActions: [],
+    })
+    const recB = createRecommendation({
+      id: REC_ID,
+      workspaceId: WS,
+      origin: 'finding',
+      deduplicationKey: 'dk-b',
+      title: 'Recommendation B',
+      rationale: 'r',
+      impact: 'i',
+      effort: 'low',
+      priority: 'high',
+      confidence: 0.5,
+      insightIds: [],
+      findingIds: ['f-b'],
+      proposedActions: [],
+    })
+    await productRepo.saveRecommendation(recA, PROJ_A)
+    await productRepo.saveRecommendation(recB, PROJ_B)
+
+    // Verify ambiguity exists
+    const projectIds = await productRepo.findProjectIdsForRecommendation(REC_ID, WS)
+    expect(projectIds.length).toBe(2)
+
+    // Create a queued action referencing the ambiguous recommendation
+    const action = createAction({
+      workspaceId: WS,
+      title: 'Test Action',
+      description: 'Ambiguous recommendation',
+      target: 'github',
+      status: 'queued',
+      relatedRecommendationId: REC_ID,
+      relatedProposedActionId: 'pa-ambiguous',
+      externalId: null,
+    })
+    await actionRepo.save(action)
+
+    // Act: Call failActionDueToOwnership (simulating worker discovering ambiguity)
+    await failActionDueToOwnership(action.id, WS, 'Ambiguous recommendation ownership', actionRepo)
+
+    // Assert: Action is in failed state
+    const failedAction = await actionRepo.getByIdAndWorkspace(action.id, WS)
+    expect(failedAction).not.toBeNull()
+    expect(failedAction!.status).toBe('failed')
+
+    // Assert: Execution exists with failed status and retryable=false
+    const executions = await actionRepo.getExecutionsByAction(action.id, WS)
+    expect(executions.length).toBe(1)
+    expect(executions[0].status).toBe('failed')
+    expect(executions[0].error).not.toBeNull()
+    expect(executions[0].error!.retryable).toBe(false)
+
+    // Assert: Transition record exists (queued → failed)
+    const transitions = await actionRepo.getTransitionsByAction(action.id, WS)
+    expect(transitions.length).toBe(1)
+    expect(transitions[0].fromStatus).toBe('queued')
+    expect(transitions[0].toStatus).toBe('failed')
+  })
+
+  it('Test C — no retry: action remains failed, execution count unchanged', async () => {
+    // Arrange: Create a queued action and fail it
+    const action = createAction({
+      workspaceId: WS,
+      title: 'Test Action',
+      description: 'No retry test',
+      target: 'github',
+      status: 'queued',
+      relatedRecommendationId: REC_ID,
+      relatedProposedActionId: 'pa-no-retry',
+      externalId: null,
+    })
+    await actionRepo.save(action)
+
+    // First failure
+    await failActionDueToOwnership(action.id, WS, 'Recommendation not found', actionRepo)
+
+    // Verify initial failure
+    const actionAfterFirstFailure = await actionRepo.getByIdAndWorkspace(action.id, WS)
+    expect(actionAfterFirstFailure!.status).toBe('failed')
+    const executionsAfterFirstFailure = await actionRepo.getExecutionsByAction(action.id, WS)
+    expect(executionsAfterFirstFailure.length).toBe(1)
+
+    // Act: Try to fail again (simulating worker retry attempt)
+    await failActionDueToOwnership(action.id, WS, 'Recommendation not found', actionRepo)
+
+    // Assert: Action remains failed (not retried)
+    const actionAfterSecondAttempt = await actionRepo.getByIdAndWorkspace(action.id, WS)
+    expect(actionAfterSecondAttempt!.status).toBe('failed')
+
+    // Assert: Execution count unchanged (no new execution created)
+    const executionsAfterSecondAttempt = await actionRepo.getExecutionsByAction(action.id, WS)
+    expect(executionsAfterSecondAttempt.length).toBe(1)
+
+    // Assert: No additional transitions
+    const transitions = await actionRepo.getTransitionsByAction(action.id, WS)
+    expect(transitions.length).toBe(1)
   })
 })

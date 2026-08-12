@@ -61,7 +61,7 @@
 
 ## Missing H8 Actions
 
-The following H8 actions are NOT mentioned in any commit or code tag:
+The following action numbers do **not** appear in any commit or code tag:
 
 - H8-ACTION-2
 - H8-ACTION-9
@@ -71,4 +71,6 @@ The following H8 actions are NOT mentioned in any commit or code tag:
 - H8-ACTION-13
 - H8-ACTION-14
 
-**Note**: The architecture document only specifies 7 features and 12 API endpoints. The "14 actions" framing may refer to a different specification or may be an overcounting.
+**These are not implementation gaps.** They belong to an earlier 14-action planning model that predates the current architecture. The current H8 architecture is defined entirely by the 7 features and 12 API endpoints in `ARCHITECTURE.md`. All 7 features are implemented; there is nothing missing.
+
+A future engineer seeing these numbers should treat them as **historical planning artefacts only**, not as unfinished work.

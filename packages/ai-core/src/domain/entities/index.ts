@@ -12,6 +12,7 @@ export type {
 export { createRecommendation } from './Recommendation'
 export type { Action, ActionTarget } from './Action'
 export {
+  createAction,
   createActionFromProposedAction,
   transitionAction,
   validateAction,

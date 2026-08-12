@@ -505,7 +505,7 @@ export function shutdownApiServer(): void {
  *
  * This is a terminal state — the action will not be retried.
  */
-async function failActionDueToOwnership(
+export async function failActionDueToOwnership(
   actionId: string,
   workspaceId: ReturnType<typeof createWorkspaceId>,
   reason: string,
@@ -526,27 +526,47 @@ async function failActionDueToOwnership(
     return
   }
 
-  // Step 1: Transition queued → in-progress
-  const inProgressAction = transitionAction(action, 'in-progress', 'system')
-  inProgressAction.claimedByExecutionId = null
-  inProgressAction.leaseExpiresAt = null
+  // Step 1: Determine execution attempt number
+  const existingExecutions = await repo.getExecutionsByAction(actionId, workspaceId)
+  const attempt = existingExecutions.length + 1
 
   // Step 2: Create execution record with failed status
   const execution = createExecution({
     actionId,
     workspaceId,
-    attempt: 1,
+    attempt,
     status: 'failed',
     externalId: null,
     error: { code: 'not_found', message: reason, retryable: false, timestamp: new Date() },
   })
 
-  // Step 3: Transition in-progress → failed
-  const failedAction = transitionAction(inProgressAction, 'failed', 'system')
+  // Step 3: Atomically claim the action (sets claimedByExecutionId = execution.id in DB)
+  // This satisfies the lease ownership invariant required by persistExecutionOutcome()
+  const LEASE_DURATION_MS = 5 * 60 * 1000 // 5 minutes
+  const claimSuccess = await repo.claimForExecution(
+    actionId,
+    workspaceId,
+    execution.id,
+    LEASE_DURATION_MS
+  )
+  if (!claimSuccess) {
+    logger.warn('Cannot fail action: claim failed (concurrent worker may have taken over)', {
+      actionId,
+      workspaceId,
+    })
+    return
+  }
+
+  // Step 4: Transition in-progress → failed (clears claim)
+  const claimedAction = await repo.getByIdAndWorkspace(actionId, workspaceId)
+  if (!claimedAction) {
+    throw new Error('Action state corrupted during ownership failure')
+  }
+  const failedAction = transitionAction(claimedAction, 'failed', 'system')
   failedAction.claimedByExecutionId = null
   failedAction.leaseExpiresAt = null
 
-  // Step 4: Create transition record
+  // Step 5: Create transition record
   const transition = createActionTransitionRecord({
     actionId,
     workspaceId,
@@ -557,7 +577,7 @@ async function failActionDueToOwnership(
     reason,
   })
 
-  // Step 5: Atomically persist the outcome
+  // Step 6: Atomically persist the outcome
   await repo.persistExecutionOutcome(failedAction, execution, transition)
 
   logger.info('Action transitioned to failed state', {
